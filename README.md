@@ -30,49 +30,49 @@ Output files are saved next to the G3MTool executable by default.
 
 ```bash
 # Create xdelta patch
-G3MTool xpatch create original.win modified.win [output.xdelta]
+(G3MTool) xpatch create original.win modified.win [output.xdelta]
 
 # Apply xdelta patch
-G3MTool xpatch apply original.win patch.xdelta [output.win]
+(G3MTool) xpatch apply original.win patch.xdelta [output.win]
 ```
 
 ### G3M Resource Patches
 
 ```bash
 # Create G3M patch
-G3MTool patch create original.win modified.win [output.zip]
+(G3MTool) patch create original.win modified.win [output.zip]
 
 # Apply G3M patch
-G3MTool patch apply data.win patch.zip [output.win]
+(G3MTool) patch apply data.win patch.zip [output.win]
 
 # Validate patch
-G3MTool patch validate patch.zip --data data.win
+(G3MTool) patch validate patch.zip --data data.win
 ```
 
 ### Execute Scripts
 
 ```bash
 # Execute .csx script with data file
-G3MTool execute script.csx --data data.win [--output modified.win]
+(G3MTool) execute script.csx --data data.win [--output modified.win]
 
 # Execute external program
-G3MTool execute program.exe arg1 arg2
+(G3MTool) execute program.exe arg1 arg2
 
 # Passthrough to xdelta
-G3MTool execute xdelta -d -s original.win patch.xdelta output.win
+(G3MTool) execute xdelta -d -s original.win patch.xdelta output.win
 ```
 
 ### Info & Diff
 
 ```bash
 # Get info about data file
-G3MTool info data.win [--verbose]
+(G3MTool) info data.win [--verbose]
 
 # Get info about patch
-G3MTool info patch.zip
+(G3MTool) info patch.zip
 
 # Compare files (output directory optional)
-G3MTool diff data1.win data2.win [diff_output/]
+(G3MTool) diff data1.win data2.win [diff_output/]
 ```
 
 ## Global Options
