@@ -8,7 +8,7 @@ class Program
 {
     static async Task<int> Main(string[] args)
     {
-        var rootCommand = new RootCommand("G3MTool - Cross-platform CLI tool for GameMaker data file patching")
+        var rootCommand = new RootCommand("Cross-platform tool for various actions with GameMaker data files.")
         {
             Name = "G3MTool"
         };
@@ -54,7 +54,7 @@ class Program
 
     static async Task<int> RunInteractiveMode(RootCommand rootCommand)
     {
-        Console.WriteLine("G3MTool - Interactive Mode");
+        Console.WriteLine("G3MTool - by Y114");
         Console.WriteLine("Type 'help' for available commands or 'exit' to quit");
         Console.WriteLine();
 
@@ -80,6 +80,11 @@ class Program
             {
                 Console.Clear();
                 continue;
+            }
+
+            if (trimmedInput.Equals("help", StringComparison.OrdinalIgnoreCase))
+            {
+                trimmedInput = "--help";
             }
 
             var commandArgs = ParseCommandLine(trimmedInput);
