@@ -1,0 +1,3 @@
+[submodule "G3MToolCLI/Lib/Underanalyzer"]
+	path = G3MToolCLI/Lib/Underanalyzer
+	url = https://github.com/UnderminersTeam/Underanalyzer.git

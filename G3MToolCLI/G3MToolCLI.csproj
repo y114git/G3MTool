@@ -1,0 +1,65 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>G3MToolCLI</RootNamespace>
+    <AssemblyName>G3MTool</AssemblyName>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    
+    <!-- Publish settings -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <PublishTrimmed>false</PublishTrimmed>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <DebugType>embedded</DebugType>
+    <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
+    <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
+    <CopyDocumentationFilesToPublishDirectory>false</CopyDocumentationFilesToPublishDirectory>
+    
+    <!-- Version info -->
+    <Version>1.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <Product>G3MTool</Product>
+    <Description>Cross-platform CLI tool for GameMaker data file patching</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- CLI parsing -->
+    <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
+    
+    <!-- Roslyn scripting -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Scripting" Version="4.12.0" />
+    
+    <!-- System.Text.Json is included in .NET 10 by default -->
+    
+    <!-- UndertaleModLib - embedded -->
+    <ProjectReference Include="Lib\UndertaleModLib\UndertaleModLib.csproj" />
+  </ItemGroup>
+
+  <!-- Embed xdelta binaries - platform-specific -->
+  <ItemGroup Condition="$(RuntimeIdentifier.StartsWith('win'))">
+    <EmbeddedResource Include="Assets\bin\win\**\*" />
+  </ItemGroup>
+  <ItemGroup Condition="$(RuntimeIdentifier.StartsWith('linux'))">
+    <EmbeddedResource Include="Assets\bin\linux\**\*" />
+  </ItemGroup>
+  <ItemGroup Condition="$(RuntimeIdentifier.StartsWith('osx'))">
+    <EmbeddedResource Include="Assets\bin\mac\**\*" />
+  </ItemGroup>
+
+  <!-- Embed scripts -->
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\scripts\**\*.csx" />
+  </ItemGroup>
+
+  <!-- Compile only G3MToolCLI source files, not Lib -->
+  <ItemGroup>
+    <Compile Include="**\*.cs" Exclude="Lib\**\*.cs;obj\**\*.cs;bin\**\*.cs" />
+  </ItemGroup>
+
+</Project>

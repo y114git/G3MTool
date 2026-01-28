@@ -1,0 +1,283 @@
+name: Build and Release G3MTool (Windows + Linux + macOS)
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: "Publish release to GitHub? (If No, artifacts will be built but not published)"
+        required: false
+        type: boolean
+        default: true
+      version_and_tag:
+        description: "Release Version and Tag (e.g., v1.0.0) - Required if publishing release"
+        required: false
+        type: string
+      release_name:
+        description: "Release Name (e.g., G3MTool v1.0.0) - Required if publishing release"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  DOTNET_VERSION: "10.0.x"
+  PUBLISH_RELEASE: ${{ inputs.publish_release != false }}
+  RELEASE_VERSION: ${{ inputs.version_and_tag || 'dev' }}
+
+jobs:
+  build-windows:
+    name: Windows x64 · Build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore dependencies
+        run: dotnet restore G3MToolCLI
+
+      - name: Build and Publish
+        run: |
+          dotnet publish G3MToolCLI -c Release -r win-x64 -o publish/win-x64
+
+      - name: Create archive
+        shell: powershell
+        run: |
+          $archiveName = "G3MTool-Windows-x64-${{ env.RELEASE_VERSION }}.zip"
+          Compress-Archive -Path publish/win-x64/G3MTool.exe -DestinationPath $archiveName
+
+      - name: Test executable
+        shell: powershell
+        run: |
+          Write-Host "=== Testing G3MTool ==="
+          $output = & .\publish\win-x64\G3MTool.exe --help 2>&1
+          Write-Host $output
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "ERROR: G3MTool failed to run"
+            exit 1
+          }
+          Write-Host "Test passed"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: G3MTool-Windows-x64
+          path: G3MTool-Windows-x64-${{ env.RELEASE_VERSION }}.zip
+
+  build-linux:
+    name: Linux x64 · Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore dependencies
+        run: dotnet restore G3MToolCLI
+
+      - name: Build and Publish
+        run: |
+          dotnet publish G3MToolCLI -c Release -r linux-x64 -o publish/linux-x64
+
+      - name: Create archive
+        run: |
+          cd publish/linux-x64
+          chmod +x G3MTool
+          zip -r ../../G3MTool-Linux-x64-${{ env.RELEASE_VERSION }}.zip G3MTool
+
+      - name: Test executable
+        run: |
+          echo "=== Testing G3MTool ==="
+          chmod +x publish/linux-x64/G3MTool
+          ./publish/linux-x64/G3MTool --help || exit 1
+          echo "Test passed"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: G3MTool-Linux-x64
+          path: G3MTool-Linux-x64-${{ env.RELEASE_VERSION }}.zip
+
+  build-linux-arm64:
+    name: Linux arm64 · Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore dependencies
+        run: dotnet restore G3MToolCLI
+
+      - name: Build and Publish
+        run: |
+          dotnet publish G3MToolCLI -c Release -r linux-arm64 -o publish/linux-arm64
+
+      - name: Create archive
+        run: |
+          cd publish/linux-arm64
+          chmod +x G3MTool
+          zip -r ../../G3MTool-Linux-arm64-${{ env.RELEASE_VERSION }}.zip G3MTool
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: G3MTool-Linux-arm64
+          path: G3MTool-Linux-arm64-${{ env.RELEASE_VERSION }}.zip
+
+  build-macos-x64:
+    name: macOS x64 · Build
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore dependencies
+        run: dotnet restore G3MToolCLI
+
+      - name: Build and Publish
+        run: |
+          dotnet publish G3MToolCLI -c Release -r osx-x64 -o publish/osx-x64
+
+      - name: Create archive
+        run: |
+          cd publish/osx-x64
+          chmod +x G3MTool
+          zip -r ../../G3MTool-macOS-x64-${{ env.RELEASE_VERSION }}.zip G3MTool
+
+      - name: Test executable
+        run: |
+          echo "=== Testing G3MTool ==="
+          chmod +x publish/osx-x64/G3MTool
+          ./publish/osx-x64/G3MTool --help || exit 1
+          echo "Test passed"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: G3MTool-macOS-x64
+          path: G3MTool-macOS-x64-${{ env.RELEASE_VERSION }}.zip
+
+  build-macos-arm64:
+    name: macOS arm64 · Build
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore dependencies
+        run: dotnet restore G3MToolCLI
+
+      - name: Build and Publish
+        run: |
+          dotnet publish G3MToolCLI -c Release -r osx-arm64 -o publish/osx-arm64
+
+      - name: Create archive
+        run: |
+          cd publish/osx-arm64
+          chmod +x G3MTool
+          zip -r ../../G3MTool-macOS-arm64-${{ env.RELEASE_VERSION }}.zip G3MTool
+
+      - name: Test executable
+        run: |
+          echo "=== Testing G3MTool ==="
+          chmod +x publish/osx-arm64/G3MTool
+          ./publish/osx-arm64/G3MTool --help || exit 1
+          echo "Test passed"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: G3MTool-macOS-arm64
+          path: G3MTool-macOS-arm64-${{ env.RELEASE_VERSION }}.zip
+
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs:
+      [
+        build-windows,
+        build-linux,
+        build-linux-arm64,
+        build-macos-x64,
+        build-macos-arm64,
+      ]
+    if: ${{ inputs.publish_release != false }}
+    steps:
+      - name: Validate release inputs
+        run: |
+          if [ -z "${{ inputs.version_and_tag }}" ]; then
+            echo "ERROR: version_and_tag is required when publishing release"
+            exit 1
+          fi
+          if [ -z "${{ inputs.release_name }}" ]; then
+            echo "ERROR: release_name is required when publishing release"
+            exit 1
+          fi
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./release_assets
+          merge-multiple: true
+
+      - name: List gathered assets
+        run: find ./release_assets -type f -name "*.zip" -print
+
+      - name: Get existing release
+        id: get_release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            try {
+              const release = await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag: '${{ inputs.version_and_tag }}'
+              });
+              return release.data;
+            } catch (error) {
+              if (error.status === 404) return null;
+              throw error;
+            }
+
+      - name: Delete existing release assets if release exists
+        if: steps.get_release.outputs.result != 'null'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const release = JSON.parse('${{ steps.get_release.outputs.result }}');
+            for (const asset of release.assets) {
+              console.log('Deleting existing asset:', asset.name);
+              await github.rest.repos.deleteReleaseAsset({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                asset_id: asset.id,
+              });
+            }
+
+      - name: Create or update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.version_and_tag }}
+          name: ${{ inputs.release_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          make_latest: true
+          fail_on_unmatched_files: true
+          files: |
+            release_assets/*.zip
