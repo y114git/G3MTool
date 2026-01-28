@@ -1,5 +1,6 @@
 using System.CommandLine;
 using G3MToolCLI.Services;
+using G3MToolCLI.Utils;
 
 namespace G3MToolCLI.Commands;
 
@@ -21,7 +22,7 @@ public static class DiffCommand
         {
             var diffService = new DiffService();
             var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-            var defaultOutputDir = Path.Combine(AppContext.BaseDirectory, "diff");
+            var defaultOutputDir = Path.Combine(PlatformUtils.GetExecutableDirectory(), "diff");
             var outputDir = output?.FullName ?? defaultOutputDir;
             var outputPath = Path.Combine(outputDir, $"diff_{timestamp}.md");
             

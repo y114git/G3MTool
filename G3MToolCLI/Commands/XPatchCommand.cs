@@ -1,5 +1,6 @@
 using System.CommandLine;
 using G3MToolCLI.Services;
+using G3MToolCLI.Utils;
 
 namespace G3MToolCLI.Commands;
 
@@ -22,7 +23,7 @@ public static class XPatchCommand
         createCommand.SetHandler(async (original, modified, output) =>
         {
             var xdelta = new XDeltaService();
-            var defaultOutput = Path.Combine(AppContext.BaseDirectory, Path.ChangeExtension(Path.GetFileName(modified.FullName), ".xdelta"));
+            var defaultOutput = Path.Combine(PlatformUtils.GetExecutableDirectory(), Path.ChangeExtension(Path.GetFileName(modified.FullName), ".xdelta"));
             var outputPath = output?.FullName ?? defaultOutput;
             
             Console.WriteLine($"Creating xdelta patch...");
@@ -56,7 +57,7 @@ public static class XPatchCommand
         applyCommand.SetHandler(async (original, patch, output) =>
         {
             var xdelta = new XDeltaService();
-            var defaultOutput = Path.Combine(AppContext.BaseDirectory, Path.GetFileNameWithoutExtension(original.FullName) + "_patched.win");
+            var defaultOutput = Path.Combine(PlatformUtils.GetExecutableDirectory(), Path.GetFileNameWithoutExtension(original.FullName) + "_patched.win");
             var outputPath = output?.FullName ?? defaultOutput;
             
             Console.WriteLine($"Applying xdelta patch...");

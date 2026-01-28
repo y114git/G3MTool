@@ -1,5 +1,6 @@
 using System.CommandLine;
 using G3MToolCLI.Services;
+using G3MToolCLI.Utils;
 
 namespace G3MToolCLI.Commands;
 
@@ -50,7 +51,7 @@ public static class ExecuteCommand
                     return;
                 }
                 var scriptExecutor = new ScriptExecutorService();
-                var defaultOutput = Path.Combine(AppContext.BaseDirectory, Path.GetFileName(data.FullName));
+                var defaultOutput = Path.Combine(PlatformUtils.GetExecutableDirectory(), Path.GetFileName(data.FullName));
                 var outputPath = output?.FullName ?? defaultOutput;
                 var result = await scriptExecutor.ExecuteScriptAsync(
                     target, 

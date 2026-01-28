@@ -1,5 +1,6 @@
 using System.CommandLine;
 using G3MToolCLI.Services;
+using G3MToolCLI.Utils;
 
 namespace G3MToolCLI.Commands;
 
@@ -23,7 +24,7 @@ public static class PatchCommand
         {
             var patchService = new PatchService();
             var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-            var defaultOutput = Path.Combine(AppContext.BaseDirectory, $"patch_{timestamp}.zip");
+            var defaultOutput = Path.Combine(PlatformUtils.GetExecutableDirectory(), $"patch_{timestamp}.zip");
             var outputPath = output?.FullName ?? defaultOutput;
             
             LogService.Log($"Creating G3M patch...");
@@ -97,7 +98,7 @@ public static class PatchCommand
         applyCommand.SetHandler(async (data, patch, output, skipValidation) =>
         {
             var patchService = new PatchService();
-            var defaultOutput = Path.Combine(AppContext.BaseDirectory, Path.GetFileName(data.FullName));
+            var defaultOutput = Path.Combine(PlatformUtils.GetExecutableDirectory(), Path.GetFileName(data.FullName));
             var outputPath = output?.FullName ?? defaultOutput;
             
             LogService.Log($"Applying G3M patch...");

@@ -103,4 +103,25 @@ public static class PlatformUtils
     public static bool IsWindows => RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
     public static bool IsLinux => RuntimeInformation.IsOSPlatform(OSPlatform.Linux);
     public static bool IsMacOS => RuntimeInformation.IsOSPlatform(OSPlatform.OSX);
+
+    public static string GetExecutableDirectory()
+    {
+        var processPath = Environment.ProcessPath;
+        if (!string.IsNullOrEmpty(processPath))
+        {
+            var dir = Path.GetDirectoryName(processPath);
+            if (!string.IsNullOrEmpty(dir))
+                return dir;
+        }
+
+        var assemblyLocation = Assembly.GetExecutingAssembly().Location;
+        if (!string.IsNullOrEmpty(assemblyLocation))
+        {
+            var dir = Path.GetDirectoryName(assemblyLocation);
+            if (!string.IsNullOrEmpty(dir))
+                return dir;
+        }
+
+        return AppContext.BaseDirectory;
+    }
 }
