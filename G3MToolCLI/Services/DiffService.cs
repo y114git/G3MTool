@@ -85,21 +85,27 @@ public class DiffService
 
     private async Task<int> CompareDataFilesAsync(string file1Path, string file2Path, StringBuilder sb)
     {
+        LogService.SetOperation("Comparing data files");
+        LogService.Progress(0, 100);
+        
         var hash1 = await _hashService.ComputeFileHashAsync(file1Path);
         var hash2 = await _hashService.ComputeFileHashAsync(file2Path);
+        
+        LogService.Progress(10, 100);
 
         sb.AppendLine("## Files");
         sb.AppendLine();
         sb.AppendLine("| Property | File 1 | File 2 |");
-        sb.AppendLine("|:---------|:-------|:-------|");
+        sb.AppendLine("|:---------|:-------|:-------||");
         sb.AppendLine($"| **Path** | `{Path.GetFileName(file1Path)}` | `{Path.GetFileName(file2Path)}` |");
         sb.AppendLine($"| **Size** | {new FileInfo(file1Path).Length:N0} bytes | {new FileInfo(file2Path).Length:N0} bytes |");
-        sb.AppendLine($"| **SHA-256** | `{hash1[..16]}...` | `{hash2[..16]}...` |");
+        sb.AppendLine($"| **SHA-256** | `{hash1}` | `{hash2}` |");
         sb.AppendLine();
 
         if (hash1 == hash2)
         {
             sb.AppendLine("Files are **identical** (same SHA-256 hash).");
+            LogService.ProgressComplete();
             return 0;
         }
 
@@ -108,16 +114,21 @@ public class DiffService
 
         AppendSummaryTable(sb, resourceDiffs);
         await AppendResourceDetailsAsync(sb, resourceDiffs);
+        
+        LogService.ProgressComplete();
 
         return totalDiff;
     }
 
     private async Task<int> ComparePatchWithDataAsync(string patchPath, string dataPath, StringBuilder sb)
     {
+        LogService.SetOperation("Comparing patch with data");
+        LogService.Progress(0, 100);
+        
         sb.AppendLine("## Patch vs Data Comparison");
         sb.AppendLine();
         sb.AppendLine($"| | File |");
-        sb.AppendLine("|:--|:-----|");
+        sb.AppendLine("|:--|:-----||");
         sb.AppendLine($"| **Patch** | `{Path.GetFileName(patchPath)}` |");
         sb.AppendLine($"| **Data** | `{Path.GetFileName(dataPath)}` |");
         sb.AppendLine();
@@ -132,7 +143,9 @@ public class DiffService
             Directory.CreateDirectory(dataExportDir);
 
             // Extract patch
+            LogService.Progress(10, 100);
             ZipFile.ExtractToDirectory(patchPath, patchExtractDir);
+            LogService.Progress(20, 100);
 
             // Read manifest to know which resources to compare
             var manifestPath = Path.Combine(patchExtractDir, "g3mpatch.json");
@@ -157,10 +170,14 @@ public class DiffService
 
             // Export only the resource types that are in the patch
             var resourceTypesInPatch = manifest.Resources.Keys.ToHashSet();
+            int exportStep = 0;
+            int totalExports = resourceTypesInPatch.Count;
             foreach (var resourceType in resourceTypesInPatch)
             {
                 var script = $"Export{resourceType}.csx";
                 await _scriptExecutor.ExecuteEmbeddedScriptAsync(script, dataPath, dataExportDir);
+                exportStep++;
+                LogService.Progress(20 + (exportStep * 40 / totalExports), 100);
             }
 
             // Compare resources from patch with exported data
@@ -208,9 +225,12 @@ public class DiffService
                 summary.TotalNew += typeChanges.New.Count;
             }
 
+            LogService.Progress(90, 100);
             AppendSummaryTable(sb, summary);
             AppendResourceList(sb, summary);
             AppendTextDiffs(sb, textDiffs);
+            
+            LogService.ProgressComplete();
 
             return summary.TotalChanged + summary.TotalNew;
         }
@@ -222,10 +242,13 @@ public class DiffService
 
     private async Task<int> ComparePatchesAsync(string patch1Path, string patch2Path, StringBuilder sb)
     {
+        LogService.SetOperation("Comparing patches");
+        LogService.Progress(0, 100);
+        
         sb.AppendLine("## Patches");
         sb.AppendLine();
         sb.AppendLine($"| | File |");
-        sb.AppendLine("|:--|:-----|");
+        sb.AppendLine("|:--|:-----||");
         sb.AppendLine($"| **Patch 1** | `{Path.GetFileName(patch1Path)}` |");
         sb.AppendLine($"| **Patch 2** | `{Path.GetFileName(patch2Path)}` |");
         sb.AppendLine();
@@ -239,11 +262,16 @@ public class DiffService
             Directory.CreateDirectory(patch1Dir);
             Directory.CreateDirectory(patch2Dir);
 
+            LogService.Progress(10, 100);
             ZipFile.ExtractToDirectory(patch1Path, patch1Dir);
+            LogService.Progress(20, 100);
             ZipFile.ExtractToDirectory(patch2Path, patch2Dir);
+            LogService.Progress(30, 100);
 
             var summary = new ResourceDiffSummary();
 
+            int typeIndex = 0;
+            int totalTypes = ResourceTypes.Length;
             foreach (var resourceType in ResourceTypes)
             {
                 var dir1 = Path.Combine(patch1Dir, resourceType);
@@ -265,11 +293,17 @@ public class DiffService
                         await CollectTextDiffsAsync(resDir1, resDir2, changedName, resourceType, summary.TextDiffs);
                     }
                 }
+                
+                typeIndex++;
+                LogService.Progress(30 + (typeIndex * 60 / totalTypes), 100);
             }
 
+            LogService.Progress(95, 100);
             AppendSummaryTable(sb, summary);
             AppendResourceList(sb, summary);
             AppendTextDiffs(sb, summary.TextDiffs);
+            
+            LogService.ProgressComplete();
 
             return summary.TotalChanged + summary.TotalNew + summary.TotalDeleted;
         }
@@ -311,10 +345,8 @@ public class DiffService
             {
                 sb.AppendLine($"### Changed ({changes.Changed.Count})");
                 sb.AppendLine();
-                foreach (var name in changes.Changed.Take(50))
+                foreach (var name in changes.Changed)
                     sb.AppendLine($"- `{name}`");
-                if (changes.Changed.Count > 50)
-                    sb.AppendLine($"- *... and {changes.Changed.Count - 50} more*");
                 sb.AppendLine();
             }
 
@@ -322,10 +354,8 @@ public class DiffService
             {
                 sb.AppendLine($"### New ({changes.New.Count})");
                 sb.AppendLine();
-                foreach (var name in changes.New.Take(50))
+                foreach (var name in changes.New)
                     sb.AppendLine($"- `{name}`");
-                if (changes.New.Count > 50)
-                    sb.AppendLine($"- *... and {changes.New.Count - 50} more*");
                 sb.AppendLine();
             }
 
@@ -333,10 +363,8 @@ public class DiffService
             {
                 sb.AppendLine($"### Deleted ({changes.Deleted.Count})");
                 sb.AppendLine();
-                foreach (var name in changes.Deleted.Take(50))
+                foreach (var name in changes.Deleted)
                     sb.AppendLine($"- `{name}`");
-                if (changes.Deleted.Count > 50)
-                    sb.AppendLine($"- *... and {changes.Deleted.Count - 50} more*");
                 sb.AppendLine();
             }
         }
@@ -360,19 +388,13 @@ public class DiffService
         sb.AppendLine("## Text Differences");
         sb.AppendLine();
 
-        foreach (var diff in textDiffs.Take(20)) // Limit to 20 diffs
+        foreach (var diff in textDiffs)
         {
             sb.AppendLine($"### `{diff.ResourceType}/{diff.ResourceName}/{diff.FileName}`");
             sb.AppendLine();
             sb.AppendLine("```diff");
             sb.AppendLine(diff.UnifiedDiff);
             sb.AppendLine("```");
-            sb.AppendLine();
-        }
-
-        if (textDiffs.Count > 20)
-        {
-            sb.AppendLine($"*... and {textDiffs.Count - 20} more text differences*");
             sb.AppendLine();
         }
     }
@@ -494,20 +516,15 @@ public class DiffService
             hunks.Add((hunkStart1, hunkStart2, currentHunk));
         }
 
-        foreach (var (start1, start2, lines) in hunks.Take(5)) // Limit hunks
+        foreach (var (start1, start2, lines) in hunks)
         {
             int removed = lines.Count(l => l.StartsWith("-"));
             int added = lines.Count(l => l.StartsWith("+"));
             int context = lines.Count(l => l.StartsWith(" "));
             sb.AppendLine($"@@ -{start1 + 1},{removed + context} +{start2 + 1},{added + context} @@");
-            foreach (var line in lines.Take(30)) // Limit lines per hunk
+            foreach (var line in lines)
                 sb.AppendLine(line);
-            if (lines.Count > 30)
-                sb.AppendLine("... (truncated)");
         }
-
-        if (hunks.Count > 5)
-            sb.AppendLine($"... ({hunks.Count - 5} more hunks)");
 
         return sb.ToString().TrimEnd();
     }
@@ -525,12 +542,17 @@ public class DiffService
             Directory.CreateDirectory(export2Dir);
 
             LogService.Log("[DiffService] Exporting resources from both files...");
+            LogService.Progress(10, 100);
             
             // Export resources from both files
             await ExportResourcesAsync(file1Path, export1Dir);
+            LogService.Progress(40, 100);
             await ExportResourcesAsync(file2Path, export2Dir);
+            LogService.Progress(70, 100);
 
             // Compare each resource type
+            int typeIndex = 0;
+            int totalTypes = ResourceTypes.Length;
             foreach (var resourceType in ResourceTypes)
             {
                 var dir1 = Path.Combine(export1Dir, resourceType);
@@ -552,6 +574,9 @@ public class DiffService
                         await CollectTextDiffsAsync(resDir1, resDir2, changedName, resourceType, summary.TextDiffs);
                     }
                 }
+                
+                typeIndex++;
+                LogService.Progress(70 + (typeIndex * 25 / totalTypes), 100);
             }
 
             return summary;
