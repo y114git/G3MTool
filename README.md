@@ -36,7 +36,7 @@ Output files are saved next to the G3MTool executable by default.
 (G3MTool) xpatch apply original.win patch.xdelta [output.win]
 ```
 
-### G3M Resource Patches
+### G3M Patches
 
 ```bash
 # Create G3M patch
@@ -49,7 +49,7 @@ Output files are saved next to the G3MTool executable by default.
 (G3MTool) patch validate patch.zip --data data.win
 ```
 
-### Execute Scripts
+### Execute Scripts/Executables
 
 ```bash
 # Execute .csx script with data file
