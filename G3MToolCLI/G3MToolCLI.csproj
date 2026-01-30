@@ -11,7 +11,7 @@
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     
     <!-- Publish settings -->
-    <PublishSingleFile Condition="!$(RuntimeIdentifier.StartsWith('linux-bionic'))">true</PublishSingleFile>
+    <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
     <PublishTrimmed>false</PublishTrimmed>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
@@ -45,15 +45,11 @@
   <ItemGroup Condition="$(RuntimeIdentifier.StartsWith('win'))">
     <EmbeddedResource Include="Assets\bin\win\**\*" />
   </ItemGroup>
-  <ItemGroup Condition="$(RuntimeIdentifier.StartsWith('linux')) And !$(RuntimeIdentifier.StartsWith('linux-bionic'))">
+  <ItemGroup Condition="$(RuntimeIdentifier.StartsWith('linux'))">
     <EmbeddedResource Include="Assets\bin\linux\**\*" />
   </ItemGroup>
   <ItemGroup Condition="$(RuntimeIdentifier.StartsWith('osx'))">
     <EmbeddedResource Include="Assets\bin\mac\**\*" />
-  </ItemGroup>
-  <!-- Android binaries (linux-bionic RID) -->
-  <ItemGroup Condition="$(RuntimeIdentifier.StartsWith('linux-bionic')) Or $(RuntimeIdentifier.StartsWith('android'))">
-    <EmbeddedResource Include="Assets\bin\android\**\*" />
   </ItemGroup>
 
   <!-- Embed scripts -->

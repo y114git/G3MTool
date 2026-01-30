@@ -20,7 +20,7 @@ Or build from source:
 dotnet publish G3MToolCLI -c Release -r <platform>
 ```
 
-**Platforms:** `win-x64` / `linux-x64` / `linux-arm64` / `osx-x64` / `osx-arm64` / `linux-bionic-arm64` (Android)
+**Platforms:** `win-x64` / `linux-x64` / `linux-arm64` / `osx-x64` / `osx-arm64`
 
 ## Usage
 
@@ -55,12 +55,17 @@ Output files are saved next to the G3MTool executable by default.
 # Execute .csx script with data file
 (G3MTool) execute script.csx --data data.win [--output modified.win]
 
+# Execute built-in script (e.g., export sprites to JSON)
+(G3MTool) execute ExportSprites.csx --data data.win
+
 # Execute external program
 (G3MTool) execute program.exe arg1 arg2
 
 # Passthrough to xdelta
 (G3MTool) execute xdelta -d -s original.win patch.xdelta output.win
 ```
+
+**Built-in scripts can be found [here](https://github.com/y114git/G3MTool/tree/main/G3MToolCLI/Assets/scripts).**
 
 ### Info & Diff
 
@@ -82,37 +87,3 @@ Output files are saved next to the G3MTool executable by default.
 | `--verbose`, `-v` | Enable verbose output |
 | `--log [path]` | Enable logging (default: `logs/{command}_{timestamp}.log`) |
 | `--json` | JSON output (for `info`, `patch validate`) |
-
-## Android Usage
-
-G3MTool supports Android via Termux. Download the Android arm64 build for most modern devices.
-
-**Note:** Android build includes .NET runtime (~50MB unzipped) since single-file publishing is not supported for Android.
-
-### Setup
-
-1. Install [Termux](https://f-droid.org/packages/com.termux/) from F-Droid
-2. Download and extract `G3MTool-Android-arm64.zip` to your device
-3. In Termux:
-
-```bash
-# Allow storage access
-termux-setup-storage
-
-# Copy G3MTool folder to Termux home
-cp -r ~/storage/downloads/G3MTool-Android ~/G3MTool
-chmod +x ~/G3MTool/G3MTool
-
-# Go to G3MTool folder
-cd ~/G3MTool
-
-# Test
-./G3MTool --help
-```
-
-### Example: Apply xdelta patch
-
-```bash
-cd ~/G3MTool
-./G3MTool xpatch apply ~/storage/downloads/original.droid ~/storage/downloads/patch.xdelta ~/storage/downloads/patched.droid
-```
