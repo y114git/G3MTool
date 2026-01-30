@@ -220,13 +220,13 @@ jobs:
 
       - name: Build and Publish
         run: |
-          dotnet publish G3MToolCLI -c Release -r linux-bionic-arm64 -o publish/android
+          dotnet publish G3MToolCLI -c Release -r linux-bionic-arm64 --self-contained true -o publish/android
 
       - name: Create archive
         run: |
           cd publish/android
           chmod +x G3MTool
-          zip -r ../../G3MTool-Android-arm64-${{ env.RELEASE_VERSION }}.zip G3MTool
+          zip -r ../../G3MTool-Android-arm64-${{ env.RELEASE_VERSION }}.zip .
 
       - uses: actions/upload-artifact@v4
         with:

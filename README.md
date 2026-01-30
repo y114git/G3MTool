@@ -87,37 +87,32 @@ Output files are saved next to the G3MTool executable by default.
 
 G3MTool supports Android via Termux. Download the Android arm64 build for most modern devices.
 
+**Note:** Android build includes .NET runtime (~50MB unzipped) since single-file publishing is not supported for Android.
+
 ### Setup
 
 1. Install [Termux](https://f-droid.org/packages/com.termux/) from F-Droid
-2. Copy `G3MTool` to your device (e.g., to `Download` folder)
+2. Download and extract `G3MTool-Android-arm64.zip` to your device
 3. In Termux:
 
 ```bash
 # Allow storage access
 termux-setup-storage
 
-# Copy to Termux home and set permissions
-cp ~/storage/downloads/G3MTool ~
-chmod +x ~/G3MTool
+# Copy G3MTool folder to Termux home
+cp -r ~/storage/downloads/G3MTool-Android ~/G3MTool
+chmod +x ~/G3MTool/G3MTool
+
+# Go to G3MTool folder
+cd ~/G3MTool
 
 # Test
-~/G3MTool --help
+./G3MTool --help
 ```
 
 ### Example: Apply xdelta patch
 
 ```bash
-# Copy files to Termux home
-cp ~/storage/downloads/original.droid ~
-cp ~/storage/downloads/patch.xdelta ~
-
-# Apply patch
-~/G3MTool xpatch apply ~/original.droid ~/patch.xdelta ~/patched.droid
-
-# Copy result back
-cp ~/patched.droid ~/storage/downloads/
-
-# Or work directly with storage paths (no cp needed):
-# ~/G3MTool xpatch apply ~/storage/downloads/original.droid ~/storage/downloads/patch.xdelta ~/storage/downloads/patched.droid
+cd ~/G3MTool
+./G3MTool xpatch apply ~/storage/downloads/original.droid ~/storage/downloads/patch.xdelta ~/storage/downloads/patched.droid
 ```

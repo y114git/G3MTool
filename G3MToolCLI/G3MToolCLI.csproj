@@ -11,7 +11,7 @@
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     
     <!-- Publish settings -->
-    <PublishSingleFile>true</PublishSingleFile>
+    <PublishSingleFile Condition="!$(RuntimeIdentifier.StartsWith('linux-bionic'))">true</PublishSingleFile>
     <SelfContained>true</SelfContained>
     <PublishTrimmed>false</PublishTrimmed>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
