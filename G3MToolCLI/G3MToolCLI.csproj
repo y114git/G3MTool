@@ -45,11 +45,15 @@
   <ItemGroup Condition="$(RuntimeIdentifier.StartsWith('win'))">
     <EmbeddedResource Include="Assets\bin\win\**\*" />
   </ItemGroup>
-  <ItemGroup Condition="$(RuntimeIdentifier.StartsWith('linux'))">
+  <ItemGroup Condition="$(RuntimeIdentifier.StartsWith('linux')) And !$(RuntimeIdentifier.StartsWith('linux-bionic'))">
     <EmbeddedResource Include="Assets\bin\linux\**\*" />
   </ItemGroup>
   <ItemGroup Condition="$(RuntimeIdentifier.StartsWith('osx'))">
     <EmbeddedResource Include="Assets\bin\mac\**\*" />
+  </ItemGroup>
+  <!-- Android binaries (linux-bionic RID) -->
+  <ItemGroup Condition="$(RuntimeIdentifier.StartsWith('linux-bionic')) Or $(RuntimeIdentifier.StartsWith('android'))">
+    <EmbeddedResource Include="Assets\bin\android\**\*" />
   </ItemGroup>
 
   <!-- Embed scripts -->

@@ -20,7 +20,7 @@ Or build from source:
 dotnet publish G3MToolCLI -c Release -r <platform>
 ```
 
-**Platforms:** `win-x64` / `linux-x64` / `linux-arm64` / `osx-x64` / `osx-arm64`
+**Platforms:** `win-x64` / `linux-x64` / `linux-arm64` / `osx-x64` / `osx-arm64` / `linux-bionic-arm64` (Android)
 
 ## Usage
 
@@ -82,3 +82,42 @@ Output files are saved next to the G3MTool executable by default.
 | `--verbose`, `-v` | Enable verbose output |
 | `--log [path]` | Enable logging (default: `logs/{command}_{timestamp}.log`) |
 | `--json` | JSON output (for `info`, `patch validate`) |
+
+## Android Usage
+
+G3MTool supports Android via Termux. Download the Android arm64 build for most modern devices.
+
+### Setup
+
+1. Install [Termux](https://f-droid.org/packages/com.termux/) from F-Droid
+2. Copy `G3MTool` to your device (e.g., to `Download` folder)
+3. In Termux:
+
+```bash
+# Allow storage access
+termux-setup-storage
+
+# Copy to Termux home and set permissions
+cp ~/storage/downloads/G3MTool ~
+chmod +x ~/G3MTool
+
+# Test
+~/G3MTool --help
+```
+
+### Example: Apply xdelta patch
+
+```bash
+# Copy files to Termux home
+cp ~/storage/downloads/original.droid ~
+cp ~/storage/downloads/patch.xdelta ~
+
+# Apply patch
+~/G3MTool xpatch apply ~/original.droid ~/patch.xdelta ~/patched.droid
+
+# Copy result back
+cp ~/patched.droid ~/storage/downloads/
+
+# Or work directly with storage paths (no cp needed):
+# ~/G3MTool xpatch apply ~/storage/downloads/original.droid ~/storage/downloads/patch.xdelta ~/storage/downloads/patched.droid
+```

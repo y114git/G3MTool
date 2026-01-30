@@ -1,4 +1,4 @@
-name: Build and Release G3MTool (Windows + Linux + macOS)
+name: Build and Release G3MTool (Windows + Linux + macOS + Android)
 
 on:
   workflow_dispatch:
@@ -204,6 +204,35 @@ jobs:
           name: G3MTool-macOS-arm64
           path: G3MTool-macOS-arm64-${{ env.RELEASE_VERSION }}.zip
 
+  build-android:
+    name: Android arm64 · Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore dependencies
+        run: dotnet restore G3MToolCLI
+
+      - name: Build and Publish
+        run: |
+          dotnet publish G3MToolCLI -c Release -r linux-bionic-arm64 -o publish/android
+
+      - name: Create archive
+        run: |
+          cd publish/android
+          chmod +x G3MTool
+          zip -r ../../G3MTool-Android-arm64-${{ env.RELEASE_VERSION }}.zip G3MTool
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: G3MTool-Android-arm64
+          path: G3MTool-Android-arm64-${{ env.RELEASE_VERSION }}.zip
+
   release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
@@ -214,6 +243,7 @@ jobs:
         build-linux-arm64,
         build-macos-x64,
         build-macos-arm64,
+        build-android,
       ]
     if: ${{ inputs.publish_release != false }}
     steps:

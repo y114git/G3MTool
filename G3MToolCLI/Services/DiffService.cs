@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
 using G3MToolCLI.Models;
+using G3MToolCLI.Utils;
 
 namespace G3MToolCLI.Services;
 
@@ -39,15 +40,18 @@ public class DiffService
 
         int differenceCount = 0;
 
+        var isData1 = GameDataExtensions.IsValidDataExtension(ext1);
+        var isData2 = GameDataExtensions.IsValidDataExtension(ext2);
+
         // Determine comparison type
-        if (ext1 == ".zip" && ext2 == ".win")
+        if (ext1 == ".zip" && isData2)
         {
-            // patch.zip vs data.win
+            // patch.zip vs data file
             differenceCount = await ComparePatchWithDataAsync(file1Path, file2Path, sb);
         }
-        else if (ext1 == ".win" && ext2 == ".zip")
+        else if (isData1 && ext2 == ".zip")
         {
-            // data.win vs patch.zip (swap order)
+            // data file vs patch.zip (swap order)
             differenceCount = await ComparePatchWithDataAsync(file2Path, file1Path, sb);
         }
         else if (ext1 == ".zip" && ext2 == ".zip")
@@ -55,9 +59,9 @@ public class DiffService
             // patch.zip vs patch.zip
             differenceCount = await ComparePatchesAsync(file1Path, file2Path, sb);
         }
-        else if (ext1 == ".win" && ext2 == ".win")
+        else if (isData1 && isData2)
         {
-            // data.win vs data.win
+            // data file vs data file
             differenceCount = await CompareDataFilesAsync(file1Path, file2Path, sb);
         }
         else
@@ -65,7 +69,7 @@ public class DiffService
             sb.AppendLine("## Unsupported file combination");
             sb.AppendLine();
             sb.AppendLine($"Cannot compare `{ext1}` with `{ext2}`.");
-            sb.AppendLine("Supported: `.win` vs `.win`, `.zip` vs `.win`, `.zip` vs `.zip`");
+            sb.AppendLine($"Supported: {GameDataExtensions.GetValidExtensionsDisplay()} vs same, `.zip` vs data file, `.zip` vs `.zip`");
         }
 
         // Write output

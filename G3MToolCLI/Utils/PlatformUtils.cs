@@ -9,6 +9,8 @@ public static class PlatformUtils
 
     public static string GetPlatformName()
     {
+        if (OperatingSystem.IsAndroid())
+            return "android";
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             return "win";
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
@@ -25,19 +27,20 @@ public static class PlatformUtils
             return _cachedXDeltaPath;
 
         var platform = GetPlatformName();
+        var platformDir = GetPlatformBinDirectory();
         var exeName = platform == "win" ? "xdelta.exe" : "xdelta";
         
         // First try to extract from embedded resource
-        _cachedXDeltaPath = ExtractXDeltaFromResource(platform, exeName);
+        _cachedXDeltaPath = ExtractXDeltaFromResource(platformDir, exeName);
         if (_cachedXDeltaPath != null)
             return _cachedXDeltaPath;
 
         // Fallback: try file system locations (for development)
         var searchPaths = new[]
         {
-            Path.Combine(AppContext.BaseDirectory, "Assets", "bin", platform, exeName),
-            Path.Combine(Environment.CurrentDirectory, "Assets", "bin", platform, exeName),
-            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "Assets", "bin", platform, exeName),
+            Path.Combine(AppContext.BaseDirectory, "Assets", "bin", platformDir, exeName),
+            Path.Combine(Environment.CurrentDirectory, "Assets", "bin", platformDir, exeName),
+            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "Assets", "bin", platformDir, exeName),
         };
 
         foreach (var path in searchPaths)
@@ -52,6 +55,11 @@ public static class PlatformUtils
 
         return null;
     }
+
+    /// <summary>
+    /// Gets the platform-specific binary directory name.
+    /// </summary>
+    private static string GetPlatformBinDirectory() => GetPlatformName();
 
     private static string? ExtractXDeltaFromResource(string platform, string exeName)
     {
@@ -101,8 +109,9 @@ public static class PlatformUtils
     }
 
     public static bool IsWindows => RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
-    public static bool IsLinux => RuntimeInformation.IsOSPlatform(OSPlatform.Linux);
+    public static bool IsLinux => RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && !OperatingSystem.IsAndroid();
     public static bool IsMacOS => RuntimeInformation.IsOSPlatform(OSPlatform.OSX);
+    public static bool IsAndroid => OperatingSystem.IsAndroid();
 
     public static string GetExecutableDirectory()
     {

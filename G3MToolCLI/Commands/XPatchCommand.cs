@@ -1,6 +1,7 @@
 using System.CommandLine;
 using G3MToolCLI.Services;
 using G3MToolCLI.Utils;
+using static G3MToolCLI.Utils.GameDataExtensions;
 
 namespace G3MToolCLI.Commands;
 
@@ -57,7 +58,8 @@ public static class XPatchCommand
         applyCommand.SetHandler(async (original, patch, output) =>
         {
             var xdelta = new XDeltaService();
-            var defaultOutput = Path.Combine(PlatformUtils.GetExecutableDirectory(), Path.GetFileNameWithoutExtension(original.FullName) + "_patched.win");
+            var outputExt = GetOutputExtension(original.FullName);
+            var defaultOutput = Path.Combine(PlatformUtils.GetExecutableDirectory(), Path.GetFileNameWithoutExtension(original.FullName) + "_patched" + outputExt);
             var outputPath = output?.FullName ?? defaultOutput;
             
             Console.WriteLine($"Applying xdelta patch...");
