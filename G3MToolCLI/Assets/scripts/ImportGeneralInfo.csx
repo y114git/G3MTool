@@ -32,12 +32,18 @@ if (Data.GeneralInfo == null)
 }
 
 string inputPath = GetInputDirectory();
-string resourceDir = Path.Combine(inputPath, "GeneralInfo");
-string jsonPath = Path.Combine(resourceDir, "GeneralInfo.json");
+
+// Try both paths - direct (when called from patch apply) and nested (when called standalone)
+string jsonPath = Path.Combine(inputPath, "GeneralInfo.json");
+if (!File.Exists(jsonPath))
+{
+    // Fallback to nested path for standalone execution
+    jsonPath = Path.Combine(inputPath, "GeneralInfo", "GeneralInfo.json");
+}
 
 if (!File.Exists(jsonPath))
 {
-    ScriptError($"GeneralInfo.json not found at: {jsonPath}");
+    ScriptError($"GeneralInfo.json not found at: {inputPath}");
     return;
 }
 

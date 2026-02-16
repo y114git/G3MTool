@@ -51,9 +51,9 @@ int updated = 0;
 
 foreach (string audioGroupDir in audioGroupDirs)
 {
+    string audioGroupName = Path.GetFileName(audioGroupDir);
     try
     {
-        string audioGroupName = Path.GetFileName(audioGroupDir);
         string audioGroupFile = Path.Combine(audioGroupDir, audioGroupName + ".json");
         
         if (!File.Exists(audioGroupFile))

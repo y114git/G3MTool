@@ -8,25 +8,30 @@ public static class ExecuteCommand
 {
     public static Command Create()
     {
-        var command = new Command("execute", "Execute programs, scripts, or xdelta commands");
+        var command = new Command("execute", "Execute .csx scripts, external programs, or xdelta commands.\n  Usage: execute <target> [args] --data <data.win> --output <output.win>\n  Examples:\n    execute script.csx --data data.win --output patched.win\n    execute xdelta -d -s original.win patch.xdelta output.win");
 
         var targetArg = new Argument<string>("target", "Program, script (.csx), or 'xdelta' to execute");
-        var argsArg = new Argument<string[]>("args", () => Array.Empty<string>(), "Arguments to pass");
+        var argsArg = new Argument<string[]>("args", () => [], "Arguments to pass");
 
         var dataOption = new Option<FileInfo?>(
             aliases: ["--data", "-d"],
-            description: "Path to data.win file (required for .csx scripts)");
-        
+            description: "Path to data.win file (optional for .csx scripts)");
+
         var outputOption = new Option<FileInfo?>(
             aliases: ["--output", "-o"],
             description: "Output file path (required when --data is used)");
+
+        var inputOption = new Option<DirectoryInfo?>(
+            aliases: ["--input", "-i"],
+            description: "Input directory for scripts (e.g., sprites folder for ImportSprites)");
 
         command.AddArgument(targetArg);
         command.AddArgument(argsArg);
         command.AddOption(dataOption);
         command.AddOption(outputOption);
+        command.AddOption(inputOption);
 
-        command.SetHandler(async (target, args, data, output) =>
+        command.SetHandler(async (target, args, data, output, input) =>
         {
             // Determine what to execute
             if (target.Equals("xdelta", StringComparison.OrdinalIgnoreCase))
@@ -34,7 +39,7 @@ public static class ExecuteCommand
                 // Passthrough to xdelta
                 var xdelta = new XDeltaService();
                 var result = await xdelta.ExecuteRawAsync(args);
-                
+
                 if (!result.Success)
                 {
                     Console.Error.WriteLine($"Error: {result.Error}");
@@ -43,22 +48,22 @@ public static class ExecuteCommand
             }
             else if (target.EndsWith(".csx", StringComparison.OrdinalIgnoreCase))
             {
-                // Execute .csx script
-                if (data == null)
-                {
-                    Console.Error.WriteLine("Error: --data is required for .csx scripts");
-                    Environment.ExitCode = 1;
-                    return;
-                }
-                var scriptExecutor = new ScriptExecutorService();
-                var defaultOutput = Path.Combine(PlatformUtils.GetExecutableDirectory(), Path.GetFileName(data.FullName));
-                var outputPath = output?.FullName ?? defaultOutput;
-                var result = await scriptExecutor.ExecuteScriptAsync(
-                    target, 
-                    data.FullName, 
+                // Execute .csx script (--data is optional)
+                var dataPath = data?.FullName;
+                var outputPath = output?.FullName
+                    ?? (data != null ? Path.Combine(PlatformUtil.GetExecutableDirectory(), Path.GetFileName(data.FullName)) : string.Empty);
+
+                // If input directory is specified, prepend it to args (ExecuteScriptAsync uses args[0] as inputDir)
+                var finalArgs = input != null
+                    ? [input.FullName, .. args]
+                    : args;
+
+                var result = await ExecuteService.ExecuteScriptAsync(
+                    target,
+                    dataPath,
                     outputPath,
-                    args);
-                
+                    finalArgs);
+
                 if (!result.Success)
                 {
                     Console.Error.WriteLine($"Error: {result.Error}");
@@ -71,7 +76,7 @@ public static class ExecuteCommand
                 var result = await ExecuteExternalProgramAsync(target, args);
                 Environment.ExitCode = result;
             }
-        }, targetArg, argsArg, dataOption, outputOption);
+        }, targetArg, argsArg, dataOption, outputOption, inputOption);
 
         return command;
     }

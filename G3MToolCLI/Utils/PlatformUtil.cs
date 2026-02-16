@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 
 namespace G3MToolCLI.Utils;
 
-public static class PlatformUtils
+public static class PlatformUtil
 {
     private static string? _cachedXDeltaPath;
 
@@ -15,7 +15,7 @@ public static class PlatformUtils
             return "linux";
         if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
             return "mac";
-        
+
         return "unknown";
     }
 
@@ -26,7 +26,7 @@ public static class PlatformUtils
 
         var platform = GetPlatformName();
         var exeName = platform == "win" ? "xdelta.exe" : "xdelta";
-        
+
         // First try to extract from embedded resource
         _cachedXDeltaPath = ExtractXDeltaFromResource(platform, exeName);
         if (_cachedXDeltaPath != null)
@@ -57,16 +57,16 @@ public static class PlatformUtils
     {
         var assembly = Assembly.GetExecutingAssembly();
         var resourceName = $"G3MToolCLI.Assets.bin.{platform}.{exeName}";
-        
+
         using var stream = assembly.GetManifestResourceStream(resourceName);
         if (stream == null)
             return null;
 
         var tempDir = Path.Combine(Path.GetTempPath(), "G3MTool");
         Directory.CreateDirectory(tempDir);
-        
+
         var outputPath = Path.Combine(tempDir, exeName);
-        
+
         // Only extract if not exists or different size
         if (!File.Exists(outputPath) || new FileInfo(outputPath).Length != stream.Length)
         {
@@ -85,7 +85,7 @@ public static class PlatformUtils
             try
             {
 #pragma warning disable CA1416
-                File.SetUnixFileMode(path, 
+                File.SetUnixFileMode(path,
                     UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
                     UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
                     UnixFileMode.OtherRead | UnixFileMode.OtherExecute);

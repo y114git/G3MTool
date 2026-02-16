@@ -95,12 +95,24 @@ using (TextureWorker worker = new TextureWorker())
                 bg.Transparent = false;
                 bg.Smooth = false;
                 bg.Preload = false;
+                // GMS2: zero out tile properties to prevent serialization errors
+                // (default values may be non-zero, causing "Bad tile list length" on save)
+                if (Data.IsGameMaker2())
+                {
+                    bg.GMS2TileWidth = 0;
+                    bg.GMS2TileHeight = 0;
+                    bg.GMS2TileColumns = 0;
+                    bg.GMS2TileCount = 0;
+                    bg.GMS2OutputBorderX = 0;
+                    bg.GMS2OutputBorderY = 0;
+                    bg.GMS2FrameLength = 0;
+                }
                 isNew = true;
                 created++;
                 PrintLine($"[ImportBackgrounds] Creating new background: {bgName}");
             }
 
-            
+
             if (File.Exists(pngPath))
             {
                 using (var img = TextureWorker.ReadBGRAImageFromFile(pngPath))
@@ -132,7 +144,7 @@ using (TextureWorker worker = new TextureWorker())
                 }
             }
 
-            
+
             if (File.Exists(jsonPath))
             {
                 string jsonContent = File.ReadAllText(jsonPath, Encoding.UTF8);
@@ -143,7 +155,7 @@ using (TextureWorker worker = new TextureWorker())
                 bg.Smooth = GetJsonValue<bool>(root, "smooth", bg.Smooth);
                 bg.Preload = GetJsonValue<bool>(root, "preload", bg.Preload);
 
-                
+
                 if (Data.IsGameMaker2())
                 {
                     if (root.TryGetProperty("gms2UnknownAlways2", out _))

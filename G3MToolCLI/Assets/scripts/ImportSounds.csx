@@ -57,12 +57,12 @@ foreach (string soundName in soundDirs)
     string oggFile = Path.Combine(soundDir, soundName + ".ogg");
     string wavFile = Path.Combine(soundDir, soundName + ".wav");
     string metaFile = Path.Combine(soundDir, soundName + ".json");
-    
-    
+
+
     string audioFile = null;
     bool isOGG = false;
     bool isWAV = false;
-    
+
     if (File.Exists(oggFile))
     {
         audioFile = oggFile;
@@ -73,15 +73,15 @@ foreach (string soundName in soundDirs)
         audioFile = wavFile;
         isWAV = true;
     }
-    
-    
+
+
     if (audioFile == null && !File.Exists(metaFile))
     {
         skipped++;
         continue;
     }
-    
-    
+
+
     if (audioFile == null && File.Exists(metaFile))
     {
         var existingSound = Data.Sounds.ByName(soundName);
@@ -91,12 +91,11 @@ foreach (string soundName in soundDirs)
             skipped++;
             continue;
         }
-        
+
         try
         {
             ApplyMetadata(existingSound, metaFile);
             metadataApplied++;
-            // PrintLine($"[Sound] {soundName}: metadata updated");
         }
         catch (Exception ex)
         {
@@ -120,7 +119,7 @@ foreach (string soundName in soundDirs)
 
         if (sound == null)
         {
-            
+
             sound = new UndertaleSound();
             sound.Name = Data.Strings.MakeString(soundName);
             sound.File = Data.Strings.MakeString(soundName + (isOGG ? ".ogg" : ".wav"));
@@ -133,29 +132,29 @@ foreach (string soundName in soundDirs)
             {
                 sound.Flags |= AudioEntryFlags.IsCompressed;
             }
-            
-            
+
+
             sound.AudioFile = new UndertaleEmbeddedAudio();
             sound.AudioFile.Data = audioData;
-            
-            
+
+
             Data.EmbeddedAudio.Add(sound.AudioFile);
             sound.AudioID = Data.EmbeddedAudio.Count - 1;
-            
-            
+
+
             if (Data.AudioGroups != null && Data.AudioGroups.Count > 0)
             {
                 sound.AudioGroup = Data.AudioGroups[0];
                 sound.GroupID = 0;
             }
-            
+
             isNew = true;
             created++;
             PrintLine($"[ImportSounds] Creating NEW sound: {soundName}");
         }
         else
         {
-            
+
             if (sound.AudioFile == null)
             {
                 sound.AudioFile = new UndertaleEmbeddedAudio();
@@ -163,8 +162,8 @@ foreach (string soundName in soundDirs)
                 sound.AudioID = Data.EmbeddedAudio.Count - 1;
             }
             sound.AudioFile.Data = audioData;
-            
-            
+
+
             sound.Flags |= AudioEntryFlags.IsEmbedded;
             if (isOGG)
             {
@@ -176,7 +175,7 @@ foreach (string soundName in soundDirs)
             }
         }
 
-        
+
         if (File.Exists(metaFile))
         {
             try
@@ -189,15 +188,10 @@ foreach (string soundName in soundDirs)
                 PrintLine($"[ImportSounds] Warning: Failed to apply metadata for {soundName}: {metaEx.Message}");
             }
         }
-        
+
         if (isNew)
         {
             Data.Sounds.Add(sound);
-            // PrintLine($"[Sound] {soundName}: CREATED and added to Data.Sounds");
-        }
-        else
-        {
-            // PrintLine($"[Sound] {soundName}: UPDATED");
         }
 
         imported++;

@@ -11,9 +11,6 @@ using System.Collections.Generic;
 using UndertaleModLib;
 using UndertaleModLib.Models;
 
-
-
-
 void PrintLine(string s) { if (Verbose) Console.WriteLine(s); }
 
 string SafeName(string name)
@@ -62,11 +59,15 @@ void ExportGameObject(UndertaleGameObject gameObject, string outputDir)
     try
     {
         string objName = SafeName(gameObject.Name.Content);
-        
+        int objIndex = Data.GameObjects.IndexOf(gameObject);
+        string spriteName = gameObject.Sprite?.Name?.Content ?? "";
+
         // Create subdirectory for this game object
-        string objDir = Path.Combine(outputDir, objName);
+        // Use index in folder name to support duplicate objects with same name
+        string folderName = $"{objName}__idx{objIndex:D4}";
+        string objDir = Path.Combine(outputDir, folderName);
         Directory.CreateDirectory(objDir);
-        
+
         string objFile = Path.Combine(objDir, "object.json");
 
         using (var stream = new FileStream(objFile, FileMode.Create))
@@ -74,46 +75,47 @@ void ExportGameObject(UndertaleGameObject gameObject, string outputDir)
         {
             writer.WriteStartObject();
 
+            // Export index for correct positioning during import
+            writer.WriteNumber("index", objIndex);
             writer.WriteString("name", gameObject.Name?.Content ?? "");
-            writer.WriteString("sprite", gameObject.Sprite?.Name?.Content ?? "");
+            writer.WriteString("sprite", spriteName);
             writer.WriteBoolean("visible", gameObject.Visible);
             writer.WriteBoolean("solid", gameObject.Solid);
             writer.WriteNumber("depth", gameObject.Depth);
             writer.WriteBoolean("persistent", gameObject.Persistent);
             writer.WriteString("parent", gameObject.ParentId?.Name?.Content ?? "");
             writer.WriteString("textureMask", gameObject.TextureMaskId?.Name?.Content ?? "");
-            
+
             if (Data.IsVersionAtLeast(2022, 5))
                 writer.WriteBoolean("managed", gameObject.Managed);
 
             writer.WriteBoolean("usesPhysics", gameObject.UsesPhysics);
-            if (gameObject.UsesPhysics)
-            {
-                writer.WriteBoolean("isSensor", gameObject.IsSensor);
-                writer.WriteNumber("collisionShape", (int)gameObject.CollisionShape);
-                writer.WriteString("collisionShapeDescription", gameObject.CollisionShape.ToString());
-                writer.WriteNumber("density", gameObject.Density);
-                writer.WriteNumber("restitution", gameObject.Restitution);
-                writer.WriteNumber("group", gameObject.Group);
-                writer.WriteNumber("linearDamping", gameObject.LinearDamping);
-                writer.WriteNumber("angularDamping", gameObject.AngularDamping);
-                writer.WriteNumber("friction", gameObject.Friction);
-                writer.WriteBoolean("awake", gameObject.Awake);
-                writer.WriteBoolean("kinematic", gameObject.Kinematic);
 
-                if (gameObject.PhysicsVertices != null && gameObject.PhysicsVertices.Count > 0)
+            // Always export physics-related properties - they exist even when UsesPhysics is false
+            writer.WriteBoolean("isSensor", gameObject.IsSensor);
+            writer.WriteNumber("collisionShape", (int)gameObject.CollisionShape);
+            writer.WriteString("collisionShapeDescription", gameObject.CollisionShape.ToString());
+            writer.WriteNumber("density", gameObject.Density);
+            writer.WriteNumber("restitution", gameObject.Restitution);
+            writer.WriteNumber("group", gameObject.Group);
+            writer.WriteNumber("linearDamping", gameObject.LinearDamping);
+            writer.WriteNumber("angularDamping", gameObject.AngularDamping);
+            writer.WriteNumber("friction", gameObject.Friction);
+            writer.WriteBoolean("awake", gameObject.Awake);
+            writer.WriteBoolean("kinematic", gameObject.Kinematic);
+
+            if (gameObject.PhysicsVertices != null && gameObject.PhysicsVertices.Count > 0)
+            {
+                writer.WritePropertyName("physicsVertices");
+                writer.WriteStartArray();
+                foreach (var vertex in gameObject.PhysicsVertices)
                 {
-                    writer.WritePropertyName("physicsVertices");
-                    writer.WriteStartArray();
-                    foreach (var vertex in gameObject.PhysicsVertices)
-                    {
-                        writer.WriteStartObject();
-                        writer.WriteNumber("x", vertex.X);
-                        writer.WriteNumber("y", vertex.Y);
-                        writer.WriteEndObject();
-                    }
-                    writer.WriteEndArray();
+                    writer.WriteStartObject();
+                    writer.WriteNumber("x", vertex.X);
+                    writer.WriteNumber("y", vertex.Y);
+                    writer.WriteEndObject();
                 }
+                writer.WriteEndArray();
             }
 
             writer.WritePropertyName("events");

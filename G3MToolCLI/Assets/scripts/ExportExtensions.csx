@@ -29,9 +29,10 @@ string GetOutputDirectory()
     string outputDir = OutputDir;
     if (string.IsNullOrEmpty(outputDir))
         throw new Exception("OUTPUT_DIR environment variable is not set.");
-    if (!Directory.Exists(outputDir))
-        Directory.CreateDirectory(outputDir);
-    return outputDir;
+    string typeDir = Path.Combine(outputDir, "Extensions");
+    if (!Directory.Exists(typeDir))
+        Directory.CreateDirectory(typeDir);
+    return typeDir;
 }
 
 

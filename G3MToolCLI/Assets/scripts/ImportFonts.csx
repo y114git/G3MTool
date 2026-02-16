@@ -55,21 +55,21 @@ foreach (string fontDir in fontDirs)
     string safeName = Path.GetFileName(fontDir);
     string jsonPath = Path.Combine(fontDir, "font.json");
     string pngPath = Path.Combine(fontDir, "texture.png");
-    
+
     if (!File.Exists(jsonPath))
     {
         PrintLine($"[ImportFonts] Skipping {safeName}: font.json not found");
         skipped++;
         continue;
     }
-    
+
     string fontName = safeName;
     try
     {
         string jsonContent = File.ReadAllText(jsonPath, Encoding.UTF8);
         JsonDocument jsonDoc = JsonDocument.Parse(jsonContent);
         JsonElement root = jsonDoc.RootElement;
-        
+
         if (root.TryGetProperty("name", out JsonElement nameElm))
         {
             fontName = nameElm.GetString() ?? safeName;
@@ -98,45 +98,63 @@ foreach (string fontDir in fontDirs)
             PrintLine($"[ImportFonts] Creating new font: {fontName}");
         }
 
-        
+
         if (File.Exists(pngPath))
         {
             using (var img = TextureWorker.ReadBGRAImageFromFile(pngPath))
             {
-                int lastTextPage = Data.EmbeddedTextures.Count - 1;
-                int lastTextPageItem = Data.TexturePageItems.Count - 1;
+                // For existing fonts, DO NOT update the EmbeddedTexture!
+                // The EmbeddedTexture is shared with other resources (tilesets, sprites)
+                // and is already updated by ImportEmbeddedTextures.
+                // We only update the TexturePageItem dimensions if needed.
+                if (!isNew && font.Texture?.TexturePage != null)
+                {
+                    // Only update TexturePageItem dimensions, not the EmbeddedTexture itself
+                    // The full texture is already imported via ImportEmbeddedTextures
+                    font.Texture.SourceWidth = (ushort)img.Width;
+                    font.Texture.SourceHeight = (ushort)img.Height;
+                    font.Texture.TargetWidth = (ushort)img.Width;
+                    font.Texture.TargetHeight = (ushort)img.Height;
+                    PrintLine($"[ImportFonts] Updated TexturePageItem dimensions for font: {fontName} (EmbeddedTexture preserved)");
+                }
+                else
+                {
+                    // Only create new textures for new fonts
+                    int lastTextPage = Data.EmbeddedTextures.Count - 1;
+                    int lastTextPageItem = Data.TexturePageItems.Count - 1;
 
-                UndertaleEmbeddedTexture newEmbeddedTexture = new UndertaleEmbeddedTexture();
-                newEmbeddedTexture.Name = new UndertaleString($"Texture {++lastTextPage}");
-                newEmbeddedTexture.TextureData.Image = GMImage.FromMagickImage(img).ConvertToPng();
-                Data.EmbeddedTextures.Add(newEmbeddedTexture);
+                    UndertaleEmbeddedTexture newEmbeddedTexture = new UndertaleEmbeddedTexture();
+                    newEmbeddedTexture.Name = new UndertaleString($"Texture {++lastTextPage}");
+                    newEmbeddedTexture.TextureData.Image = GMImage.FromMagickImage(img).ConvertToPng();
+                    Data.EmbeddedTextures.Add(newEmbeddedTexture);
 
-                ushort originalTargetX = font.Texture?.TargetX ?? 0;
-                ushort originalTargetY = font.Texture?.TargetY ?? 0;
-                ushort originalBoundingWidth = font.Texture?.BoundingWidth ?? (ushort)img.Width;
-                ushort originalBoundingHeight = font.Texture?.BoundingHeight ?? (ushort)img.Height;
+                    ushort originalTargetX = font.Texture?.TargetX ?? 0;
+                    ushort originalTargetY = font.Texture?.TargetY ?? 0;
+                    ushort originalBoundingWidth = font.Texture?.BoundingWidth ?? (ushort)img.Width;
+                    ushort originalBoundingHeight = font.Texture?.BoundingHeight ?? (ushort)img.Height;
 
-                UndertaleTexturePageItem newTexturePageItem = new UndertaleTexturePageItem();
-                newTexturePageItem.Name = new UndertaleString($"PageItem {++lastTextPageItem}");
-                newTexturePageItem.SourceX = 0;
-                newTexturePageItem.SourceY = 0;
-                newTexturePageItem.SourceWidth = (ushort)img.Width;
-                newTexturePageItem.SourceHeight = (ushort)img.Height;
-                newTexturePageItem.TargetX = originalTargetX;
-                newTexturePageItem.TargetY = originalTargetY;
-                newTexturePageItem.TargetWidth = (ushort)img.Width;
-                newTexturePageItem.TargetHeight = (ushort)img.Height;
-                newTexturePageItem.BoundingWidth = originalBoundingWidth;
-                newTexturePageItem.BoundingHeight = originalBoundingHeight;
-                newTexturePageItem.TexturePage = newEmbeddedTexture;
-                Data.TexturePageItems.Add(newTexturePageItem);
+                    UndertaleTexturePageItem newTexturePageItem = new UndertaleTexturePageItem();
+                    newTexturePageItem.Name = new UndertaleString($"PageItem {++lastTextPageItem}");
+                    newTexturePageItem.SourceX = 0;
+                    newTexturePageItem.SourceY = 0;
+                    newTexturePageItem.SourceWidth = (ushort)img.Width;
+                    newTexturePageItem.SourceHeight = (ushort)img.Height;
+                    newTexturePageItem.TargetX = originalTargetX;
+                    newTexturePageItem.TargetY = originalTargetY;
+                    newTexturePageItem.TargetWidth = (ushort)img.Width;
+                    newTexturePageItem.TargetHeight = (ushort)img.Height;
+                    newTexturePageItem.BoundingWidth = originalBoundingWidth;
+                    newTexturePageItem.BoundingHeight = originalBoundingHeight;
+                    newTexturePageItem.TexturePage = newEmbeddedTexture;
+                    Data.TexturePageItems.Add(newTexturePageItem);
 
-                font.Texture = newTexturePageItem;
-                // PrintLine($"[Font] {fontName}: texture imported");
+                    font.Texture = newTexturePageItem;
+                    PrintLine($"[ImportFonts] Created new texture for font: {fontName}");
+                }
             }
         }
 
-        
+
         if (root.TryGetProperty("displayName", out JsonElement displayNameElm))
         {
             string displayName = displayNameElm.GetString();
@@ -144,7 +162,7 @@ foreach (string fontDir in fontDirs)
                 font.DisplayName = Data.Strings.MakeString(displayName);
         }
 
-        
+
         if (root.TryGetProperty("emSize", out JsonElement emSizeElm))
             font.EmSize = (float)emSizeElm.GetDouble();
         if (root.TryGetProperty("emSizeIsFloat", out JsonElement emSizeIsFloatElm))
@@ -166,7 +184,7 @@ foreach (string fontDir in fontDirs)
         if (root.TryGetProperty("scaleY", out JsonElement scaleYElm))
             font.ScaleY = (float)scaleYElm.GetDouble();
 
-        
+
         if (Data.GeneralInfo?.BytecodeVersion >= 17 && root.TryGetProperty("ascenderOffset", out JsonElement ascenderOffsetElm))
             font.AscenderOffset = ascenderOffsetElm.GetInt32();
 
@@ -179,7 +197,7 @@ foreach (string fontDir in fontDirs)
         if (Data.IsVersionAtLeast(2023, 6) && root.TryGetProperty("lineHeight", out JsonElement lineHeightElm))
             font.LineHeight = (uint)lineHeightElm.GetInt64();
 
-        
+
         if (root.TryGetProperty("glyphs", out JsonElement glyphsElm) && glyphsElm.ValueKind == JsonValueKind.Array)
         {
             font.Glyphs.Clear();
@@ -202,7 +220,7 @@ foreach (string fontDir in fontDirs)
                 if (glyphElm.TryGetProperty("offset", out JsonElement offsetElm))
                     glyph.Offset = (short)offsetElm.GetInt32();
 
-                
+
                 if (glyphElm.TryGetProperty("kerning", out JsonElement kerningElm) && kerningElm.ValueKind == JsonValueKind.Array)
                 {
                     glyph.Kerning = new UndertaleSimpleListShort<UndertaleFont.Glyph.GlyphKerning>();
@@ -226,10 +244,8 @@ foreach (string fontDir in fontDirs)
         if (isNew)
         {
             Data.Fonts.Add(font);
-            // PrintLine($"[Font] {fontName}: Added to Data.Fonts");
         }
 
-        // PrintLine($"[Font] {fontName}: {(isNew ? "CREATED" : "UPDATED")} ({font.Glyphs.Count} glyphs)");
         imported++;
     }
     catch (Exception ex)

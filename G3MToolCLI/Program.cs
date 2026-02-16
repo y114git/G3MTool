@@ -1,4 +1,6 @@
 using System.CommandLine;
+using System.CommandLine.Builder;
+using System.CommandLine.Parsing;
 using G3MToolCLI.Commands;
 using G3MToolCLI.Services;
 
@@ -6,6 +8,8 @@ namespace G3MToolCLI;
 
 class Program
 {
+    public static bool JsonOutput { get; set; }
+
     static async Task<int> Main(string[] args)
     {
         var rootCommand = new RootCommand("Cross-platform tool for various actions with GameMaker data files.")
@@ -26,16 +30,10 @@ class Program
             description: "Enable verbose output");
         rootCommand.AddGlobalOption(verboseOption);
 
-        // Set verbose handler
-        rootCommand.SetHandler((verbose) =>
-        {
-            LogService.Verbose = verbose;
-        }, verboseOption);
-
         var logOption = new Option<string?>(
             aliases: ["--log", "-l"],
             description: "Enable logging. Default: logs/{command}_{timestamp}.log");
-        
+
         var jsonOption = new Option<bool>(
             name: "--json",
             description: "Output in JSON format (for info, patch validate)");
@@ -43,16 +41,28 @@ class Program
         rootCommand.AddGlobalOption(logOption);
         rootCommand.AddGlobalOption(jsonOption);
 
+        // Build parser with middleware to apply global options before any command handler
+        var parser = new CommandLineBuilder(rootCommand)
+            .UseDefaults()
+            .AddMiddleware(async (context, next) =>
+            {
+                var parseResult = context.ParseResult;
+                LogService.Verbose = parseResult.GetValueForOption(verboseOption);
+                JsonOutput = parseResult.GetValueForOption(jsonOption);
+                await next(context);
+            })
+            .Build();
+
         // Interactive mode when no arguments provided
         if (args.Length == 0)
         {
-            return await RunInteractiveMode(rootCommand);
+            return await RunInteractiveMode(parser);
         }
 
-        return await rootCommand.InvokeAsync(args);
+        return await parser.InvokeAsync(args);
     }
 
-    static async Task<int> RunInteractiveMode(RootCommand rootCommand)
+    static async Task<int> RunInteractiveMode(Parser parser)
     {
         Console.WriteLine("G3MTool - by Y114");
         Console.WriteLine("Type 'help' for available commands or 'exit' to quit");
@@ -91,7 +101,7 @@ class Program
 
             try
             {
-                await rootCommand.InvokeAsync(commandArgs);
+                await parser.InvokeAsync(commandArgs);
             }
             catch (Exception ex)
             {
@@ -137,6 +147,6 @@ class Program
             args.Add(currentArg.ToString());
         }
 
-        return args.ToArray();
+        return [.. args];
     }
 }

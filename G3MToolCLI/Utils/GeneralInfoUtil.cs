@@ -4,7 +4,7 @@ using UndertaleModLib.Models;
 
 namespace G3MToolCLI.Utils;
 
-public static class GeneralInfoHelper
+public static class GeneralInfoUtil
 {
     public static GeneralInfoData? ExtractGeneralInfo(UndertaleData data)
     {
@@ -41,9 +41,9 @@ public static class GeneralInfoHelper
     public static string GetVersionDisplay(UndertaleGeneralInfo? info)
     {
         if (info == null) return "Unknown";
-        
+
         var rawVersion = $"{info.Major}.{info.Minor}.{info.Release}.{info.Build}";
-        
+
         string interpretedVersion;
         if (info.Branch == UndertaleGeneralInfo.BranchType.LTS2022_0)
         {
@@ -63,14 +63,14 @@ public static class GeneralInfoHelper
                     interpretedVersion += $".{info.Build}";
             }
         }
-        
+
         var prefix = (info.Major < 2022 || (info.Major == 2022 && info.Minor < 3)) ? "GMS" : "GM";
-        
+
         if (rawVersion != interpretedVersion && info.Branch == UndertaleGeneralInfo.BranchType.LTS2022_0)
         {
             return $"{prefix} {interpretedVersion} (raw: {rawVersion})";
         }
-        
+
         return $"{prefix} {interpretedVersion}";
     }
 
@@ -106,13 +106,13 @@ public static class GeneralInfoHelper
         Console.WriteLine($"  License CRC32: {gi.LicenseCRC32}");
         Console.WriteLine($"  Active Targets: {gi.ActiveTargets}");
         Console.WriteLine($"  Room Order Count: {gi.RoomOrder?.Count ?? 0}");
-        
+
         if (gi.BytecodeVersion >= 14)
         {
             Console.WriteLine($"  Debugger Port: {gi.DebuggerPort}");
             Console.WriteLine($"  Debugger Disabled: {gi.IsDebuggerDisabled}");
         }
-        
+
         if (gi.Major >= 2)
         {
             Console.WriteLine($"  GMS2 FPS: {gi.GMS2FPS}");

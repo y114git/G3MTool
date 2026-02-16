@@ -1,28 +1,34 @@
+using G3MToolCLI.Services;
 using UndertaleModLib;
 using UndertaleModLib.Models;
 
-namespace G3MToolCLI.Services;
+namespace G3MToolCLI.Models;
 
+// ScriptGlobals is the API surface for CSX import/export scripts.
+// Methods must remain instance-based with their exact signatures - scripts call them via Roslyn globals.
+// Unused parameters and non-instance access are intentional (stub implementations for headless CLI).
+#pragma warning disable CA1822 // Member does not access instance data - required for CSX script API
+#pragma warning disable IDE0060 // Remove unused parameter - required for CSX script API
 public class ScriptGlobals
 {
     public UndertaleData Data { get; set; } = null!;
     public string FilePath { get; set; } = string.Empty;
     public string? ScriptPath { get; set; }
-    
+
     // Path to the data.win file being processed
     public string DataFilePath { get; set; } = string.Empty;
-    
+
     // Directories for export/import scripts - thread-safe, no environment variables
     public string OutputDir { get; set; } = string.Empty;
     public string InputDir { get; set; } = string.Empty;
-    
+
     // Verbose mode for detailed output
     public bool Verbose => LogService.Verbose;
-    
+
     private int _progressValue;
     private int _progressMax;
     private string? _progressStatus;
-    private readonly object _progressLock = new();
+    private readonly Lock _progressLock = new();
     private CancellationTokenSource? _progressUpdaterCts;
 
     public void EnsureDataLoaded()
@@ -117,10 +123,10 @@ public class ScriptGlobals
         // Only show script progress in verbose mode
         if (!LogService.Verbose)
             return;
-            
+
         _progressUpdaterCts = new CancellationTokenSource();
         var token = _progressUpdaterCts.Token;
-        
+
         Task.Run(async () =>
         {
             int lastValue = -1;
@@ -134,7 +140,7 @@ public class ScriptGlobals
                     max = _progressMax;
                     status = _progressStatus;
                 }
-                
+
                 if (current != lastValue && max > 0)
                 {
                     // Show simple percent progress
@@ -142,7 +148,7 @@ public class ScriptGlobals
                     Console.Write($"\r{status}: {percent}%   ");
                     lastValue = current;
                 }
-                
+
                 await Task.Delay(500, token).ConfigureAwait(false);
             }
         }, token);

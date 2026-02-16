@@ -41,12 +41,43 @@ if (roomDirs.Length == 0)
     return;
 }
 
-PrintLine($"[ImportRooms] Found {roomDirs.Length} room folder(s) to import.");
+// Try to read RoomOrder from GeneralInfo.json in patch to determine correct order for new rooms
+List<string> patchRoomOrder = new List<string>();
+string generalInfoPath = Path.Combine(Path.GetDirectoryName(roomsDir), "GeneralInfo", "GeneralInfo.json");
+if (File.Exists(generalInfoPath))
+{
+    try
+    {
+        string giJson = File.ReadAllText(generalInfoPath, Encoding.UTF8);
+        using JsonDocument giDoc = JsonDocument.Parse(giJson);
+        if (giDoc.RootElement.TryGetProperty("roomOrder", out JsonElement roomOrderElem))
+        {
+            foreach (JsonElement roomElem in roomOrderElem.EnumerateArray())
+            {
+                patchRoomOrder.Add(roomElem.GetString() ?? "");
+            }
+            PrintLine($"[ImportRooms] Loaded RoomOrder from patch with {patchRoomOrder.Count} rooms");
+        }
+    }
+    catch (Exception ex)
+    {
+        PrintLine($"[ImportRooms] Failed to read RoomOrder from patch: {ex.Message}");
+    }
+}
 
-SetProgressBar(null, "Importing Rooms", 0, roomDirs.Length);
+// Sort room directories by their order in patch RoomOrder (new rooms should be added in correct order)
+var sortedRoomDirs = roomDirs.OrderBy(dir => {
+    string roomName = Path.GetFileName(dir);
+    int idx = patchRoomOrder.IndexOf(roomName);
+    return idx >= 0 ? idx : int.MaxValue;
+}).ToArray();
+
+PrintLine($"[ImportRooms] Found {sortedRoomDirs.Length} room folder(s) to import.");
+
+SetProgressBar(null, "Importing Rooms", 0, sortedRoomDirs.Length);
 StartProgressBarUpdater();
 
-foreach (string roomDir in roomDirs)
+foreach (string roomDir in sortedRoomDirs)
 {
     string roomFile = Path.Combine(roomDir, "room.json");
     if (!File.Exists(roomFile))
@@ -73,6 +104,13 @@ foreach (string roomDir in roomDirs)
             room = new UndertaleRoom();
             room.Name = Data.Strings.MakeString(roomName);
             Data.Rooms.Add(room);
+            
+            // Add new room to RoomOrder so it can be navigated to
+            if (Data.GeneralInfo?.RoomOrder != null)
+            {
+                Data.GeneralInfo.RoomOrder.Add(new UndertaleResourceById<UndertaleRoom, UndertaleChunkROOM>() { Resource = room });
+            }
+            
             PrintLine($"[ImportRooms] Created new room: {roomName}");
         }
         else
@@ -88,7 +126,8 @@ foreach (string roomDir in roomDirs)
     }
     catch (Exception ex)
     {
-        PrintLine($"[ImportRooms] Error importing room {Path.GetFileName(roomFile)}: {ex.Message}");
+        PrintLine($"[ImportRooms] Error importing room {Path.GetFileName(roomDir)}: {ex.Message}");
+        PrintLine($"[ImportRooms] Stack trace: {ex.StackTrace}");
     }
 }
 
@@ -127,8 +166,21 @@ void UpdateRoomFromJson(UndertaleRoom room, JsonElement data)
         if (!string.IsNullOrEmpty(codeName))
         {
             var code = Data.Code.ByName(codeName);
-            if (code != null)
-                room.CreationCodeId = code;
+            if (code == null)
+            {
+                // Create the Code entry if it doesn't exist
+                code = new UndertaleCode();
+                code.Name = Data.Strings.MakeString(codeName);
+                Data.Code.Add(code);
+                
+                var codeLocals = new UndertaleCodeLocals();
+                codeLocals.Name = code.Name;
+                Data.CodeLocals.Add(codeLocals);
+                code.LocalsCount = 0;
+                
+                PrintLine($"[ImportRooms] Created placeholder Code entry: {codeName}");
+            }
+            room.CreationCodeId = code;
         }
     }
     
@@ -315,8 +367,21 @@ void UpdateRoomFromJson(UndertaleRoom room, JsonElement data)
                 if (!string.IsNullOrEmpty(codeName))
                 {
                     var code = Data.Code.ByName(codeName);
-                    if (code != null)
-                        gameObj.CreationCode = code;
+                    if (code == null)
+                    {
+                        // Create the Code entry if it doesn't exist
+                        code = new UndertaleCode();
+                        code.Name = Data.Strings.MakeString(codeName);
+                        Data.Code.Add(code);
+                        
+                        var codeLocals = new UndertaleCodeLocals();
+                        codeLocals.Name = code.Name;
+                        Data.CodeLocals.Add(codeLocals);
+                        code.LocalsCount = 0;
+                        
+                        PrintLine($"[ImportRooms] Created placeholder Code entry: {codeName}");
+                    }
+                    gameObj.CreationCode = code;
                 }
             }
             
@@ -338,8 +403,23 @@ void UpdateRoomFromJson(UndertaleRoom room, JsonElement data)
                 if (!string.IsNullOrEmpty(preCodeName))
                 {
                     var preCode = Data.Code.ByName(preCodeName);
-                    if (preCode != null)
-                        gameObj.PreCreateCode = preCode;
+                    if (preCode == null)
+                    {
+                        // CRITICAL FIX: Create the Code entry if it doesn't exist
+                        // This ensures preCreateCode scripts are linked even when Code is imported later
+                        preCode = new UndertaleCode();
+                        preCode.Name = Data.Strings.MakeString(preCodeName);
+                        Data.Code.Add(preCode);
+                        
+                        // Also create corresponding CodeLocals entry
+                        var codeLocals = new UndertaleCodeLocals();
+                        codeLocals.Name = preCode.Name;
+                        Data.CodeLocals.Add(codeLocals);
+                        preCode.LocalsCount = 0;
+                        
+                        PrintLine($"[ImportRooms] Created placeholder Code entry: {preCodeName}");
+                    }
+                    gameObj.PreCreateCode = preCode;
                 }
             }
             
@@ -444,6 +524,9 @@ void UpdateRoomFromJson(UndertaleRoom room, JsonElement data)
             int layerType = layerTypeElm.GetInt32();
             layer.LayerType = (UndertaleRoom.LayerType)layerType;
             
+            // Set ParentRoom early - required before setting Background sprite
+            // (LayerBackgroundData.Sprite setter calls ParentLayer.ParentRoom.UpdateBGColorLayer())
+            layer.ParentRoom = room;
             
             if (layerElm.TryGetProperty("layerName", out JsonElement nameElm) && nameElm.ValueKind == JsonValueKind.String)
                 layer.LayerName = Data.Strings.MakeString(nameElm.GetString());
@@ -585,8 +668,9 @@ void UpdateRoomFromJson(UndertaleRoom room, JsonElement data)
                 
                 if (layerElm.TryGetProperty("assetsData", out JsonElement assetsDataElm) && assetsDataElm.ValueKind == JsonValueKind.Object)
                 {
-                    
-                    if (assetsDataElm.TryGetProperty("legacyTiles", out JsonElement legacyTilesElm) && legacyTilesElm.ValueKind == JsonValueKind.Array)
+                    // Skip LegacyTiles for GMS 2023+ as they are unsupported
+                    bool supportsLegacyTiles = !Data.IsVersionAtLeast(2023, 1);
+                    if (supportsLegacyTiles && assetsDataElm.TryGetProperty("legacyTiles", out JsonElement legacyTilesElm) && legacyTilesElm.ValueKind == JsonValueKind.Array)
                     {
                         foreach (JsonElement tileElm in legacyTilesElm.EnumerateArray())
                         {
@@ -596,9 +680,9 @@ void UpdateRoomFromJson(UndertaleRoom room, JsonElement data)
                             if (tileElm.TryGetProperty("y", out JsonElement yElm) && yElm.ValueKind == JsonValueKind.Number)
                                 tile.Y = yElm.GetInt32();
                             if (tileElm.TryGetProperty("sourceX", out JsonElement sxElm) && sxElm.ValueKind == JsonValueKind.Number)
-                                tile.SourceX = (uint)sxElm.GetInt32();
+                                tile.SourceX = sxElm.GetInt32();
                             if (tileElm.TryGetProperty("sourceY", out JsonElement syElm) && syElm.ValueKind == JsonValueKind.Number)
-                                tile.SourceY = (uint)syElm.GetInt32();
+                                tile.SourceY = syElm.GetInt32();
                             if (tileElm.TryGetProperty("width", out JsonElement wElm) && wElm.ValueKind == JsonValueKind.Number)
                                 tile.Width = (uint)wElm.GetInt32();
                             if (tileElm.TryGetProperty("height", out JsonElement hElm) && hElm.ValueKind == JsonValueKind.Number)
@@ -646,9 +730,9 @@ void UpdateRoomFromJson(UndertaleRoom room, JsonElement data)
                                 }
                             }
                             if (sprElm.TryGetProperty("x", out JsonElement xElm) && xElm.ValueKind == JsonValueKind.Number)
-                                sprInst.X = (float)xElm.GetDouble();
+                                sprInst.X = xElm.GetInt32();
                             if (sprElm.TryGetProperty("y", out JsonElement yElm) && yElm.ValueKind == JsonValueKind.Number)
-                                sprInst.Y = (float)yElm.GetDouble();
+                                sprInst.Y = yElm.GetInt32();
                             if (sprElm.TryGetProperty("scaleX", out JsonElement sxElm) && sxElm.ValueKind == JsonValueKind.Number)
                                 sprInst.ScaleX = (float)sxElm.GetDouble();
                             if (sprElm.TryGetProperty("scaleY", out JsonElement syElm) && syElm.ValueKind == JsonValueKind.Number)
@@ -677,7 +761,7 @@ void UpdateRoomFromJson(UndertaleRoom room, JsonElement data)
                 layer.Data = effectData;
             }
             
-            layer.ParentRoom = room;
+            // ParentRoom already set at layer creation
             room.Layers.Add(layer);
         }
         

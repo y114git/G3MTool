@@ -43,8 +43,8 @@ public class DataFileInfo
     [JsonPropertyName("size")]
     public long Size { get; set; }
 
-    [JsonPropertyName("sha256")]
-    public string? Sha256 { get; set; }
+    [JsonPropertyName("md5")]
+    public string? Md5 { get; set; }
 
     [JsonPropertyName("bytecodeVersion")]
     public int BytecodeVersion { get; set; }
@@ -159,4 +159,10 @@ public class PatchStatistics
 
     [JsonPropertyName("totalDeleted")]
     public int TotalDeleted { get; set; }
+
+    [JsonPropertyName("totalChangedFiles")]
+    public int TotalChangedFiles { get; set; }
+
+    [JsonPropertyName("totalNewFiles")]
+    public int TotalNewFiles { get; set; }
 }

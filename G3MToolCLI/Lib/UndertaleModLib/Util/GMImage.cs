@@ -650,6 +650,12 @@ public class GMImage
     }
 
     /// <summary>
+    /// Returns the raw backing data bytes of this image (compressed or not, depending on format).
+    /// Useful for fast hashing/comparison without re-encoding.
+    /// </summary>
+    public byte[] GetData() => _data;
+
+    /// <summary>
     /// Saves this image as a PNG file, writing the data to the provided <see cref="Stream"/>.
     /// </summary>
     public void SavePng(Stream stream)
@@ -681,7 +687,7 @@ public class GMImage
             case ImageFormat.Bz2Qoi:
                 {
                     GMImage rawImage;
-                    
+
                     using (MemoryStream uncompressedData = new(GetInitialUncompressedBufferCapacity()))
                     {
                         // Decompress BZ2 data

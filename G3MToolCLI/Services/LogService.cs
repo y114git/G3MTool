@@ -1,9 +1,61 @@
+using System.Runtime.CompilerServices;
+
 namespace G3MToolCLI.Services;
+
+/// <summary>
+/// Interpolated string handler that skips string construction when verbose logging is disabled.
+/// </summary>
+[InterpolatedStringHandler]
+public ref struct LogInterpolatedStringHandler
+{
+    private DefaultInterpolatedStringHandler _inner;
+    private readonly bool _enabled;
+
+    public LogInterpolatedStringHandler(int literalLength, int formattedCount, out bool shouldAppend)
+    {
+        _enabled = LogService.Verbose && !LogService.Suppress;
+        shouldAppend = _enabled;
+        _inner = _enabled ? new DefaultInterpolatedStringHandler(literalLength, formattedCount) : default;
+    }
+
+    public void AppendLiteral(string value)
+    {
+        if (_enabled) _inner.AppendLiteral(value);
+    }
+
+    public void AppendFormatted<T>(T value)
+    {
+        if (_enabled) _inner.AppendFormatted(value);
+    }
+
+    public void AppendFormatted<T>(T value, string? format)
+    {
+        if (_enabled) _inner.AppendFormatted(value, format);
+    }
+
+    public void AppendFormatted<T>(T value, int alignment)
+    {
+        if (_enabled) _inner.AppendFormatted(value, alignment);
+    }
+
+    public void AppendFormatted<T>(T value, int alignment, string? format)
+    {
+        if (_enabled) _inner.AppendFormatted(value, alignment, format);
+    }
+
+    public void AppendFormatted(ReadOnlySpan<char> value)
+    {
+        if (_enabled) _inner.AppendFormatted(value);
+    }
+
+    public override string ToString() => _enabled ? _inner.ToString() : "";
+}
 
 public static class LogService
 {
     private static bool _verbose = false;
-    private static readonly object _lock = new();
+    private static bool _suppress = false;
+    private static readonly Lock _lock = new();
     private static int _lastProgressPercent = -1;
     private static string _currentOperation = "";
 
@@ -11,6 +63,12 @@ public static class LogService
     {
         get => _verbose;
         set => _verbose = value;
+    }
+
+    public static bool Suppress
+    {
+        get => _suppress;
+        set => _suppress = value;
     }
 
     public static void SetOperation(string operation)
@@ -27,6 +85,14 @@ public static class LogService
         }
     }
 
+    public static void Log(ref LogInterpolatedStringHandler handler)
+    {
+        if (_verbose && !_suppress)
+        {
+            Console.WriteLine(handler.ToString());
+        }
+    }
+
     public static void Info(string message)
     {
         Console.WriteLine(message);
@@ -39,43 +105,36 @@ public static class LogService
 
     public static void Warning(string message)
     {
-        if (_verbose)
-        {
-            Console.WriteLine($"[Warning] {message}");
-        }
+        if (_suppress) return;
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.WriteLine($"[Warning] {message}");
+        Console.ResetColor();
     }
 
-    public static void Progress(int current, int total, string? item = null)
+    public static void Progress(int current, int total)
     {
-        if (total <= 0) return;
+        if (total <= 0 || _suppress) return;
 
         int percent = (int)((current * 100.0) / total);
-        
+
         lock (_lock)
         {
-            // Only update if percent changed or it's 100%
-            if (percent != _lastProgressPercent || percent == 100)
-            {
-                _lastProgressPercent = percent;
-                
-                // Clear line and write progress (pad with spaces to clear previous content)
-                Console.Write($"\r{_currentOperation}: {percent}%          ");
-                
-                if (percent == 100)
-                {
-                    Console.WriteLine("\r" + _currentOperation + ": 100% Done          ");
-                }
-            }
+            // Never go backwards - clamp to max seen so far
+            if (percent <= _lastProgressPercent) return;
+            _lastProgressPercent = percent;
+            Console.Write($"\r{_currentOperation}: {percent}%          ");
         }
     }
 
     public static void ProgressComplete()
     {
+        if (_suppress) return;
         lock (_lock)
         {
-            if (_lastProgressPercent >= 0 && _lastProgressPercent < 100)
+            if (_lastProgressPercent >= 0)
             {
-                Console.WriteLine($"\r{_currentOperation}: 100% Done");
+                // Move to next line after progress, no "Done" text
+                Console.WriteLine();
             }
             _lastProgressPercent = -1;
         }

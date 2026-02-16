@@ -6,7 +6,7 @@ Cross-platform tool for various actions with GameMaker data files.
 
 - **xpatch** - Create and apply xdelta patches
 - **execute** - Execute programs, scripts (.csx), or xdelta commands
-- **patch** - Create, apply, and validate G3M patches
+- **patch** - Create, apply, merge and validate G3M patches
 - **info** - Display information about data files or patches
 - **diff** - Compare data files or patches
 
@@ -26,59 +26,140 @@ dotnet publish G3MToolCLI -c Release -r <platform>
 
 Output files are saved next to the G3MTool executable by default.
 
-### xdelta Patches
+### xpatch - xdelta Patches
+
+Create or apply binary xdelta patches.
 
 ```bash
 # Create xdelta patch
-(G3MTool) xpatch create original.win modified.win [output.xdelta]
+(G3MTool) xpatch create <original> <modified> [output]
 
 # Apply xdelta patch
-(G3MTool) xpatch apply original.win patch.xdelta [output.win]
+(G3MTool) xpatch apply <original> <patch> [output]
 ```
 
-### G3M Patches
+**Arguments:**
+- `original` - Path to original file
+- `modified` - Path to modified file (create) or patch file (apply)
+- `output` - (Optional) Output file path. Default: next to executable
+
+### patch - G3M Patches
+
+Create, apply, validate, or merge G3M resource patches.
+
+#### patch create
 
 ```bash
-# Create G3M patch
-(G3MTool) patch create original.win modified.win [output.zip]
-
-# Apply G3M patch
-(G3MTool) patch apply data.win patch.zip [output.win]
-
-# Validate patch
-(G3MTool) patch validate patch.zip --data data.win
+(G3MTool) patch create <original> <modified> [output]
 ```
 
-### Execute Scripts/Executables
+**Arguments:**
+- `original` - Path to original data.win
+- `modified` - Path to modified data.win or .xdelta file (auto-applied)
+- `output` - (Optional) Output .zip path. Default: `patch_{timestamp}.zip`
+
+#### patch apply
 
 ```bash
-# Execute .csx script with data file
-(G3MTool) execute script.csx --data data.win [--output modified.win]
+(G3MTool) patch apply <data> <patch> [output]
+```
 
-# Execute built-in script (e.g., export sprites to JSON)
-(G3MTool) execute ExportSprites.csx --data data.win
+**Arguments:**
+- `data` - Path to original data.win
+- `patch` - Path to patch (.zip, .xdelta, or data file - auto-converted)
+- `output` - (Optional) Output data.win path. Default: next to executable
+
+#### patch validate
+
+```bash
+(G3MTool) patch validate <patch> [--data <data.win>]
+```
+
+**Arguments:**
+- `patch` - Path to G3M patch file (.zip)
+
+**Options:**
+- `--data`, `-d` - (Optional) Path to data.win to check compatibility
+
+#### patch merge
+
+```bash
+(G3MTool) patch merge <original> <patch1> <patch2> [patch3...] [options]
+```
+
+**Arguments:**
+- `original` - Path to original data.win (required as context)
+- `patches` - 2+ patch files (low → high priority). Accepts .zip, .xdelta, or data files
+
+**Options:**
+- `--out`, `-o` - Output path for merged patch ZIP (default mode)
+- `--apply`, `-a` - Apply merged patch and save resulting data file to this path
+- `--code` - Enable deep merge for GML code files
+- `--properties` - Enable deep merge for JSON property files
+- `--report`, `-r` - Path for merge report (Markdown)
+
+**Note:** If no flags specified, creates merged patch ZIP by default.
+
+### execute - Scripts & Programs
+
+Execute .csx scripts, external programs, or xdelta commands.
+
+```bash
+# Execute .csx script
+(G3MTool) execute <script.csx> [args] --data <data.win> --output <output.win>
+
+# Execute with input directory (e.g., ImportSprites)
+(G3MTool) execute <script.csx> --data <data.win> --input <sprites/> --output <output.win>
 
 # Execute external program
-(G3MTool) execute program.exe arg1 arg2
+(G3MTool) execute <program.exe> [args...]
 
 # Passthrough to xdelta
 (G3MTool) execute xdelta -d -s original.win patch.xdelta output.win
 ```
 
-**Built-in scripts can be found [here](https://github.com/y114git/G3MTool/tree/main/G3MToolCLI/Assets/scripts).**
+**Arguments:**
+- `target` - Program, script (.csx), or 'xdelta'
+- `args` - Arguments to pass to the target
 
-### Info & Diff
+**Options:**
+- `--data`, `-d` - Path to data.win file (optional for .csx scripts)
+- `--output`, `-o` - Output file path (required when --data is used)
+- `--input`, `-i` - Input directory for scripts (e.g., sprites folder)
+
+**Built-in scripts:** [Assets/scripts](https://github.com/y114git/G3MTool/tree/main/G3MToolCLI/Assets/scripts)
+
+### info - File Information
+
+Display information about data.win or patch files.
 
 ```bash
-# Get info about data file
-(G3MTool) info data.win [--verbose]
-
-# Get info about patch
-(G3MTool) info patch.zip
-
-# Compare files (output directory optional)
-(G3MTool) diff data1.win data2.win [diff_output/]
+(G3MTool) info <target> [--verbose]
 ```
+
+**Arguments:**
+- `target` - Path to data.win or patch.zip
+
+**Options:**
+- `--verbose`, `-v` - Show detailed per-resource listing (every item with all properties)
+
+**Without -v:** Resource counts, GeneralInfo, breakdowns  
+**With -v:** Full per-resource detailed listing
+
+### diff - Compare Files
+
+Compare two data.win or patch files and generate a diff report.
+
+```bash
+(G3MTool) diff <file1> <file2> [output-dir]
+```
+
+**Arguments:**
+- `file1` - First file (data.win or patch.zip)
+- `file2` - Second file (data.win or patch.zip)
+- `output-dir` - (Optional) Output directory for diff report. Default: `./diff/`
+
+**Output:** Markdown diff report with resource-level changes
 
 ## Global Options
 

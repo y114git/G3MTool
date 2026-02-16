@@ -53,9 +53,9 @@ StartProgressBarUpdater();
 
 foreach (string textureGroupDir in textureGroupDirs)
 {
+    string textureGroupName = Path.GetFileName(textureGroupDir);
     try
     {
-        string textureGroupName = Path.GetFileName(textureGroupDir);
         string textureGroupFile = Path.Combine(textureGroupDir, textureGroupName + ".json");
         
         if (!File.Exists(textureGroupFile))
@@ -129,7 +129,7 @@ void UpdateTextureGroupFromJson(UndertaleTextureGroupInfo textureGroup, JsonElem
                 {
                     var texPage = Data.EmbeddedTextures.FirstOrDefault(t => t.Name?.Content == texPageName);
                     if (texPage != null)
-                        textureGroup.TexturePages.Add(texPage);
+                        textureGroup.TexturePages.Add(new UndertaleResourceById<UndertaleEmbeddedTexture, UndertaleChunkTXTR>(texPage));
                     else
                         PrintLine($"[ImportTextureGroupInfo] Warning: Texture page '{texPageName}' not found in game data.");
                 }
@@ -149,7 +149,7 @@ void UpdateTextureGroupFromJson(UndertaleTextureGroupInfo textureGroup, JsonElem
                 {
                     var sprite = Data.Sprites.ByName(spriteName);
                     if (sprite != null)
-                        textureGroup.Sprites.Add(sprite);
+                        textureGroup.Sprites.Add(new UndertaleResourceById<UndertaleSprite, UndertaleChunkSPRT>(sprite));
                     else
                         PrintLine($"[ImportTextureGroupInfo] Warning: Sprite '{spriteName}' not found in game data.");
                 }
@@ -171,7 +171,7 @@ void UpdateTextureGroupFromJson(UndertaleTextureGroupInfo textureGroup, JsonElem
                     {
                         var spineSprite = Data.Sprites.ByName(spineSpriteName);
                         if (spineSprite != null)
-                            textureGroup.SpineSprites.Add(spineSprite);
+                            textureGroup.SpineSprites.Add(new UndertaleResourceById<UndertaleSprite, UndertaleChunkSPRT>(spineSprite));
                         else
                             PrintLine($"[ImportTextureGroupInfo] Warning: Spine sprite '{spineSpriteName}' not found in game data.");
                     }
@@ -192,7 +192,7 @@ void UpdateTextureGroupFromJson(UndertaleTextureGroupInfo textureGroup, JsonElem
                 {
                     var font = Data.Fonts.ByName(fontName);
                     if (font != null)
-                        textureGroup.Fonts.Add(font);
+                        textureGroup.Fonts.Add(new UndertaleResourceById<UndertaleFont, UndertaleChunkFONT>(font));
                     else
                         PrintLine($"[ImportTextureGroupInfo] Warning: Font '{fontName}' not found in game data.");
                 }
@@ -212,7 +212,7 @@ void UpdateTextureGroupFromJson(UndertaleTextureGroupInfo textureGroup, JsonElem
                 {
                     var tileset = Data.Backgrounds.ByName(tilesetName);
                     if (tileset != null)
-                        textureGroup.Tilesets.Add(tileset);
+                        textureGroup.Tilesets.Add(new UndertaleResourceById<UndertaleBackground, UndertaleChunkBGND>(tileset));
                     else
                         PrintLine($"[ImportTextureGroupInfo] Warning: Tileset '{tilesetName}' not found in game data.");
                 }

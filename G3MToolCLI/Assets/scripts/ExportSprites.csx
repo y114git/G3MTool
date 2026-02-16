@@ -110,8 +110,16 @@ void ExportSprite(UndertaleSprite sprite, TextureWorker worker, string outputDir
 
     try
     {
+        int spriteIndex = Data.Sprites.IndexOf(sprite);
         string spriteName = SafeName(sprite.Name.Content);
-        string spriteFolder = Path.Combine(outputDir, spriteName);
+        
+        // Handle sprites with empty names - use index as folder name
+        string folderName = string.IsNullOrEmpty(spriteName) 
+            ? $"__unnamed_sprite__idx{spriteIndex}" 
+            : spriteName;
+        
+        // Use sprite name as folder name (index is stored in JSON metadata)
+        string spriteFolder = Path.Combine(outputDir, folderName);
         Directory.CreateDirectory(spriteFolder);
 
         
@@ -120,7 +128,7 @@ void ExportSprite(UndertaleSprite sprite, TextureWorker worker, string outputDir
             if (sprite.Textures[i]?.Texture is not null)
             {
                 UndertaleTexturePageItem tex = sprite.Textures[i].Texture;
-                string pngPath = Path.Combine(spriteFolder, $"{spriteName}_{i}.png");
+                string pngPath = Path.Combine(spriteFolder, $"{folderName}_{i}.png");
                 ExportSourcePixelsAsPNG(worker, tex, pngPath);
             }
         }
@@ -128,6 +136,7 @@ void ExportSprite(UndertaleSprite sprite, TextureWorker worker, string outputDir
         
         var spriteMeta = new Dictionary<string, object>
         {
+            ["index"] = Data.Sprites.IndexOf(sprite),
             ["name"] = sprite.Name?.Content ?? "",
             ["width"] = sprite.Width,
             ["height"] = sprite.Height,
@@ -154,9 +163,12 @@ void ExportSprite(UndertaleSprite sprite, TextureWorker worker, string outputDir
             if (texEntry?.Texture != null)
             {
                 var tex = texEntry.Texture;
+                // Get texture page index for proper reference during import
+                int texturePageIndex = tex.TexturePage != null ? Data.EmbeddedTextures.IndexOf(tex.TexturePage) : -1;
                 textureFrames.Add(new Dictionary<string, object>
                 {
                     ["frameIndex"] = i,
+                    ["texturePageIndex"] = texturePageIndex,
                     ["sourceX"] = tex.SourceX,
                     ["sourceY"] = tex.SourceY,
                     ["sourceWidth"] = tex.SourceWidth,
@@ -247,7 +259,7 @@ void ExportSprite(UndertaleSprite sprite, TextureWorker worker, string outputDir
 
         
         string metaJson = JsonSerializer.Serialize(spriteMeta, jsonWriteOptions);
-        string metaFile = Path.Combine(spriteFolder, $"{spriteName}.json");
+        string metaFile = Path.Combine(spriteFolder, $"{folderName}.json");
         File.WriteAllText(metaFile, metaJson, Encoding.UTF8);
     }
     catch (Exception ex)

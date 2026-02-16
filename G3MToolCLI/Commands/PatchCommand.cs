@@ -8,10 +8,10 @@ public static class PatchCommand
 {
     public static Command Create()
     {
-        var command = new Command("patch", "Create, apply, or validate G3M resource patches");
+        var command = new Command("patch", "Create, apply, validate, or merge G3M resource patches. Subcommands: create, apply, validate, merge");
 
         // patch create
-        var createCommand = new Command("create", "Create a G3M patch from two data files");
+        var createCommand = new Command("create", "Create a G3M patch by comparing original and modified data.win files.\n  Usage: patch create <original> <modified> [output]");
         var originalArg = new Argument<FileInfo>("original", "Path to original data.win");
         var modifiedArg = new Argument<FileInfo>("modified", "Path to modified data.win");
         var outputArg = new Argument<FileInfo?>("output", () => null, "Output patch file (optional). Default: next to G3MTool executable");
@@ -22,92 +22,64 @@ public static class PatchCommand
 
         createCommand.SetHandler(async (original, modified, output) =>
         {
-            var patchService = new PatchService();
             var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-            var defaultOutput = Path.Combine(PlatformUtils.GetExecutableDirectory(), $"patch_{timestamp}.zip");
+            var defaultOutput = Path.Combine(PlatformUtil.GetExecutableDirectory(), $"patch_{timestamp}.zip");
             var outputPath = output?.FullName ?? defaultOutput;
-            
+
             LogService.Log($"Creating G3M patch...");
             LogService.Log($"  Original: {original.FullName}");
             LogService.Log($"  Modified: {modified.FullName}");
             LogService.Log($"  Output:   {outputPath}");
 
-            var modifiedPath = modified.FullName;
-            string? tempModifiedFile = null;
+            var result = await PatchService.CreatePatchAsync(original.FullName, modified.FullName, outputPath);
 
-            // If modified is an xdelta patch, apply it first to get the actual modified data
-            if (modified.Extension.Equals(".xdelta", StringComparison.OrdinalIgnoreCase))
+            if (result.Success)
             {
-                LogService.Log("[PatchCommand] Detected xdelta patch, applying to original first...");
-                var xdeltaService = new XDeltaService();
-                tempModifiedFile = Path.Combine(Path.GetTempPath(), $"g3mtool_mod_{Guid.NewGuid():N}.win");
-                
-                var xdeltaResult = await xdeltaService.ApplyPatchAsync(original.FullName, modified.FullName, tempModifiedFile);
-                if (!xdeltaResult.Success)
+                Console.WriteLine($"Patch created successfully: {outputPath}");
+                var s = result.Statistics;
+                if (s != null)
                 {
-                    Console.Error.WriteLine($"Error applying xdelta: {xdeltaResult.Error}");
-                    Environment.ExitCode = 1;
-                    return;
-                }
-                
-                LogService.Log($"[PatchCommand] xdelta applied, using temp file: {tempModifiedFile}");
-                modifiedPath = tempModifiedFile;
-            }
-
-            try
-            {
-                var result = await patchService.CreatePatchAsync(original.FullName, modifiedPath, outputPath);
-            
-                if (result.Success)
-                {
-                    Console.WriteLine($"Patch created successfully: {outputPath}");
-                    Console.WriteLine($"  Changed: {result.Statistics?.TotalChanged ?? 0}");
-                    Console.WriteLine($"  New:     {result.Statistics?.TotalNew ?? 0}");
-                    Console.WriteLine($"  Deleted: {result.Statistics?.TotalDeleted ?? 0}");
-                }
-                else
-                {
-                    Console.Error.WriteLine($"Error: {result.Error}");
-                    Environment.ExitCode = 1;
+                    Console.WriteLine(s.TotalChangedFiles > 0
+                        ? $"  Changed: {s.TotalChanged} ({s.TotalChangedFiles} files)"
+                        : $"  Changed: {s.TotalChanged}");
+                    Console.WriteLine(s.TotalNewFiles > 0
+                        ? $"  New:     {s.TotalNew} ({s.TotalNewFiles} files)"
+                        : $"  New:     {s.TotalNew}");
+                    Console.WriteLine($"  Deleted: {s.TotalDeleted}");
                 }
             }
-            finally
+            else
             {
-                // Cleanup temp file if created
-                if (tempModifiedFile != null && File.Exists(tempModifiedFile))
-                {
-                    try { File.Delete(tempModifiedFile); } catch { }
-                }
+                Console.Error.WriteLine($"Error: {result.Error}");
+                Environment.ExitCode = 1;
             }
         }, originalArg, modifiedArg, outputArg);
 
         // patch apply
-        var applyCommand = new Command("apply", "Apply a G3M patch to a data file");
-        var dataArg = new Argument<FileInfo>("data", "Path to data.win to patch");
-        var patchArg = new Argument<FileInfo>("patch", "Path to G3M patch file (.zip)");
+        var applyCommand = new Command("apply", "Apply a G3M patch to a data.win file.\n  Input can be .zip, .xdelta, or data file (.win/.ios/.droid/.unx).\n  Non-ZIP inputs are auto-converted using the original data.win as reference.\n  Usage: patch apply <data> <patch> [output]");
+        var dataArg = new Argument<FileInfo>("data", "Path to original data.win");
+        var patchArg = new Argument<FileInfo>("patch", "Path to patch file (.zip, .xdelta, or data file)");
         var applyOutputArg = new Argument<FileInfo?>("output", () => null, "Output file (optional). Default: next to G3MTool executable");
-        var skipValidationOption = new Option<bool>(
-            name: "--skip-validation",
-            description: "Skip patch validation before applying");
 
         applyCommand.AddArgument(dataArg);
         applyCommand.AddArgument(patchArg);
         applyCommand.AddArgument(applyOutputArg);
-        applyCommand.AddOption(skipValidationOption);
 
-        applyCommand.SetHandler(async (data, patch, output, skipValidation) =>
+        applyCommand.SetHandler(async (data, patch, output) =>
         {
-            var patchService = new PatchService();
-            var defaultOutput = Path.Combine(PlatformUtils.GetExecutableDirectory(), Path.GetFileName(data.FullName));
+            var defaultOutput = Path.Combine(PlatformUtil.GetExecutableDirectory(), Path.GetFileName(data.FullName));
             var outputPath = output?.FullName ?? defaultOutput;
-            
+
+            // Auto-convert non-ZIP inputs to patch ZIP
+            var patchPath = await PatchService.EnsureG3MPatchAsync(data.FullName, patch.FullName);
+
             LogService.Log($"Applying G3M patch...");
             LogService.Log($"  Data:   {data.FullName}");
-            LogService.Log($"  Patch:  {patch.FullName}");
+            LogService.Log($"  Patch:  {patchPath}");
             LogService.Log($"  Output: {outputPath}");
 
-            var result = await patchService.ApplyPatchAsync(data.FullName, patch.FullName, outputPath, skipValidation);
-            
+            var result = await PatchService.ApplyPatchAsync(data.FullName, patchPath, outputPath);
+
             if (result.Success)
             {
                 Console.WriteLine($"Patch applied successfully: {outputPath}");
@@ -117,10 +89,10 @@ public static class PatchCommand
                 Console.Error.WriteLine($"Error: {result.Error}");
                 Environment.ExitCode = 1;
             }
-        }, dataArg, patchArg, applyOutputArg, skipValidationOption);
+        }, dataArg, patchArg, applyOutputArg);
 
         // patch validate
-        var validateCommand = new Command("validate", "Validate a G3M patch");
+        var validateCommand = new Command("validate", "Validate a G3M patch file and optionally check compatibility with a data.win.\n  Usage: patch validate <patch> [--data <data.win>]");
         var validatePatchArg = new Argument<FileInfo>("patch", "Path to G3M patch file (.zip)");
         var validateDataOption = new Option<FileInfo?>(
             aliases: ["--data", "-d"],
@@ -131,12 +103,10 @@ public static class PatchCommand
 
         validateCommand.SetHandler(async (patch, data) =>
         {
-            var patchService = new PatchService();
-            
             Console.WriteLine($"Validating G3M patch: {patch.FullName}");
 
-            var result = await patchService.ValidatePatchAsync(patch.FullName, data?.FullName);
-            
+            var result = await PatchService.ValidatePatchAsync(patch.FullName, data?.FullName);
+
             if (result.Success)
             {
                 Console.WriteLine("Patch is valid.");
@@ -154,10 +124,77 @@ public static class PatchCommand
             }
         }, validatePatchArg, validateDataOption);
 
+        // patch merge
+        var mergeCommand = new Command("merge",
+            "Merge multiple G3M patches into a single coherent patch.\n" +
+            "  The first argument is the original data.win (required as context).\n" +
+            "  Subsequent arguments are patches (from lowest to highest priority).\n" +
+            "  Input can be .zip/.g3mpatch, .xdelta, or data file (.win/.ios/.droid/.unx).\n" +
+            "  Usage: patch merge <original.win> <patch1> <patch2> [patch3...] [flags]");
+
+        var mergeOriginalArg = new Argument<FileInfo>("original", "Path to original data.win");
+        var mergePatchesArg = new Argument<FileInfo[]>("patches", "Patch files (low → high priority)")
+        {
+            Arity = new ArgumentArity(2, 100)
+        };
+
+        var mergeOutOption = new Option<string?>(
+            aliases: ["--out", "-o"],
+            description: "Output path for merged patch ZIP (default if no flags specified)");
+
+        var mergeApplyOption = new Option<string?>(
+            aliases: ["--apply", "-a"],
+            description: "Apply merged patch and save the resulting data file to this path");
+
+        var mergeCodeOption = new Option<bool>(
+            name: "--code",
+            description: "Enable Git-style 3-way merge for GML code files");
+
+        var mergePropertiesOption = new Option<bool>(
+            name: "--properties",
+            description: "Enable deep merge for JSON property files");
+
+        var mergeReportOption = new Option<string?>(
+            aliases: ["--report", "-r"],
+            description: "Path for the merge report (Markdown)");
+
+        mergeCommand.AddArgument(mergeOriginalArg);
+        mergeCommand.AddArgument(mergePatchesArg);
+        mergeCommand.AddOption(mergeOutOption);
+        mergeCommand.AddOption(mergeApplyOption);
+        mergeCommand.AddOption(mergeCodeOption);
+        mergeCommand.AddOption(mergePropertiesOption);
+        mergeCommand.AddOption(mergeReportOption);
+
+        mergeCommand.SetHandler(async (original, patches, outPath, applyPath, code, properties, conflictsLog) =>
+        {
+            var patchPaths = patches.Select(p => p.FullName).ToList();
+
+            var options = new MergeOptions
+            {
+                OutputPath = outPath,
+                ApplyPath = applyPath,
+                UseCodeMerge = code,
+                UsePropertyMerge = properties,
+                ReportPath = conflictsLog
+            };
+
+            var result = await MergeService.MergePatchesAsync(original.FullName, patchPaths, options);
+
+            if (!result.Success)
+            {
+                Console.Error.WriteLine($"Error: {result.Error}");
+                Environment.ExitCode = 1;
+            }
+        }, mergeOriginalArg, mergePatchesArg, mergeOutOption, mergeApplyOption,
+           mergeCodeOption, mergePropertiesOption, mergeReportOption);
+
         command.AddCommand(createCommand);
         command.AddCommand(applyCommand);
         command.AddCommand(validateCommand);
+        command.AddCommand(mergeCommand);
 
         return command;
     }
+
 }

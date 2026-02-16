@@ -8,7 +8,7 @@ public static class DiffCommand
 {
     public static Command Create()
     {
-        var command = new Command("diff", "Compare data files or patches");
+        var command = new Command("diff", "Compare two data.win or patch files and generate a diff report.\n  Usage: diff <file1> <file2> [output-dir]");
 
         var file1Arg = new Argument<FileInfo>("file1", "First file (data.win or patch.zip)");
         var file2Arg = new Argument<FileInfo>("file2", "Second file (data.win or patch.zip)");
@@ -20,19 +20,18 @@ public static class DiffCommand
 
         command.SetHandler(async (file1, file2, output) =>
         {
-            var diffService = new DiffService();
             var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-            var defaultOutputDir = Path.Combine(PlatformUtils.GetExecutableDirectory(), "diff");
+            var defaultOutputDir = Path.Combine(PlatformUtil.GetExecutableDirectory(), "diff");
             var outputDir = output?.FullName ?? defaultOutputDir;
             var outputPath = Path.Combine(outputDir, $"diff_{timestamp}.md");
-            
+
             Console.WriteLine($"Comparing files...");
             Console.WriteLine($"  File 1: {file1.FullName}");
             Console.WriteLine($"  File 2: {file2.FullName}");
             Console.WriteLine($"  Output: {outputPath}");
 
-            var result = await diffService.CompareAsync(file1.FullName, file2.FullName, outputPath);
-            
+            var result = await DiffService.CompareAsync(file1.FullName, file2.FullName, outputPath);
+
             if (result.Success)
             {
                 Console.WriteLine($"Diff report created: {outputPath}");

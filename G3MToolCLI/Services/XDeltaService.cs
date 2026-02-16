@@ -9,7 +9,7 @@ public class XDeltaService
 
     public XDeltaService()
     {
-        _xdeltaPath = PlatformUtils.GetXDeltaPath();
+        _xdeltaPath = PlatformUtil.GetXDeltaPath();
     }
 
     public async Task<XDeltaResult> CreatePatchAsync(string originalPath, string modifiedPath, string outputPath)
@@ -19,7 +19,7 @@ public class XDeltaService
 
         if (!File.Exists(originalPath))
             return new XDeltaResult { Success = false, Error = $"Original file not found: {originalPath}" };
-        
+
         if (!File.Exists(modifiedPath))
             return new XDeltaResult { Success = false, Error = $"Modified file not found: {modifiedPath}" };
 
@@ -39,7 +39,7 @@ public class XDeltaService
 
         if (!File.Exists(originalPath))
             return new XDeltaResult { Success = false, Error = $"Original file not found: {originalPath}" };
-        
+
         if (!File.Exists(patchPath))
             return new XDeltaResult { Success = false, Error = $"Patch file not found: {patchPath}" };
 
@@ -98,9 +98,9 @@ public class XDeltaService
             }
             else
             {
-                return new XDeltaResult 
-                { 
-                    Success = false, 
+                return new XDeltaResult
+                {
+                    Success = false,
                     Error = string.IsNullOrEmpty(error) ? $"xdelta exited with code {process.ExitCode}" : error,
                     Output = output
                 };

@@ -1,7 +1,7 @@
 using System.CommandLine;
 using G3MToolCLI.Services;
 using G3MToolCLI.Utils;
-using static G3MToolCLI.Utils.GameDataExtensions;
+using static G3MToolCLI.Utils.DataFileExtensionUtil;
 
 namespace G3MToolCLI.Commands;
 
@@ -9,10 +9,10 @@ public static class XPatchCommand
 {
     public static Command Create()
     {
-        var command = new Command("xpatch", "Create or apply xdelta patches");
+        var command = new Command("xpatch", "Create or apply xdelta patches. Subcommands: create, apply");
 
         // xpatch create
-        var createCommand = new Command("create", "Create an xdelta patch from two files");
+        var createCommand = new Command("create", "Create an xdelta patch from two files.\n  Usage: xpatch create <original> <modified> [output]");
         var originalArg = new Argument<FileInfo>("original", "Path to original file");
         var modifiedArg = new Argument<FileInfo>("modified", "Path to modified file");
         var outputArg = new Argument<FileInfo?>("output", () => null, "Output patch file (optional). Default: next to G3MTool executable");
@@ -24,16 +24,16 @@ public static class XPatchCommand
         createCommand.SetHandler(async (original, modified, output) =>
         {
             var xdelta = new XDeltaService();
-            var defaultOutput = Path.Combine(PlatformUtils.GetExecutableDirectory(), Path.ChangeExtension(Path.GetFileName(modified.FullName), ".xdelta"));
+            var defaultOutput = Path.Combine(PlatformUtil.GetExecutableDirectory(), Path.ChangeExtension(Path.GetFileName(modified.FullName), ".xdelta"));
             var outputPath = output?.FullName ?? defaultOutput;
-            
+
             Console.WriteLine($"Creating xdelta patch...");
             Console.WriteLine($"  Original: {original.FullName}");
             Console.WriteLine($"  Modified: {modified.FullName}");
             Console.WriteLine($"  Output:   {outputPath}");
 
             var result = await xdelta.CreatePatchAsync(original.FullName, modified.FullName, outputPath);
-            
+
             if (result.Success)
             {
                 Console.WriteLine($"Patch created successfully: {outputPath}");
@@ -46,7 +46,7 @@ public static class XPatchCommand
         }, originalArg, modifiedArg, outputArg);
 
         // xpatch apply
-        var applyCommand = new Command("apply", "Apply an xdelta patch");
+        var applyCommand = new Command("apply", "Apply an xdelta patch to a file.\n  Usage: xpatch apply <original> <patch> [output]");
         var applyOriginalArg = new Argument<FileInfo>("original", "Path to original file");
         var patchArg = new Argument<FileInfo>("patch", "Path to xdelta patch file");
         var applyOutputArg = new Argument<FileInfo?>("output", () => null, "Output file (optional). Default: next to G3MTool executable");
@@ -59,16 +59,16 @@ public static class XPatchCommand
         {
             var xdelta = new XDeltaService();
             var outputExt = GetOutputExtension(original.FullName);
-            var defaultOutput = Path.Combine(PlatformUtils.GetExecutableDirectory(), Path.GetFileNameWithoutExtension(original.FullName) + "_patched" + outputExt);
+            var defaultOutput = Path.Combine(PlatformUtil.GetExecutableDirectory(), Path.GetFileNameWithoutExtension(original.FullName) + "_patched" + outputExt);
             var outputPath = output?.FullName ?? defaultOutput;
-            
+
             Console.WriteLine($"Applying xdelta patch...");
             Console.WriteLine($"  Original: {original.FullName}");
             Console.WriteLine($"  Patch:    {patch.FullName}");
             Console.WriteLine($"  Output:   {outputPath}");
 
             var result = await xdelta.ApplyPatchAsync(original.FullName, patch.FullName, outputPath);
-            
+
             if (result.Success)
             {
                 Console.WriteLine($"Patch applied successfully: {outputPath}");

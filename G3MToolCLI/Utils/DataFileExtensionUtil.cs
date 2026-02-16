@@ -3,7 +3,7 @@ namespace G3MToolCLI.Utils;
 /// <summary>
 /// Utility class for handling GameMaker data file extensions across platforms.
 /// </summary>
-public static class GameDataExtensions
+public static class DataFileExtensionUtil
 {
     /// <summary>
     /// Valid GameMaker data file extensions for all platforms.
