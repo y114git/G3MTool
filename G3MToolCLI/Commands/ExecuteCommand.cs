@@ -8,14 +8,14 @@ public static class ExecuteCommand
 {
     public static Command Create()
     {
-        var command = new Command("execute", "Execute .csx scripts, external programs, or xdelta commands.\n  Usage: execute <target> [args] --data <data.win> --output <output.win>\n  Examples:\n    execute script.csx --data data.win --output patched.win\n    execute xdelta -d -s original.win patch.xdelta output.win");
+        var command = new Command("execute", "Execute .csx scripts, external programs, or xdelta commands.\n  Usage: execute <target> [args] --data <data-file> --output <output-file>\n  Examples:\n    execute script.csx --data data.win --output patched.win\n    execute xdelta -d -s original.win patch.xdelta output.win");
 
         var targetArg = new Argument<string>("target", "Program, script (.csx), or 'xdelta' to execute");
         var argsArg = new Argument<string[]>("args", () => [], "Arguments to pass");
 
         var dataOption = new Option<FileInfo?>(
             aliases: ["--data", "-d"],
-            description: "Path to data.win file (optional for .csx scripts)");
+            description: "Path to data file (.win/.ios/.droid/.unx) (optional for .csx scripts)");
 
         var outputOption = new Option<FileInfo?>(
             aliases: ["--output", "-o"],

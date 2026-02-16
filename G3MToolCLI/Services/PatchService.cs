@@ -1624,7 +1624,7 @@ public partial class PatchService
     {
         var ext = Path.GetExtension(inputPath).ToLowerInvariant();
 
-        if (ext is ".zip" or ".g3mpatch")
+        if (ext == ".zip")
             return inputPath;
 
         string dataFilePath;

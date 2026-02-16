@@ -8,10 +8,10 @@ public static class DiffCommand
 {
     public static Command Create()
     {
-        var command = new Command("diff", "Compare two data.win or patch files and generate a diff report.\n  Usage: diff <file1> <file2> [output-dir]");
+        var command = new Command("diff", "Compare two data files or patch files and generate a diff report.\n  Usage: diff <file1> <file2> [output-dir]");
 
-        var file1Arg = new Argument<FileInfo>("file1", "First file (data.win or patch.zip)");
-        var file2Arg = new Argument<FileInfo>("file2", "Second file (data.win or patch.zip)");
+        var file1Arg = new Argument<FileInfo>("file1", "First file (data file or patch.zip)");
+        var file2Arg = new Argument<FileInfo>("file2", "Second file (data file or patch.zip)");
         var outputArg = new Argument<DirectoryInfo?>("output", () => null, "Output directory for diff report (optional). Default: next to G3MTool executable");
 
         command.AddArgument(file1Arg);

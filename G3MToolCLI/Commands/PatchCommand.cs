@@ -11,9 +11,9 @@ public static class PatchCommand
         var command = new Command("patch", "Create, apply, validate, or merge G3M resource patches. Subcommands: create, apply, validate, merge");
 
         // patch create
-        var createCommand = new Command("create", "Create a G3M patch by comparing original and modified data.win files.\n  Usage: patch create <original> <modified> [output]");
-        var originalArg = new Argument<FileInfo>("original", "Path to original data.win");
-        var modifiedArg = new Argument<FileInfo>("modified", "Path to modified data.win");
+        var createCommand = new Command("create", "Create a G3M patch by comparing original and modified data files.\n  Usage: patch create <original> <modified> [output]");
+        var originalArg = new Argument<FileInfo>("original", "Path to original data file (.win/.ios/.droid/.unx)");
+        var modifiedArg = new Argument<FileInfo>("modified", "Path to modified data file (.win/.ios/.droid/.unx)");
         var outputArg = new Argument<FileInfo?>("output", () => null, "Output patch file (optional). Default: next to G3MTool executable");
 
         createCommand.AddArgument(originalArg);
@@ -56,8 +56,8 @@ public static class PatchCommand
         }, originalArg, modifiedArg, outputArg);
 
         // patch apply
-        var applyCommand = new Command("apply", "Apply a G3M patch to a data.win file.\n  Input can be .zip, .xdelta, or data file (.win/.ios/.droid/.unx).\n  Non-ZIP inputs are auto-converted using the original data.win as reference.\n  Usage: patch apply <data> <patch> [output]");
-        var dataArg = new Argument<FileInfo>("data", "Path to original data.win");
+        var applyCommand = new Command("apply", "Apply a G3M patch to a data file.\n  Input can be .zip, .xdelta, or data file (.win/.ios/.droid/.unx).\n  Non-ZIP inputs are auto-converted using the original data file as reference.\n  Usage: patch apply <data> <patch> [output]");
+        var dataArg = new Argument<FileInfo>("data", "Path to original data file (.win/.ios/.droid/.unx)");
         var patchArg = new Argument<FileInfo>("patch", "Path to patch file (.zip, .xdelta, or data file)");
         var applyOutputArg = new Argument<FileInfo?>("output", () => null, "Output file (optional). Default: next to G3MTool executable");
 
@@ -92,11 +92,11 @@ public static class PatchCommand
         }, dataArg, patchArg, applyOutputArg);
 
         // patch validate
-        var validateCommand = new Command("validate", "Validate a G3M patch file and optionally check compatibility with a data.win.\n  Usage: patch validate <patch> [--data <data.win>]");
+        var validateCommand = new Command("validate", "Validate a G3M patch file and optionally check compatibility with a data file.\n  Usage: patch validate <patch> [--data <data-file>]");
         var validatePatchArg = new Argument<FileInfo>("patch", "Path to G3M patch file (.zip)");
         var validateDataOption = new Option<FileInfo?>(
             aliases: ["--data", "-d"],
-            description: "Optional data.win to check compatibility");
+            description: "Optional data file (.win/.ios/.droid/.unx) to check compatibility");
 
         validateCommand.AddArgument(validatePatchArg);
         validateCommand.AddOption(validateDataOption);
@@ -127,12 +127,12 @@ public static class PatchCommand
         // patch merge
         var mergeCommand = new Command("merge",
             "Merge multiple G3M patches into a single coherent patch.\n" +
-            "  The first argument is the original data.win (required as context).\n" +
+            "  The first argument is the original data file (required as context).\n" +
             "  Subsequent arguments are patches (from lowest to highest priority).\n" +
-            "  Input can be .zip/.g3mpatch, .xdelta, or data file (.win/.ios/.droid/.unx).\n" +
-            "  Usage: patch merge <original.win> <patch1> <patch2> [patch3...] [flags]");
+            "  Input can be .zip, .xdelta, or data file (.win/.ios/.droid/.unx).\n" +
+            "  Usage: patch merge <original> <patch1> <patch2> [patch3...] [flags]");
 
-        var mergeOriginalArg = new Argument<FileInfo>("original", "Path to original data.win");
+        var mergeOriginalArg = new Argument<FileInfo>("original", "Path to original data file (.win/.ios/.droid/.unx)");
         var mergePatchesArg = new Argument<FileInfo[]>("patches", "Patch files (low → high priority)")
         {
             Arity = new ArgumentArity(2, 100)

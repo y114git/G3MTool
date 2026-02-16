@@ -10,11 +10,17 @@ namespace G3MToolCLI.Commands;
 public static class InfoCommand
 {
     private static readonly JsonSerializerOptions s_jsonOptions = new() { WriteIndented = true };
+
+    private static bool IsPatchExtension(string? extension)
+    {
+        return extension?.ToLowerInvariant() == ".zip";
+    }
+
     public static Command Create()
     {
-        var command = new Command("info", "Display information about a data.win or .g3m/.zip patch file.\n  Usage: info <target>\n  Without -v: resource counts, GeneralInfo, breakdowns\n  With -v: full per-resource detailed listing");
+        var command = new Command("info", "Display information about a data file or .zip patch file.\n  Usage: info <target>\n  Without -v: resource counts, GeneralInfo, breakdowns\n  With -v: full per-resource detailed listing");
 
-        var targetArg = new Argument<FileInfo>("target", "Path to data.win or patch.zip");
+        var targetArg = new Argument<FileInfo>("target", "Path to data file (.win/.ios/.droid/.unx) or patch.zip");
         var verboseOption = new Option<bool>(
             aliases: ["--verbose", "-v"],
             description: "Show detailed per-resource listing (every item with all properties)");
@@ -26,9 +32,9 @@ public static class InfoCommand
         {
             var jsonOutput = Program.JsonOutput;
 
-            var extension = Path.GetExtension(target.FullName).ToLowerInvariant();
+            var extension = Path.GetExtension(target.FullName);
 
-            if (extension == ".zip")
+            if (IsPatchExtension(extension))
             {
                 await ShowPatchInfoAsync(target.FullName, verbose, jsonOutput);
             }

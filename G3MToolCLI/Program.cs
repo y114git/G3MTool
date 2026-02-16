@@ -59,7 +59,14 @@ class Program
             return await RunInteractiveMode(parser);
         }
 
-        return await parser.InvokeAsync(args);
+        var exitCode = await parser.InvokeAsync(args);
+
+        if (exitCode == 0 && Environment.ExitCode != 0)
+        {
+            return Environment.ExitCode;
+        }
+
+        return exitCode;
     }
 
     static async Task<int> RunInteractiveMode(Parser parser)
