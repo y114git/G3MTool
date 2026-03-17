@@ -304,7 +304,7 @@ public static partial class MergeService
 
                 foreach (var (codeName, rawGmlCode) in pfs.GmlEntries)
                 {
-                    var gmlCode = RemapSpriteIndicesGml(rawGmlCode, spriteRemap);
+                    var gmlCode = rawGmlCode;
                     codeIdx++;
                     if (codeIdx % 100 == 0)
                     {
@@ -1488,23 +1488,10 @@ public static partial class MergeService
     // Sprite index remapping helpers
     // ═══════════════════════════════════════════════════════════════════
 
-    [GeneratedRegex(@"(?<!\w)(\d+)(?!\w)")]
-    private static partial Regex GmlIntRegex();
     [GeneratedRegex(@"(pushi\.e )(-?\d+)")]
     private static partial Regex AsmPushiRegex();
     [GeneratedRegex(@"(push\.i )(-?\d+)")]
     private static partial Regex AsmPushIntRegex();
-
-    private static string RemapSpriteIndicesGml(string gml, Dictionary<int, int> remap)
-    {
-        if (remap.Count == 0) return gml;
-        return GmlIntRegex().Replace(gml, m =>
-        {
-            if (int.TryParse(m.Groups[1].Value, out int val) && remap.TryGetValue(val, out int newVal))
-                return newVal.ToString();
-            return m.Value;
-        });
-    }
 
     private static string RemapSpriteIndicesAsm(string asm, Dictionary<int, int> remap)
     {
