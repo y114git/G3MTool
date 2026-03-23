@@ -56,7 +56,7 @@ Create, apply, validate, or merge G3M resource patches.
 **Arguments:**
 - `original` - Path to original data.win
 - `modified` - Path to modified data.win or .xdelta file (auto-applied)
-- `output` - (Optional) Output .zip path. Default: `patch_{timestamp}.zip`
+- `output` - (Optional) Output .g3mpatch path. Default: `patch_{timestamp}.g3mpatch`
 
 #### patch apply
 
@@ -66,7 +66,7 @@ Create, apply, validate, or merge G3M resource patches.
 
 **Arguments:**
 - `data` - Path to original data.win
-- `patch` - Path to patch (.zip, .xdelta, or data file - auto-converted)
+- `patch` - Path to patch (.g3mpatch, .xdelta, or data file - auto-converted)
 - `output` - (Optional) Output data.win path. Default: next to executable
 
 #### patch validate
@@ -76,7 +76,7 @@ Create, apply, validate, or merge G3M resource patches.
 ```
 
 **Arguments:**
-- `patch` - Path to G3M patch file (.zip)
+- `patch` - Path to G3M patch file (.g3mpatch)
 
 **Options:**
 - `--data`, `-d` - (Optional) Path to data.win to check compatibility
@@ -89,16 +89,16 @@ Create, apply, validate, or merge G3M resource patches.
 
 **Arguments:**
 - `original` - Path to original data.win (required as context)
-- `patches` - 2+ patch files (low → high priority). Accepts .zip, .xdelta, or data files
+- `patches` - 2+ patch files (low → high priority). Accepts .g3mpatch, .xdelta, or data files
 
 **Options:**
-- `--out`, `-o` - Output path for merged patch ZIP (default mode)
+- `--out`, `-o` - Output path for merged .g3mpatch (default mode)
 - `--apply`, `-a` - Apply merged patch and save resulting data file to this path
 - `--code` - Enable deep merge for GML code files
 - `--properties` - Enable deep merge for JSON property files
 - `--report`, `-r` - Path for merge report (Markdown)
 
-**Note:** If no flags specified, creates merged patch ZIP by default.
+**Note:** If no flags specified, creates merged .g3mpatch by default.
 
 ### execute - Scripts & Programs
 
@@ -138,7 +138,7 @@ Display information about data.win or patch files.
 ```
 
 **Arguments:**
-- `target` - Path to data.win or patch.zip
+- `target` - Path to data.win or .g3mpatch
 
 **Options:**
 - `--verbose`, `-v` - Show detailed per-resource listing (every item with all properties)
@@ -155,8 +155,8 @@ Compare two data.win or patch files and generate a diff report.
 ```
 
 **Arguments:**
-- `file1` - First file (data.win or patch.zip)
-- `file2` - Second file (data.win or patch.zip)
+- `file1` - First file (data.win or .g3mpatch)
+- `file2` - Second file (data.win or .g3mpatch)
 - `output-dir` - (Optional) Output directory for diff report. Default: `./diff/`
 
 **Output:** Markdown diff report with resource-level changes

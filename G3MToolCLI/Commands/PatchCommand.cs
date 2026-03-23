@@ -23,7 +23,7 @@ public static class PatchCommand
         createCommand.SetHandler(async (original, modified, output) =>
         {
             var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-            var defaultOutput = Path.Combine(PlatformUtil.GetExecutableDirectory(), $"patch_{timestamp}.zip");
+            var defaultOutput = Path.Combine(PlatformUtil.GetExecutableDirectory(), $"patch_{timestamp}.g3mpatch");
             var outputPath = output?.FullName ?? defaultOutput;
 
             LogService.Log($"Creating G3M patch...");
@@ -56,9 +56,9 @@ public static class PatchCommand
         }, originalArg, modifiedArg, outputArg);
 
         // patch apply
-        var applyCommand = new Command("apply", "Apply a G3M patch to a data file.\n  Input can be .zip, .xdelta, or data file (.win/.ios/.droid/.unx).\n  Non-ZIP inputs are auto-converted using the original data file as reference.\n  Usage: patch apply <data> <patch> [output]");
+        var applyCommand = new Command("apply", "Apply a G3M patch to a data file.\n  Input can be .g3mpatch, .xdelta, or data file (.win/.ios/.droid/.unx).\n  Non-g3mpatch inputs are auto-converted using the original data file as reference.\n  Usage: patch apply <data> <patch> [output]");
         var dataArg = new Argument<FileInfo>("data", "Path to original data file (.win/.ios/.droid/.unx)");
-        var patchArg = new Argument<FileInfo>("patch", "Path to patch file (.zip, .xdelta, or data file)");
+        var patchArg = new Argument<FileInfo>("patch", "Path to patch file (.g3mpatch, .xdelta, or data file)");
         var applyOutputArg = new Argument<FileInfo?>("output", () => null, "Output file (optional). Default: next to G3MTool executable");
 
         applyCommand.AddArgument(dataArg);
@@ -70,7 +70,7 @@ public static class PatchCommand
             var defaultOutput = Path.Combine(PlatformUtil.GetExecutableDirectory(), Path.GetFileName(data.FullName));
             var outputPath = output?.FullName ?? defaultOutput;
 
-            // Auto-convert non-ZIP inputs to patch ZIP
+            // Auto-convert non-g3mpatch inputs
             var patchPath = await PatchService.EnsureG3MPatchAsync(data.FullName, patch.FullName);
 
             LogService.Log($"Applying G3M patch...");
@@ -93,7 +93,7 @@ public static class PatchCommand
 
         // patch validate
         var validateCommand = new Command("validate", "Validate a G3M patch file and optionally check compatibility with a data file.\n  Usage: patch validate <patch> [--data <data-file>]");
-        var validatePatchArg = new Argument<FileInfo>("patch", "Path to G3M patch file (.zip)");
+        var validatePatchArg = new Argument<FileInfo>("patch", "Path to G3M patch file (.g3mpatch)");
         var validateDataOption = new Option<FileInfo?>(
             aliases: ["--data", "-d"],
             description: "Optional data file (.win/.ios/.droid/.unx) to check compatibility");
@@ -129,7 +129,7 @@ public static class PatchCommand
             "Merge multiple G3M patches into a single coherent patch.\n" +
             "  The first argument is the original data file (required as context).\n" +
             "  Subsequent arguments are patches (from lowest to highest priority).\n" +
-            "  Input can be .zip, .xdelta, or data file (.win/.ios/.droid/.unx).\n" +
+            "  Input can be .g3mpatch, .xdelta, or data file (.win/.ios/.droid/.unx).\n" +
             "  Usage: patch merge <original> <patch1> <patch2> [patch3...] [flags]");
 
         var mergeOriginalArg = new Argument<FileInfo>("original", "Path to original data file (.win/.ios/.droid/.unx)");
@@ -140,7 +140,7 @@ public static class PatchCommand
 
         var mergeOutOption = new Option<string?>(
             aliases: ["--out", "-o"],
-            description: "Output path for merged patch ZIP (default if no flags specified)");
+            description: "Output path for merged .g3mpatch (default if no flags specified)");
 
         var mergeApplyOption = new Option<string?>(
             aliases: ["--apply", "-a"],

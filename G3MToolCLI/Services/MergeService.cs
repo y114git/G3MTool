@@ -66,7 +66,7 @@ public static partial class MergeService
         else
         {
             var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-            zipOutputPath = Path.Combine(PlatformUtil.GetExecutableDirectory(), $"merged_{timestamp}.zip");
+            zipOutputPath = Path.Combine(PlatformUtil.GetExecutableDirectory(), $"merged_{timestamp}.g3mpatch");
         }
 
         var totalSw = Stopwatch.StartNew();
@@ -448,7 +448,7 @@ public static partial class MergeService
                 string applyZipPath = zipOutputPath;
                 if (!saveZip)
                 {
-                    applyZipPath = Path.Combine(Path.GetTempPath(), $"g3m_merge_{Guid.NewGuid():N}.zip");
+                    applyZipPath = Path.Combine(Path.GetTempPath(), $"g3m_merge_{Guid.NewGuid():N}.g3mpatch");
                     finalPfs.SaveToZip(applyZipPath, manifest);
                     tempFiles.Add(applyZipPath);
                 }

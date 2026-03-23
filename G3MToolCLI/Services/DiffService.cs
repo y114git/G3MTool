@@ -39,19 +39,19 @@ public class DiffService
         var isData2 = DataFileExtensionUtil.IsValidDataExtension(ext2);
 
         // Determine comparison type
-        if (ext1 == ".zip" && isData2)
+        if ((ext1 == ".g3mpatch" || ext1 == ".zip") && isData2)
         {
-            // patch.zip vs data file
+            // g3mpatch vs data file
             differenceCount = await ComparePatchWithDataAsync(file1Path, file2Path, sb);
         }
-        else if (isData1 && ext2 == ".zip")
+        else if (isData1 && (ext2 == ".g3mpatch" || ext2 == ".zip"))
         {
-            // data file vs patch.zip (swap order)
+            // data file vs g3mpatch (swap order)
             differenceCount = await ComparePatchWithDataAsync(file2Path, file1Path, sb);
         }
-        else if (ext1 == ".zip" && ext2 == ".zip")
+        else if ((ext1 == ".g3mpatch" || ext1 == ".zip") && (ext2 == ".g3mpatch" || ext2 == ".zip"))
         {
-            // patch.zip vs patch.zip
+            // g3mpatch vs g3mpatch
             differenceCount = await ComparePatchesAsync(file1Path, file2Path, sb);
         }
         else if (isData1 && isData2)
@@ -64,7 +64,7 @@ public class DiffService
             sb.AppendLine("## Unsupported file combination");
             sb.AppendLine();
             sb.AppendLine($"Cannot compare `{ext1}` with `{ext2}`.");
-            sb.AppendLine($"Supported: {DataFileExtensionUtil.GetValidExtensionsDisplay()} vs same, `.zip` vs data file, `.zip` vs `.zip`");
+            sb.AppendLine($"Supported: {DataFileExtensionUtil.GetValidExtensionsDisplay()} vs same, `.g3mpatch` vs data file, `.g3mpatch` vs `.g3mpatch`");
         }
 
         // Write output

@@ -1614,8 +1614,8 @@ public partial class PatchService
     }
 
     /// <summary>
-    /// Ensures the input is a g3mpatch ZIP. Converts xdelta or data files if needed.
-    /// Returns the original path if already a ZIP, or a temp path to the converted patch.
+    /// Ensures the input is a .g3mpatch file. Converts xdelta or data files if needed.
+    /// Returns the original path if already .g3mpatch, or a temp path to the converted patch.
     /// </summary>
     public static async Task<string> EnsureG3MPatchAsync(
         string originalPath, string inputPath, string? tempDir = null,
@@ -1624,14 +1624,14 @@ public partial class PatchService
     {
         var ext = Path.GetExtension(inputPath).ToLowerInvariant();
 
-        if (ext == ".zip")
+        if (ext is ".g3mpatch" or ".zip")
             return inputPath;
 
         string dataFilePath;
 
         if (ext == ".xdelta")
         {
-            LogService.Warning($"Input '{Path.GetFileName(inputPath)}' is xdelta, converting to patch ZIP...");
+            LogService.Warning($"Input '{Path.GetFileName(inputPath)}' is xdelta, converting to .g3mpatch...");
             var xdelta = new XDeltaService();
             dataFilePath = Path.Combine(tempDir ?? Path.GetTempPath(), $"g3mtool_conv_{Guid.NewGuid():N}.win");
             var xResult = await xdelta.ApplyPatchAsync(originalPath, inputPath, dataFilePath);
@@ -1640,7 +1640,7 @@ public partial class PatchService
         }
         else if (DataFileExtensionUtil.IsDataFile(inputPath))
         {
-            LogService.Warning($"Input '{Path.GetFileName(inputPath)}' is a data file, converting to patch ZIP...");
+            LogService.Warning($"Input '{Path.GetFileName(inputPath)}' is a data file, converting to .g3mpatch...");
             dataFilePath = inputPath;
         }
         else
@@ -1648,10 +1648,10 @@ public partial class PatchService
             return inputPath;
         }
 
-        var outputZip = Path.Combine(tempDir ?? Path.GetTempPath(), $"g3mtool_conv_{Guid.NewGuid():N}.zip");
+        var outputZip = Path.Combine(tempDir ?? Path.GetTempPath(), $"g3mtool_conv_{Guid.NewGuid():N}.g3mpatch");
         var result = await CreatePatchAsync(originalPath, dataFilePath, outputZip, precomputedOriginalHashes, precomputedOriginalInfo);
         if (!result.Success)
-            throw new Exception($"Failed to create patch ZIP from '{Path.GetFileName(inputPath)}': {result.Error}");
+            throw new Exception($"Failed to create .g3mpatch from '{Path.GetFileName(inputPath)}': {result.Error}");
 
         // Clean up temp data file if we created one from xdelta
         if (ext == ".xdelta" && dataFilePath != inputPath)
