@@ -2,6 +2,12 @@
 
 Cross-platform tool for various actions with GameMaker data files.
 
+## Legal
+
+- [`LICENSE`](LICENSE)
+- [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)
+- [`SECURITY.md`](SECURITY.md)
+
 ## Features
 
 - **xpatch** - Create and apply xdelta patches

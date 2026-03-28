@@ -22,13 +22,14 @@
     <StartupObject />
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <GenerateDocumentationFile>True</GenerateDocumentationFile>
+    <GenerateGitVersionFile>false</GenerateGitVersionFile>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Fody" Version="6.9.3">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Magick.NET-Q8-AnyCPU" Version="14.10.2" />
+    <PackageReference Include="Magick.NET-Q8-AnyCPU" Version="14.11.0" />
     <PackageReference Include="PropertyChanged.Fody" Version="4.1.0" PrivateAssets="all" />
     <PackageReference Include="SharpZipLib" Version="1.4.2" />
   </ItemGroup>
@@ -69,7 +70,7 @@
     <Content Include="GameSpecificData\Definitions\undertale.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <EmbeddedResource Include="gitversion.txt" />
+    <EmbeddedResource Include="gitversion.txt" Condition="'$(GenerateGitVersionFile)' == 'true'" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Underanalyzer\Underanalyzer\Underanalyzer.csproj" />
@@ -80,7 +81,7 @@
     </AssemblyAttribute>
   </ItemGroup>
   <!--A prebuild responsible for creating a git commit name and branch name -->
-  <Target Name="PreBuild" BeforeTargets="PreBuildEvent">
+  <Target Name="PreBuild" BeforeTargets="PreBuildEvent" Condition="'$(GenerateGitVersionFile)' == 'true'">
     <!--Create the gitversion.txt file first, in case any of the later commands fail -->
     <Exec Command="echo &quot;&quot; &gt; &quot;$(ProjectDir)/gitversion.txt&quot;" IgnoreExitCode="true" />
 

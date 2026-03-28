@@ -44,11 +44,17 @@ jobs:
         run: |
           dotnet publish G3MToolCLI -c Release -r win-x64 -o publish/win-x64
 
+      - name: Bundle legal notices
+        shell: powershell
+        run: |
+          Copy-Item LICENSE, THIRD_PARTY_NOTICES.md, SECURITY.md publish/win-x64/
+          Copy-Item licenses publish/win-x64/licenses -Recurse
+
       - name: Create archive
         shell: powershell
         run: |
           $archiveName = "G3MTool-Windows-x64-${{ env.RELEASE_VERSION }}.zip"
-          Compress-Archive -Path publish/win-x64/G3MTool.exe -DestinationPath $archiveName
+          Compress-Archive -Path publish/win-x64/* -DestinationPath $archiveName
 
       - name: Test executable
         shell: powershell
@@ -85,11 +91,22 @@ jobs:
         run: |
           dotnet publish G3MToolCLI -c Release -r linux-x64 -o publish/linux-x64
 
+      - name: Bundle legal notices
+        run: |
+          cp LICENSE THIRD_PARTY_NOTICES.md SECURITY.md publish/linux-x64/
+          cp -R licenses publish/linux-x64/licenses
+
       - name: Create archive
         run: |
+          for file in LICENSE THIRD_PARTY_NOTICES.md SECURITY.md; do
+            if [ ! -f "$file" ]; then
+              echo "ERROR: required release file missing: $file"
+              exit 1
+            fi
+          done
           cd publish/linux-x64
           chmod +x G3MTool
-          zip -r ../../G3MTool-Linux-x64-${{ env.RELEASE_VERSION }}.zip G3MTool
+          zip -r ../../G3MTool-Linux-x64-${{ env.RELEASE_VERSION }}.zip .
 
       - name: Test executable
         run: |
@@ -121,11 +138,22 @@ jobs:
         run: |
           dotnet publish G3MToolCLI -c Release -r linux-arm64 -o publish/linux-arm64
 
+      - name: Bundle legal notices
+        run: |
+          cp LICENSE THIRD_PARTY_NOTICES.md SECURITY.md publish/linux-arm64/
+          cp -R licenses publish/linux-arm64/licenses
+
       - name: Create archive
         run: |
+          for file in LICENSE THIRD_PARTY_NOTICES.md SECURITY.md; do
+            if [ ! -f "$file" ]; then
+              echo "ERROR: required release file missing: $file"
+              exit 1
+            fi
+          done
           cd publish/linux-arm64
           chmod +x G3MTool
-          zip -r ../../G3MTool-Linux-arm64-${{ env.RELEASE_VERSION }}.zip G3MTool
+          zip -r ../../G3MTool-Linux-arm64-${{ env.RELEASE_VERSION }}.zip .
 
       - uses: actions/upload-artifact@v4
         with:
@@ -150,11 +178,16 @@ jobs:
         run: |
           dotnet publish G3MToolCLI -c Release -r osx-x64 -o publish/osx-x64
 
+      - name: Bundle legal notices
+        run: |
+          cp LICENSE THIRD_PARTY_NOTICES.md SECURITY.md publish/osx-x64/
+          cp -R licenses publish/osx-x64/licenses
+
       - name: Create archive
         run: |
           cd publish/osx-x64
           chmod +x G3MTool
-          zip -r ../../G3MTool-macOS-x64-${{ env.RELEASE_VERSION }}.zip G3MTool
+          zip -r ../../G3MTool-macOS-x64-${{ env.RELEASE_VERSION }}.zip .
 
       - name: Test executable
         run: |
@@ -186,11 +219,16 @@ jobs:
         run: |
           dotnet publish G3MToolCLI -c Release -r osx-arm64 -o publish/osx-arm64
 
+      - name: Bundle legal notices
+        run: |
+          cp LICENSE THIRD_PARTY_NOTICES.md SECURITY.md publish/osx-arm64/
+          cp -R licenses publish/osx-arm64/licenses
+
       - name: Create archive
         run: |
           cd publish/osx-arm64
           chmod +x G3MTool
-          zip -r ../../G3MTool-macOS-arm64-${{ env.RELEASE_VERSION }}.zip G3MTool
+          zip -r ../../G3MTool-macOS-arm64-${{ env.RELEASE_VERSION }}.zip .
 
       - name: Test executable
         run: |
