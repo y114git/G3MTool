@@ -2,12 +2,6 @@
 
 Cross-platform tool for various actions with GameMaker data files.
 
-## Legal
-
-- [`LICENSE`](LICENSE)
-- [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)
-- [`SECURITY.md`](SECURITY.md)
-
 ## Features
 
 - **xpatch** - Create and apply xdelta patches
@@ -174,3 +168,9 @@ Compare two data.win or patch files and generate a diff report.
 | `--verbose`, `-v` | Enable verbose output |
 | `--log [path]` | Enable logging (default: `logs/{command}_{timestamp}.log`) |
 | `--json` | JSON output (for `info`, `patch validate`) |
+
+## Legal
+
+- [`LICENSE`](LICENSE)
+- [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)
+- [`SECURITY.md`](SECURITY.md)
