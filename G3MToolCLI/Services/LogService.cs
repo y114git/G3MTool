@@ -126,6 +126,16 @@ public static class LogService
         }
     }
 
+    public static void ProgressRange(int current, int total, int rangeStart, int rangeEnd)
+    {
+        if (total <= 0 || _suppress) return;
+        int clampedStart = Math.Clamp(rangeStart, 0, 100);
+        int clampedEnd = Math.Clamp(rangeEnd, clampedStart, 100);
+        int span = clampedEnd - clampedStart;
+        int percent = clampedStart + (int)Math.Round((current * span) / (double)total);
+        Progress(percent, 100);
+    }
+
     public static void ProgressComplete()
     {
         if (_suppress) return;

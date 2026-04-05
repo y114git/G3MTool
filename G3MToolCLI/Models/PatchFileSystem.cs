@@ -33,6 +33,12 @@ public sealed class PatchFileSystem
     /// <summary>Helpers directory prefix ("Helpers" or "AssetOrder").</summary>
     public string HelpersPrefix { get; private set; } = "Helpers";
 
+    /// <summary>Optional exact xdelta payload for byte-perfect patch application.</summary>
+    public byte[]? ExactPatchBytes { get; private set; }
+
+    /// <summary>Archive path of the optional exact payload.</summary>
+    public string? ExactPatchPath { get; private set; }
+
     private static string Norm(string path) => path.Replace('\\', '/').TrimEnd('/');
 
     /// <summary>Decode bytes to UTF-8 string, stripping BOM if present.</summary>
@@ -108,6 +114,22 @@ public sealed class PatchFileSystem
                     pfs.AsmEntries[codeName] = content;
 
                 continue; // Don't store code entry bytes (already parsed to strings)
+            }
+
+            if (fullName.StartsWith("Exact/", StringComparison.OrdinalIgnoreCase))
+            {
+                if (pfs.ExactPatchBytes == null &&
+                    entry.Name.EndsWith(".xdelta", StringComparison.OrdinalIgnoreCase))
+                {
+                    pfs.ExactPatchBytes = bytes;
+                    pfs.ExactPatchPath = fullName;
+                }
+                else if (!entry.Name.EndsWith(".xdelta", StringComparison.OrdinalIgnoreCase))
+                {
+                    LogService.Warning(
+                        $"[PatchFileSystem] Ignoring non-xdelta Exact entry '{entry.Name}' at '{fullName}'");
+                }
+                continue;
             }
 
             pfs._files[fullName] = bytes;

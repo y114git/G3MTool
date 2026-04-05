@@ -255,8 +255,10 @@ namespace UndertaleModLib.Util
         /// <param name="filePath">File path to save the image to.</param>
         public static void SaveImageToFile(IMagickImage<byte> image, string filePath)
         {
+            image.Strip();
+            var pngBytes = GMImage.FromMagickImage(image).ConvertToPng().GetData();
             using var stream = new FileStream(filePath, FileMode.Create);
-            image.Write(stream, MagickFormat.Png32);
+            stream.Write(pngBytes, 0, pngBytes.Length);
         }
 
         /// <summary>

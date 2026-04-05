@@ -331,7 +331,9 @@ public static class ResourceExportService
                 if (tex.TextureData?.Image != null)
                 {
                     using var img = tex.TextureData.Image.GetMagickImage();
-                    img.Write(Path.Combine(texDir, texName + ".png"), MagickFormat.Png32);
+                    img.Strip();
+                    var pngBytes = GMImage.FromMagickImage(img).ConvertToPng().GetData();
+                    File.WriteAllBytes(Path.Combine(texDir, texName + ".png"), pngBytes);
                 }
 
                 var meta = new Dictionary<string, object>
@@ -745,12 +747,13 @@ public static class ResourceExportService
         var items = data.Backgrounds.Where(bg => bg.GMS2TileWidth > 0 || bg.GMS2TileHeight > 0).ToList();
         if (items.Count == 0) return;
         var dir = EnsureDir(outputDir, "Tilesets");
+        bool exportAllTilesets = filter == null || filter.Contains("Tilesets");
 
         using var worker = new TextureWorker();
         Parallel.ForEach(items, ts =>
         {
             if (ts?.Name?.Content == null) return;
-            if (filter != null && !filter.Contains(ts.Name.Content)) return;
+            if (!exportAllTilesets && !filter!.Contains(ts.Name.Content)) return;
             try
             {
                 var name = SafeName(ts.Name.Content);
@@ -1022,7 +1025,14 @@ public static class ResourceExportService
         {
             if (room?.Name?.Content == null) return;
             if (filter != null && !filter.Contains(room.Name.Content)) return;
-            try { ExportSingleRoom(data, room, dir); } catch { }
+            try
+            {
+                ExportSingleRoom(data, room, dir);
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"[ExportRooms] Failed to export room '{room.Name.Content}': {ex.Message}");
+            }
         });
     }
 
@@ -1037,19 +1047,19 @@ public static class ResourceExportService
         w.WriteStartObject();
         w.WriteString("name", room.Name.Content);
         w.WriteString("caption", room.Caption?.Content ?? "");
-        w.WriteNumber("width", (int)room.Width);
-        w.WriteNumber("height", (int)room.Height);
-        w.WriteNumber("speed", (int)room.Speed);
+        w.WriteNumber("width", room.Width);
+        w.WriteNumber("height", room.Height);
+        w.WriteNumber("speed", room.Speed);
         w.WriteBoolean("persistent", room.Persistent);
-        w.WriteNumber("backgroundColor", (int)room.BackgroundColor);
+        w.WriteNumber("backgroundColor", room.BackgroundColor);
         w.WriteBoolean("drawBackgroundColor", room.DrawBackgroundColor);
         w.WriteString("creationCodeId", room.CreationCodeId?.Name?.Content ?? "");
         w.WriteNumber("flags", (int)room.Flags);
         w.WriteBoolean("world", room.World);
-        w.WriteNumber("top", (int)room.Top);
-        w.WriteNumber("left", (int)room.Left);
-        w.WriteNumber("right", (int)room.Right);
-        w.WriteNumber("bottom", (int)room.Bottom);
+        w.WriteNumber("top", room.Top);
+        w.WriteNumber("left", room.Left);
+        w.WriteNumber("right", room.Right);
+        w.WriteNumber("bottom", room.Bottom);
         w.WriteNumber("gravityX", room.GravityX);
         w.WriteNumber("gravityY", room.GravityY);
         w.WriteNumber("metersPerPixel", room.MetersPerPixel);
@@ -1084,7 +1094,7 @@ public static class ResourceExportService
             w.WriteNumber("viewWidth", v.ViewWidth); w.WriteNumber("viewHeight", v.ViewHeight);
             w.WriteNumber("portX", v.PortX); w.WriteNumber("portY", v.PortY);
             w.WriteNumber("portWidth", v.PortWidth); w.WriteNumber("portHeight", v.PortHeight);
-            w.WriteNumber("borderX", (int)v.BorderX); w.WriteNumber("borderY", (int)v.BorderY);
+            w.WriteNumber("borderX", v.BorderX); w.WriteNumber("borderY", v.BorderY);
             w.WriteNumber("speedX", v.SpeedX); w.WriteNumber("speedY", v.SpeedY);
             w.WriteString("objectId", v.ObjectId?.Name?.Content ?? "");
             w.WriteEndObject();
@@ -1098,10 +1108,10 @@ public static class ResourceExportService
             w.WriteStartObject();
             w.WriteNumber("x", o.X); w.WriteNumber("y", o.Y);
             w.WriteString("objectDefinition", o.ObjectDefinition?.Name?.Content ?? "");
-            w.WriteNumber("instanceID", (int)o.InstanceID);
+            w.WriteNumber("instanceID", o.InstanceID);
             w.WriteString("creationCode", o.CreationCode?.Name?.Content ?? "");
             w.WriteNumber("scaleX", o.ScaleX); w.WriteNumber("scaleY", o.ScaleY);
-            w.WriteNumber("color", (int)o.Color); w.WriteNumber("rotation", o.Rotation);
+            w.WriteNumber("color", o.Color); w.WriteNumber("rotation", o.Rotation);
             w.WriteString("preCreateCode", o.PreCreateCode?.Name?.Content ?? "");
             if (data.IsVersionAtLeast(2, 2, 2, 302))
             {
@@ -1122,10 +1132,10 @@ public static class ResourceExportService
             if (t.spriteMode) w.WriteString("spriteDefinition", t.SpriteDefinition?.Name?.Content ?? "");
             else w.WriteString("backgroundDefinition", t.BackgroundDefinition?.Name?.Content ?? "");
             w.WriteNumber("sourceX", t.SourceX); w.WriteNumber("sourceY", t.SourceY);
-            w.WriteNumber("width", (int)t.Width); w.WriteNumber("height", (int)t.Height);
-            w.WriteNumber("tileDepth", t.TileDepth); w.WriteNumber("instanceID", (int)t.InstanceID);
+            w.WriteNumber("width", t.Width); w.WriteNumber("height", t.Height);
+            w.WriteNumber("tileDepth", t.TileDepth); w.WriteNumber("instanceID", t.InstanceID);
             w.WriteNumber("scaleX", t.ScaleX); w.WriteNumber("scaleY", t.ScaleY);
-            w.WriteNumber("color", (int)t.Color);
+            w.WriteNumber("color", t.Color);
             w.WriteEndObject();
         }
         w.WriteEndArray();
@@ -1161,7 +1171,7 @@ public static class ResourceExportService
     {
         w.WriteStartObject();
         w.WriteString("layerName", layer.LayerName?.Content ?? "");
-        w.WriteNumber("layerId", (int)layer.LayerId);
+        w.WriteNumber("layerId", layer.LayerId);
         w.WriteNumber("layerType", (int)layer.LayerType);
         w.WriteNumber("layerDepth", layer.LayerDepth);
         w.WriteNumber("xOffset", layer.XOffset); w.WriteNumber("yOffset", layer.YOffset);
@@ -1178,14 +1188,14 @@ public static class ResourceExportService
         {
             w.WriteStartArray("instanceIds");
             if (layer.InstancesData.Instances != null)
-                foreach (var inst in layer.InstancesData.Instances) w.WriteNumberValue((int)inst.InstanceID);
+                foreach (var inst in layer.InstancesData.Instances) w.WriteNumberValue(inst.InstanceID);
             w.WriteEndArray();
         }
         else if (layer.LayerType == UndertaleRoom.LayerType.Tiles && layer.TilesData != null)
         {
             w.WriteString("tilesBackground", layer.TilesData.Background?.Name?.Content ?? "");
-            w.WriteNumber("tilesX", (int)layer.TilesData.TilesX);
-            w.WriteNumber("tilesY", (int)layer.TilesData.TilesY);
+            w.WriteNumber("tilesX", layer.TilesData.TilesX);
+            w.WriteNumber("tilesY", layer.TilesData.TilesY);
             w.WriteStartArray("tileData");
             if (layer.TilesData.TileData != null)
                 foreach (var row in layer.TilesData.TileData)
@@ -1205,7 +1215,7 @@ public static class ResourceExportService
             w.WriteBoolean("tiledHorizontally", bd.TiledHorizontally);
             w.WriteBoolean("tiledVertically", bd.TiledVertically);
             w.WriteBoolean("stretch", bd.Stretch);
-            w.WriteNumber("color", (int)bd.Color); w.WriteNumber("firstFrame", bd.FirstFrame);
+            w.WriteNumber("color", bd.Color); w.WriteNumber("firstFrame", bd.FirstFrame);
             w.WriteNumber("animationSpeed", bd.AnimationSpeed);
             w.WriteNumber("animationSpeedType", (int)bd.AnimationSpeedType);
             w.WriteEndObject();
@@ -1221,10 +1231,10 @@ public static class ResourceExportService
                     w.WriteStartObject();
                     w.WriteNumber("x", t.X); w.WriteNumber("y", t.Y);
                     w.WriteNumber("sourceX", (int)t.SourceX); w.WriteNumber("sourceY", (int)t.SourceY);
-                    w.WriteNumber("width", (int)t.Width); w.WriteNumber("height", (int)t.Height);
-                    w.WriteNumber("tileDepth", t.TileDepth); w.WriteNumber("instanceID", (int)t.InstanceID);
+                    w.WriteNumber("width", t.Width); w.WriteNumber("height", t.Height);
+                    w.WriteNumber("tileDepth", t.TileDepth); w.WriteNumber("instanceID", t.InstanceID);
                     w.WriteNumber("scaleX", t.ScaleX); w.WriteNumber("scaleY", t.ScaleY);
-                    w.WriteNumber("color", (int)t.Color);
+                    w.WriteNumber("color", t.Color);
                     w.WriteString("background", t.BackgroundDefinition?.Name?.Content ?? "");
                     w.WriteEndObject();
                 }
@@ -1238,7 +1248,7 @@ public static class ResourceExportService
                     w.WriteString("sprite", spr.Sprite?.Name?.Content ?? "");
                     w.WriteNumber("x", spr.X); w.WriteNumber("y", spr.Y);
                     w.WriteNumber("scaleX", spr.ScaleX); w.WriteNumber("scaleY", spr.ScaleY);
-                    w.WriteNumber("color", (int)spr.Color);
+                    w.WriteNumber("color", spr.Color);
                     w.WriteNumber("animationSpeed", spr.AnimationSpeed);
                     w.WriteNumber("animationSpeedType", (int)spr.AnimationSpeedType);
                     w.WriteNumber("frameIndex", spr.FrameIndex);

@@ -7,6 +7,39 @@ namespace G3MToolCLI.Services;
 
 public static partial class ResourceImportService
 {
+    private static bool TryGetUInt32(JsonElement element, out uint value)
+    {
+        if (element.ValueKind != JsonValueKind.Number)
+        {
+            value = 0;
+            return false;
+        }
+
+        if (element.TryGetUInt32(out value))
+            return true;
+
+        if (element.TryGetInt64(out long signed))
+        {
+            value = unchecked((uint)signed);
+            return true;
+        }
+
+        if (element.TryGetDouble(out double dbl))
+        {
+            value = unchecked((uint)dbl);
+            return true;
+        }
+
+        value = 0;
+        return false;
+    }
+
+    private static bool SupportsLegacyRoomTiles(UndertaleData data)
+    {
+        uint major = data.GeneralInfo?.Major ?? 0;
+        return major < 2023;
+    }
+
     // =========================================================================
     // Rooms
     // =========================================================================
@@ -80,8 +113,8 @@ public static partial class ResourceImportService
             room.Speed = (uint)Math.Max(0, spElm.GetInt32());
         if (d.TryGetProperty("persistent", out var perElm) && (perElm.ValueKind == JsonValueKind.True || perElm.ValueKind == JsonValueKind.False))
             room.Persistent = perElm.GetBoolean();
-        if (d.TryGetProperty("backgroundColor", out var bgcElm) && bgcElm.ValueKind == JsonValueKind.Number)
-            room.BackgroundColor = (uint)bgcElm.GetInt32();
+        if (d.TryGetProperty("backgroundColor", out var bgcElm) && TryGetUInt32(bgcElm, out uint backgroundColor))
+            room.BackgroundColor = backgroundColor;
         if (d.TryGetProperty("drawBackgroundColor", out var dbcElm) && (dbcElm.ValueKind == JsonValueKind.True || dbcElm.ValueKind == JsonValueKind.False))
             room.DrawBackgroundColor = dbcElm.GetBoolean();
         if (d.TryGetProperty("creationCodeId", out var ccElm) && ccElm.ValueKind == JsonValueKind.String)
@@ -173,8 +206,8 @@ public static partial class ResourceImportService
                 if (vElm.TryGetProperty("portY", out var pyElm) && pyElm.ValueKind == JsonValueKind.Number) view.PortY = pyElm.GetInt32();
                 if (vElm.TryGetProperty("portWidth", out var pwElm) && pwElm.ValueKind == JsonValueKind.Number) view.PortWidth = pwElm.GetInt32();
                 if (vElm.TryGetProperty("portHeight", out var phElm) && phElm.ValueKind == JsonValueKind.Number) view.PortHeight = phElm.GetInt32();
-                if (vElm.TryGetProperty("borderX", out var bxElm) && bxElm.ValueKind == JsonValueKind.Number) view.BorderX = (uint)Math.Max(0, bxElm.GetInt32());
-                if (vElm.TryGetProperty("borderY", out var byElm) && byElm.ValueKind == JsonValueKind.Number) view.BorderY = (uint)Math.Max(0, byElm.GetInt32());
+                if (vElm.TryGetProperty("borderX", out var bxElm) && TryGetUInt32(bxElm, out uint borderX)) view.BorderX = borderX;
+                if (vElm.TryGetProperty("borderY", out var byElm) && TryGetUInt32(byElm, out uint borderY)) view.BorderY = borderY;
                 if (vElm.TryGetProperty("speedX", out var sxElm) && sxElm.ValueKind == JsonValueKind.Number) view.SpeedX = sxElm.GetInt32();
                 if (vElm.TryGetProperty("speedY", out var syElm) && syElm.ValueKind == JsonValueKind.Number) view.SpeedY = syElm.GetInt32();
                 if (vElm.TryGetProperty("objectId", out var oiElm) && oiElm.ValueKind == JsonValueKind.String)
@@ -200,8 +233,8 @@ public static partial class ResourceImportService
                     string on = odElm.GetString() ?? "";
                     if (on.Length > 0) { var od = data.GameObjects.ByName(on); if (od != null) go.ObjectDefinition = od; }
                 }
-                if (oElm.TryGetProperty("instanceID", out var iiElm) && iiElm.ValueKind == JsonValueKind.Number)
-                    go.InstanceID = (uint)Math.Max(0, iiElm.GetInt32());
+                if (oElm.TryGetProperty("instanceID", out var iiElm) && TryGetUInt32(iiElm, out uint instanceId))
+                    go.InstanceID = instanceId;
                 if (oElm.TryGetProperty("creationCode", out var ccElm2) && ccElm2.ValueKind == JsonValueKind.String)
                 {
                     string cn = ccElm2.GetString() ?? "";
@@ -209,7 +242,7 @@ public static partial class ResourceImportService
                 }
                 if (oElm.TryGetProperty("scaleX", out var sxElm) && sxElm.ValueKind == JsonValueKind.Number) go.ScaleX = (float)sxElm.GetDouble();
                 if (oElm.TryGetProperty("scaleY", out var syElm) && syElm.ValueKind == JsonValueKind.Number) go.ScaleY = (float)syElm.GetDouble();
-                if (oElm.TryGetProperty("color", out var colElm) && colElm.ValueKind == JsonValueKind.Number) go.Color = (uint)colElm.GetInt32();
+                if (oElm.TryGetProperty("color", out var colElm) && TryGetUInt32(colElm, out uint gameObjectColor)) go.Color = gameObjectColor;
                 if (oElm.TryGetProperty("rotation", out var rotElm) && rotElm.ValueKind == JsonValueKind.Number) go.Rotation = (float)rotElm.GetDouble();
                 if (oElm.TryGetProperty("preCreateCode", out var pcElm) && pcElm.ValueKind == JsonValueKind.String)
                 {
@@ -256,13 +289,13 @@ public static partial class ResourceImportService
                 }
                 if (tElm.TryGetProperty("sourceX", out var sxElm) && sxElm.ValueKind == JsonValueKind.Number) tile.SourceX = sxElm.GetInt32();
                 if (tElm.TryGetProperty("sourceY", out var syElm) && syElm.ValueKind == JsonValueKind.Number) tile.SourceY = syElm.GetInt32();
-                if (tElm.TryGetProperty("width", out var wElm2) && wElm2.ValueKind == JsonValueKind.Number) tile.Width = (uint)Math.Max(0, wElm2.GetInt32());
-                if (tElm.TryGetProperty("height", out var hElm2) && hElm2.ValueKind == JsonValueKind.Number) tile.Height = (uint)Math.Max(0, hElm2.GetInt32());
+                if (tElm.TryGetProperty("width", out var wElm2) && TryGetUInt32(wElm2, out uint tileWidth)) tile.Width = tileWidth;
+                if (tElm.TryGetProperty("height", out var hElm2) && TryGetUInt32(hElm2, out uint tileHeight)) tile.Height = tileHeight;
                 if (tElm.TryGetProperty("tileDepth", out var tdElm) && tdElm.ValueKind == JsonValueKind.Number) tile.TileDepth = tdElm.GetInt32();
-                if (tElm.TryGetProperty("instanceID", out var iiElm2) && iiElm2.ValueKind == JsonValueKind.Number) tile.InstanceID = (uint)Math.Max(0, iiElm2.GetInt32());
+                if (tElm.TryGetProperty("instanceID", out var iiElm2) && TryGetUInt32(iiElm2, out uint tileInstanceId)) tile.InstanceID = tileInstanceId;
                 if (tElm.TryGetProperty("scaleX", out var scxElm) && scxElm.ValueKind == JsonValueKind.Number) tile.ScaleX = (float)scxElm.GetDouble();
                 if (tElm.TryGetProperty("scaleY", out var scyElm) && scyElm.ValueKind == JsonValueKind.Number) tile.ScaleY = (float)scyElm.GetDouble();
-                if (tElm.TryGetProperty("color", out var colElm2) && colElm2.ValueKind == JsonValueKind.Number) tile.Color = (uint)colElm2.GetInt32();
+                if (tElm.TryGetProperty("color", out var colElm2) && TryGetUInt32(colElm2, out uint tileColor)) tile.Color = tileColor;
                 room.Tiles.Add(tile);
             }
         }
@@ -283,8 +316,8 @@ public static partial class ResourceImportService
 
                 if (lElm.TryGetProperty("layerName", out var lnElm) && lnElm.ValueKind == JsonValueKind.String)
                     layer.LayerName = data.Strings.MakeString(lnElm.GetString()!);
-                if (lElm.TryGetProperty("layerId", out var liElm) && liElm.ValueKind == JsonValueKind.Number)
-                    layer.LayerId = (uint)Math.Max(0, liElm.GetInt32());
+                if (lElm.TryGetProperty("layerId", out var liElm) && TryGetUInt32(liElm, out uint layerId))
+                    layer.LayerId = layerId;
                 if (lElm.TryGetProperty("layerDepth", out var ldElm) && ldElm.ValueKind == JsonValueKind.Number)
                     layer.LayerDepth = ldElm.GetInt32();
                 if (lElm.TryGetProperty("xOffset", out var xoElm) && xoElm.ValueKind == JsonValueKind.Number)
@@ -312,8 +345,7 @@ public static partial class ResourceImportService
                     {
                         foreach (var idElm in idsElm.EnumerateArray())
                         {
-                            if (idElm.ValueKind != JsonValueKind.Number) continue;
-                            uint iid = (uint)Math.Max(0, idElm.GetInt32());
+                            if (!TryGetUInt32(idElm, out uint iid)) continue;
                             var go = room.GameObjects.FirstOrDefault(g => g.InstanceID == iid);
                             if (go != null) instData.Instances.Add(go);
                         }
@@ -328,10 +360,10 @@ public static partial class ResourceImportService
                         string bn = tbElm.GetString() ?? "";
                         if (bn.Length > 0) { var bg = data.Backgrounds.ByName(bn); if (bg != null) tilesData.Background = bg; }
                     }
-                    if (lElm.TryGetProperty("tilesX", out var txElm) && txElm.ValueKind == JsonValueKind.Number)
-                        tilesData.TilesX = (uint)Math.Max(0, txElm.GetInt32());
-                    if (lElm.TryGetProperty("tilesY", out var tyElm) && tyElm.ValueKind == JsonValueKind.Number)
-                        tilesData.TilesY = (uint)Math.Max(0, tyElm.GetInt32());
+                    if (lElm.TryGetProperty("tilesX", out var txElm) && TryGetUInt32(txElm, out uint tilesX))
+                        tilesData.TilesX = tilesX;
+                    if (lElm.TryGetProperty("tilesY", out var tyElm) && TryGetUInt32(tyElm, out uint tilesY))
+                        tilesData.TilesY = tilesY;
                     if (lElm.TryGetProperty("tileData", out var tdElm) && tdElm.ValueKind == JsonValueKind.Array)
                     {
                         var rows = new List<uint[]>();
@@ -366,8 +398,8 @@ public static partial class ResourceImportService
                             bgData.TiledVertically = tvElm.GetBoolean();
                         if (bdElm.TryGetProperty("stretch", out var stElm) && (stElm.ValueKind == JsonValueKind.True || stElm.ValueKind == JsonValueKind.False))
                             bgData.Stretch = stElm.GetBoolean();
-                        if (bdElm.TryGetProperty("color", out var cElm) && cElm.ValueKind == JsonValueKind.Number)
-                            bgData.Color = (uint)cElm.GetInt32();
+                        if (bdElm.TryGetProperty("color", out var cElm) && TryGetUInt32(cElm, out uint backgroundLayerColor))
+                            bgData.Color = backgroundLayerColor;
                         if (bdElm.TryGetProperty("firstFrame", out var ffElm) && ffElm.ValueKind == JsonValueKind.Number)
                             bgData.FirstFrame = (float)ffElm.GetDouble();
                         if (bdElm.TryGetProperty("animationSpeed", out var asElm) && asElm.ValueKind == JsonValueKind.Number)
@@ -389,7 +421,7 @@ public static partial class ResourceImportService
 
                     if (lElm.TryGetProperty("assetsData", out var adElm) && adElm.ValueKind == JsonValueKind.Object)
                     {
-                        bool supportsLegacy = !data.IsVersionAtLeast(2023, 1);
+                        bool supportsLegacy = SupportsLegacyRoomTiles(data);
                         if (supportsLegacy && adElm.TryGetProperty("legacyTiles", out var ltElm2) && ltElm2.ValueKind == JsonValueKind.Array)
                         {
                             foreach (var tElm in ltElm2.EnumerateArray())
@@ -399,13 +431,13 @@ public static partial class ResourceImportService
                                 if (tElm.TryGetProperty("y", out var yElm) && yElm.ValueKind == JsonValueKind.Number) tile.Y = yElm.GetInt32();
                                 if (tElm.TryGetProperty("sourceX", out var sxElm) && sxElm.ValueKind == JsonValueKind.Number) tile.SourceX = sxElm.GetInt32();
                                 if (tElm.TryGetProperty("sourceY", out var syElm) && syElm.ValueKind == JsonValueKind.Number) tile.SourceY = syElm.GetInt32();
-                                if (tElm.TryGetProperty("width", out var wElm2) && wElm2.ValueKind == JsonValueKind.Number) tile.Width = (uint)wElm2.GetInt32();
-                                if (tElm.TryGetProperty("height", out var hElm2) && hElm2.ValueKind == JsonValueKind.Number) tile.Height = (uint)hElm2.GetInt32();
+                                if (tElm.TryGetProperty("width", out var wElm2) && TryGetUInt32(wElm2, out uint legacyWidth)) tile.Width = legacyWidth;
+                                if (tElm.TryGetProperty("height", out var hElm2) && TryGetUInt32(hElm2, out uint legacyHeight)) tile.Height = legacyHeight;
                                 if (tElm.TryGetProperty("tileDepth", out var dElm) && dElm.ValueKind == JsonValueKind.Number) tile.TileDepth = dElm.GetInt32();
-                                if (tElm.TryGetProperty("instanceID", out var iiElm) && iiElm.ValueKind == JsonValueKind.Number) tile.InstanceID = (uint)iiElm.GetInt32();
+                                if (tElm.TryGetProperty("instanceID", out var iiElm) && TryGetUInt32(iiElm, out uint legacyInstanceId)) tile.InstanceID = legacyInstanceId;
                                 if (tElm.TryGetProperty("scaleX", out var scxElm) && scxElm.ValueKind == JsonValueKind.Number) tile.ScaleX = (float)scxElm.GetDouble();
                                 if (tElm.TryGetProperty("scaleY", out var scyElm) && scyElm.ValueKind == JsonValueKind.Number) tile.ScaleY = (float)scyElm.GetDouble();
-                                if (tElm.TryGetProperty("color", out var colElm) && colElm.ValueKind == JsonValueKind.Number) tile.Color = (uint)colElm.GetInt32();
+                                if (tElm.TryGetProperty("color", out var colElm) && TryGetUInt32(colElm, out uint legacyTileColor)) tile.Color = legacyTileColor;
                                 if (tElm.TryGetProperty("background", out var bgElm) && bgElm.ValueKind == JsonValueKind.String)
                                 {
                                     string bn = bgElm.GetString() ?? "";
@@ -431,7 +463,7 @@ public static partial class ResourceImportService
                                 if (sElm.TryGetProperty("y", out var yElm) && yElm.ValueKind == JsonValueKind.Number) si.Y = yElm.GetInt32();
                                 if (sElm.TryGetProperty("scaleX", out var sxElm) && sxElm.ValueKind == JsonValueKind.Number) si.ScaleX = (float)sxElm.GetDouble();
                                 if (sElm.TryGetProperty("scaleY", out var syElm) && syElm.ValueKind == JsonValueKind.Number) si.ScaleY = (float)syElm.GetDouble();
-                                if (sElm.TryGetProperty("color", out var colElm) && colElm.ValueKind == JsonValueKind.Number) si.Color = (uint)colElm.GetInt32();
+                                if (sElm.TryGetProperty("color", out var colElm) && TryGetUInt32(colElm, out uint spriteColor)) si.Color = spriteColor;
                                 if (sElm.TryGetProperty("animationSpeed", out var asElm) && asElm.ValueKind == JsonValueKind.Number)
                                     si.AnimationSpeed = (float)asElm.GetDouble();
                                 if (sElm.TryGetProperty("animationSpeedType", out var astElm) && astElm.ValueKind == JsonValueKind.Number)

@@ -23,7 +23,8 @@ public partial class PatchService
         string modifiedPath,
         string outputPath,
         Dictionary<string, Dictionary<string, string>>? precomputedOriginalHashes = null,
-        DataFileInfo? precomputedOriginalInfo = null)
+        DataFileInfo? precomputedOriginalInfo = null,
+        bool includeExactFallback = true)
     {
         if (!File.Exists(originalPath))
             return new PatchCreateResult { Success = false, Error = $"Original file not found: {originalPath}" };
@@ -33,9 +34,13 @@ public partial class PatchService
 
         // If modifiedPath is an xdelta file, apply it first to get the actual modified .win
         string? tempXdeltaResult = null;
+        string? tempExactPatch = null;
+        string? exactPatchSourcePath = null;
+        string originalModifiedInputPath = modifiedPath;
         if (Path.GetExtension(modifiedPath).Equals(".xdelta", StringComparison.OrdinalIgnoreCase))
         {
             LogService.Log("[PatchService] Detected xdelta file, applying to original first...");
+            exactPatchSourcePath = originalModifiedInputPath;
 
             var xdeltaService = new XDeltaService();
             tempXdeltaResult = Path.Combine(Path.GetTempPath(), $"g3mtool_xdelta_{Guid.NewGuid():N}.win");
@@ -123,6 +128,7 @@ public partial class PatchService
             LogService.Log("[PatchService] Loading modified data file...");
             DataFileInfo modifiedInfo;
             Dictionary<string, Dictionary<string, string>> modifiedHashes;
+            Dictionary<string, HashSet<string>> changedNamesPerType = [];
             Dictionary<string, (string? gml, string? asm, Dictionary<string, string>? childAsms)> codeEntriesInMemory = [];
             using (var stream = new FileStream(modifiedPath, FileMode.Open, FileAccess.Read))
             {
@@ -149,7 +155,7 @@ public partial class PatchService
                 // Compare ALL hashes NOW (before export) to identify changed/new resources per type
                 phaseSw.Restart();
                 LogService.Log("[PatchService] Comparing hashes to build selective export filter...");
-                var changedNamesPerType = new Dictionary<string, HashSet<string>>();
+                changedNamesPerType = [];
                 foreach (var resourceType in ResourceTypeRegistry.AllTypes)
                 {
                     var origTypeHashes = originalHashes.GetValueOrDefault(resourceType) ?? [];
@@ -163,6 +169,12 @@ public partial class PatchService
                     if (changedNames.Count > 0)
                         changedNamesPerType[resourceType] = changedNames;
                 }
+
+                PromoteVersionSensitiveExportsIfNeeded(
+                    originalInfo.GeneralInfo,
+                    modifiedInfo.GeneralInfo,
+                    modifiedHashes,
+                    changedNamesPerType);
                 LogService.Log($"[Timing] Hash comparison (pre-export): {phaseSw.Elapsed.TotalMilliseconds:F0}ms");
 
                 // If a parent code entry changed, include all its children too.
@@ -232,7 +244,13 @@ public partial class PatchService
                     var origTypeHashes = originalHashes.GetValueOrDefault(resourceType) ?? [];
                     var modTypeHashes = modifiedHashes.GetValueOrDefault(resourceType) ?? [];
 
-                    var changes = CompareHashDictionaries(origTypeHashes, modTypeHashes, modifiedExportDir, resourceType);
+                    var forcedExportNames = changedNamesPerType.GetValueOrDefault(resourceType);
+                    var changes = CompareHashDictionaries(
+                        origTypeHashes,
+                        modTypeHashes,
+                        modifiedExportDir,
+                        resourceType,
+                        forcedExportNames);
                     if (changes.HasChanges)
                         manifest.Resources[resourceType] = changes;
                 }
@@ -321,10 +339,10 @@ public partial class PatchService
                         LogService.Log($"[PatchService] CodeEntries: {codeEntriesInMemory.Count} written directly to archive (no disk I/O)");
                     }
 
-                    // Add all exported helper files into Helpers/ folder in ZIP
-                    // (already exported by ResourceExportService.ExportAssetOrder during modified data phase)
-                    var helpersDir = Path.Combine(tempDir, "Helpers");
-                    if (Directory.Exists(helpersDir))
+                // Add all exported helper files into Helpers/ folder in ZIP
+                // (already exported by ResourceExportService.ExportAssetOrder during modified data phase)
+                var helpersDir = Path.Combine(tempDir, "Helpers");
+                if (Directory.Exists(helpersDir))
                     {
                         foreach (var file in Directory.GetFiles(helpersDir))
                         {
@@ -335,6 +353,39 @@ public partial class PatchService
                             await fileStream.CopyToAsync(entryStream);
                         }
                         LogService.Log("[PatchService] Helpers data added to patch");
+                    }
+
+                    if (includeExactFallback && exactPatchSourcePath == null)
+                    {
+                        var xdeltaService = new XDeltaService();
+                        tempExactPatch = Path.Combine(
+                            Path.GetTempPath(), $"g3mtool_exact_{Guid.NewGuid():N}.xdelta"
+                        );
+                        var exactResult = await xdeltaService.CreatePatchAsync(
+                            originalPath, modifiedPath, tempExactPatch
+                        );
+                        if (exactResult.Success && File.Exists(tempExactPatch))
+                        {
+                            exactPatchSourcePath = tempExactPatch;
+                            LogService.Log("[PatchService] Embedded exact xdelta fallback");
+                        }
+                        else
+                        {
+                            LogService.Warning(
+                                $"[PatchService] Exact xdelta fallback was not created: {exactResult.Error}"
+                            );
+                        }
+                    }
+
+                    if (includeExactFallback && exactPatchSourcePath != null && File.Exists(exactPatchSourcePath))
+                    {
+                        var exactEntry = archive.CreateEntry(
+                            $"Exact/{Path.GetFileName(exactPatchSourcePath)}",
+                            CompressionLevel.NoCompression
+                        );
+                        using var exactStream = exactEntry.Open();
+                        using var exactFile = File.OpenRead(exactPatchSourcePath);
+                        await exactFile.CopyToAsync(exactStream);
                     }
                 }
 
@@ -359,6 +410,8 @@ public partial class PatchService
                 // Cleanup temp xdelta result file if created
                 if (tempXdeltaResult != null)
                     try { File.Delete(tempXdeltaResult); } catch { }
+                if (tempExactPatch != null)
+                    try { File.Delete(tempExactPatch); } catch { }
             }
         }
         catch (Exception ex)
@@ -366,8 +419,48 @@ public partial class PatchService
             // Cleanup temp xdelta result file on error
             if (tempXdeltaResult != null)
                 try { File.Delete(tempXdeltaResult); } catch { }
+            if (tempExactPatch != null)
+                try { File.Delete(tempExactPatch); } catch { }
             return new PatchCreateResult { Success = false, Error = $"Failed to create patch: {ex.Message}" };
         }
+    }
+
+    /// <summary>
+    /// Forces full export of resource types whose binary layout depends on the GameMaker version.
+    /// This prevents merged semantic patches from leaving a small number of untouched resources
+    /// in an older on-disk format when the patch upgrades the target game version.
+    /// </summary>
+    private static void PromoteVersionSensitiveExportsIfNeeded(
+        GeneralInfoData? originalInfo,
+        GeneralInfoData? modifiedInfo,
+        Dictionary<string, Dictionary<string, string>> modifiedHashes,
+        Dictionary<string, HashSet<string>> changedNamesPerType)
+    {
+        if (originalInfo == null || modifiedInfo == null)
+            return;
+
+        bool versionChanged =
+            originalInfo.Major != modifiedInfo.Major ||
+            originalInfo.Minor != modifiedInfo.Minor ||
+            originalInfo.Release != modifiedInfo.Release ||
+            originalInfo.Build != modifiedInfo.Build;
+        if (!versionChanged)
+            return;
+
+        PromoteResourceTypeToFullExport(changedNamesPerType, modifiedHashes, "Rooms");
+        PromoteResourceTypeToFullExport(changedNamesPerType, modifiedHashes, "TextureGroupInfo");
+    }
+
+    private static void PromoteResourceTypeToFullExport(
+        Dictionary<string, HashSet<string>> changedNamesPerType,
+        Dictionary<string, Dictionary<string, string>> modifiedHashes,
+        string resourceType)
+    {
+        if (!modifiedHashes.TryGetValue(resourceType, out var typeHashes) || typeHashes.Count == 0)
+            return;
+
+        changedNamesPerType[resourceType] = [.. typeHashes.Keys];
+        LogService.Log($"[PatchService] Version change detected, exporting all {resourceType} resources");
     }
 
     /// <summary>
@@ -378,7 +471,8 @@ public partial class PatchService
         Dictionary<string, string> originalHashes,
         Dictionary<string, string> modifiedHashes,
         string modifiedExportDir,
-        string resourceType)
+        string resourceType,
+        HashSet<string>? forcedExportNames = null)
     {
         var changes = new ResourceTypeChanges
         {
@@ -411,7 +505,8 @@ public partial class PatchService
         // Changed resources (different hashes)
         foreach (var name in originalNames.Intersect(modifiedNames))
         {
-            if (originalHashes[name] != modifiedHashes[name])
+            bool forceInclude = forcedExportNames?.Contains(name) == true;
+            if (forceInclude || originalHashes[name] != modifiedHashes[name])
             {
                 var folderName = folderMap.GetValueOrDefault(name) ?? name;
                 changes.Changed.Add(new ResourceChange { Name = folderName });
@@ -475,6 +570,8 @@ public partial class PatchService
         // In this case resourceName equals the directory name itself
         if (!Directory.Exists(resourcePath) && resourceName == Path.GetFileName(sourceDir))
         {
+            if (!Directory.Exists(sourceDir))
+                return;
             // Files are directly in sourceDir, not in a subdirectory
             foreach (var file in Directory.GetFiles(sourceDir, "*", SearchOption.AllDirectories))
             {
@@ -532,29 +629,35 @@ public partial class PatchService
             LogService.SetOperation("Applying patch");
             LogService.Progress(0, 100);
 
-            // Load data.win + patch ZIP in parallel
+            // Load patch ZIP first so we can use an exact fallback before semantic import.
             phaseSw.Restart();
-            LogService.Log("[PatchService] Loading data file + patch into memory (parallel)...");
+            LogService.Log("[PatchService] Loading patch ZIP into memory...");
+            var pfs = await Task.Run(() => PatchFileSystem.LoadFromZip(patchPath));
+            G3MPatchManifest? manifest = pfs.Manifest;
 
-            UndertaleData data = null!;
-            PatchFileSystem pfs = null!;
-
-            var loadDataTask = Task.Run(() =>
+            if (await TryApplyExactPatchAsync(dataPath, outputPath, pfs, manifest))
             {
-                using var stream = new FileStream(dataPath, FileMode.Open, FileAccess.Read);
-                return UndertaleIO.Read(stream);
-            });
-            var loadPfsTask = Task.Run(() => PatchFileSystem.LoadFromZip(patchPath));
+                LogService.Progress(100, 100);
+                LogService.ProgressComplete();
+                totalSw.Stop();
+                LogService.Log(
+                    $"[Timing] === PATCH APPLY TOTAL (exact): {totalSw.Elapsed.TotalSeconds:F1}s ==="
+                );
+                return new PatchApplyResult { Success = true };
+            }
 
-            await Task.WhenAll(loadDataTask, loadPfsTask);
-            data = loadDataTask.Result;
-            pfs = loadPfsTask.Result;
+            phaseSw.Restart();
+            LogService.Log("[PatchService] Loading data file for semantic patch application...");
+            UndertaleData data;
+            using (var stream = new FileStream(dataPath, FileMode.Open, FileAccess.Read))
+            {
+                data = UndertaleIO.Read(stream);
+            }
 
-            LogService.Log($"[Timing] Parallel load (data + ZIP): {phaseSw.Elapsed.TotalSeconds:F1}s, RAM: {Process.GetCurrentProcess().WorkingSet64 / 1024 / 1024}MB");
+            LogService.Log($"[Timing] Data load (semantic path): {phaseSw.Elapsed.TotalSeconds:F1}s, RAM: {Process.GetCurrentProcess().WorkingSet64 / 1024 / 1024}MB");
             LogService.Progress(5, 100);
 
             LogService.Log($"[PatchService] Data loaded: {data.GeneralInfo?.DisplayName?.Content ?? "Unknown"}");
-            G3MPatchManifest? manifest = pfs.Manifest;
 
             // Set PatchFileSystem for all native importers
             ResourceImportService.SetPatchFileSystem(pfs);
@@ -570,6 +673,9 @@ public partial class PatchService
                     if (existingFolders.Contains(rt))
                         resourceTypesToProcess.Add(rt);
                 }
+
+                if (resourceTypesToProcess.Remove("GeneralInfo"))
+                    resourceTypesToProcess.Insert(0, "GeneralInfo");
 
                 LogService.Log($"[PatchService] Resources to process: {string.Join(", ", resourceTypesToProcess)}");
 
@@ -745,6 +851,8 @@ public partial class PatchService
 
                     try
                     {
+                        if (resourceType == "Sprites")
+                            ResourceImportService.SetProgressRange(6, 24);
                         if (!ResourceImportService.Import(resourceType, data, resourceDir))
                         {
                             LogService.Warning($"No native importer for {resourceType}, skipping");
@@ -759,6 +867,10 @@ public partial class PatchService
                     {
                         LogService.Warning($"ERROR applying {resourceType}: {ex.Message}");
                         failedCount++;
+                    }
+                    finally
+                    {
+                        ResourceImportService.SetProgressRange();
                     }
 
                     LogService.Log($"[Timing] Import {resourceType}: {phaseSw.Elapsed.TotalSeconds:F1}s, RAM: {Process.GetCurrentProcess().WorkingSet64 / 1024 / 1024}MB");
@@ -796,6 +908,8 @@ public partial class PatchService
                     LogService.Progress(nonCodeRangeStart + nonCodeRange * nonCodeProgress / Math.Max(totalNonCodeWeight, 1), 100);
                 }
 
+                RepairDanglingCodeReferences(data);
+
                 // Save modified data
                 phaseSw.Restart();
                 LogService.Log("[PatchService] Saving modified data file...");
@@ -830,7 +944,136 @@ public partial class PatchService
         }
         catch (Exception ex)
         {
+            try
+            {
+                if (File.Exists(outputPath))
+                    File.Delete(outputPath);
+            }
+            catch
+            {
+                // Best effort cleanup of partial output.
+            }
             return new PatchApplyResult { Success = false, Error = $"Failed to apply patch: {ex.Message}" };
+        }
+    }
+
+    private static void RepairDanglingCodeReferences(UndertaleData data)
+    {
+        var liveCodeEntries = new HashSet<UndertaleCode>();
+        foreach (var code in data.Code)
+        {
+            if (code != null)
+                liveCodeEntries.Add(code);
+        }
+
+        int repairedScripts = 0;
+        int nulledScripts = 0;
+        foreach (var script in data.Scripts)
+        {
+            if (script?.Code == null || liveCodeEntries.Contains(script.Code))
+                continue;
+
+            UndertaleCode? replacement = null;
+            var currentCodeName = script.Code.Name?.Content;
+            if (!string.IsNullOrEmpty(currentCodeName))
+                replacement = data.Code.ByName(currentCodeName);
+
+            if (replacement == null && script.Name?.Content is string scriptName && !string.IsNullOrEmpty(scriptName))
+            {
+                replacement = data.Code.ByName("gml_Script_" + scriptName)
+                    ?? data.Code.ByName("gml_GlobalScript_" + scriptName);
+            }
+
+            if (replacement != null)
+            {
+                script.Code = replacement;
+                repairedScripts++;
+            }
+            else
+            {
+                script.Code = null;
+                nulledScripts++;
+            }
+        }
+
+        int removedGlobalInit = 0;
+        for (int i = data.GlobalInitScripts.Count - 1; i >= 0; i--)
+        {
+            if (data.GlobalInitScripts[i]?.Code != null && !liveCodeEntries.Contains(data.GlobalInitScripts[i].Code))
+            {
+                data.GlobalInitScripts.RemoveAt(i);
+                removedGlobalInit++;
+            }
+        }
+
+        if (repairedScripts > 0 || nulledScripts > 0 || removedGlobalInit > 0)
+        {
+            LogService.Warning(
+                $"[PatchService] Repaired dangling code references: {repairedScripts} relinked scripts, {nulledScripts} nulled scripts, {removedGlobalInit} removed global init entries"
+            );
+        }
+    }
+
+    private static async Task<bool> TryApplyExactPatchAsync(
+        string dataPath,
+        string outputPath,
+        PatchFileSystem pfs,
+        G3MPatchManifest? manifest)
+    {
+        if (pfs.ExactPatchBytes == null)
+            return false;
+
+        string currentHash = await HashService.ComputeFileHashAsync(dataPath);
+        string? expectedOriginalHash = manifest?.Original?.Md5;
+        if (!string.IsNullOrEmpty(expectedOriginalHash) &&
+            !currentHash.Equals(expectedOriginalHash, StringComparison.OrdinalIgnoreCase))
+        {
+            LogService.Warning(
+                "[PatchService] Exact xdelta fallback skipped because the original MD5 does not match"
+            );
+            return false;
+        }
+
+        string extension = Path.GetExtension(pfs.ExactPatchPath ?? string.Empty);
+        if (string.IsNullOrWhiteSpace(extension))
+            extension = ".xdelta";
+
+        string tempExactPatch = Path.Combine(
+            Path.GetTempPath(), $"g3mtool_exact_apply_{Guid.NewGuid():N}{extension}"
+        );
+        try
+        {
+            await File.WriteAllBytesAsync(tempExactPatch, pfs.ExactPatchBytes);
+            var xdeltaService = new XDeltaService();
+            var exactResult = await xdeltaService.ApplyPatchAsync(dataPath, tempExactPatch, outputPath);
+            if (!exactResult.Success)
+            {
+                LogService.Warning(
+                    $"[PatchService] Exact xdelta fallback failed, using semantic patch path: {exactResult.Error}"
+                );
+                return false;
+            }
+
+            string? expectedModifiedHash = manifest?.Modified?.Md5;
+            if (!string.IsNullOrEmpty(expectedModifiedHash))
+            {
+                string actualHash = await HashService.ComputeFileHashAsync(outputPath);
+                if (!actualHash.Equals(expectedModifiedHash, StringComparison.OrdinalIgnoreCase))
+                {
+                    LogService.Warning(
+                        "[PatchService] Exact xdelta fallback output hash mismatch, falling back to semantic patch path"
+                    );
+                    try { File.Delete(outputPath); } catch { }
+                    return false;
+                }
+            }
+
+            LogService.Log("[PatchService] Patch applied via exact xdelta fallback");
+            return true;
+        }
+        finally
+        {
+            try { File.Delete(tempExactPatch); } catch { }
         }
     }
 
@@ -1649,7 +1892,14 @@ public partial class PatchService
         }
 
         var outputZip = Path.Combine(tempDir ?? Path.GetTempPath(), $"g3mtool_conv_{Guid.NewGuid():N}.g3mpatch");
-        var result = await CreatePatchAsync(originalPath, dataFilePath, outputZip, precomputedOriginalHashes, precomputedOriginalInfo);
+        var result = await CreatePatchAsync(
+            originalPath,
+            dataFilePath,
+            outputZip,
+            precomputedOriginalHashes,
+            precomputedOriginalInfo,
+            includeExactFallback: false
+        );
         if (!result.Success)
             throw new Exception($"Failed to create .g3mpatch from '{Path.GetFileName(inputPath)}': {result.Error}");
 

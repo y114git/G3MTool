@@ -163,6 +163,7 @@ public static partial class ResourceImportService
         }
 
         Log($"[ImportSprites] Collected {importDataList.Count} sprites. New: {importDataList.Count(d => d.IsNew)}, Existing: {importDataList.Count(d => !d.IsNew)}");
+        ReportProgress(5, 100);
 
         // Alias sprite names in metadata cache (folder names may have __idx suffixes)
         foreach (var importData in importDataList)
@@ -186,6 +187,7 @@ public static partial class ResourceImportService
             }
         }
         Log($"[ImportSprites] Phase 1a: {created} new sprites created from metadata");
+        ReportProgress(15, 100);
 
         // --- Phase 1b: Update existing sprites (metadata + rebuild texture frames) ---
         int updated = 0;
@@ -257,6 +259,7 @@ public static partial class ResourceImportService
             updated++;
         }
         Log($"[ImportSprites] Phase 1b: {updated} existing sprites updated");
+        ReportProgress(25, 100);
 
         // =====================================================================
         // PHASE 2: Texture repacking - for any folder with PNGs
@@ -267,10 +270,12 @@ public static partial class ResourceImportService
         ).ToList();
 
         Log($"[ImportSprites] {foldersWithPngs.Count} sprite folders with PNGs need texture repacking");
+        ReportProgress(35, 100);
 
         if (foldersWithPngs.Count == 0)
         {
             Log("[ImportSprites] All sprites handled via direct metadata import (no repacking needed)");
+            ReportProgress(100, 100);
         }
         else
         {
@@ -426,42 +431,40 @@ public static partial class ResourceImportService
         var imagesToCleanup = new List<MagickImage>();
         var maskNodes = new Dictionary<UndertaleSprite, PackerNode>();
 
-        string packDir = Path.Combine(Path.GetTempPath(), $"g3m_repack_{Guid.NewGuid():N}");
-        Directory.CreateDirectory(packDir);
-
         try
         {
-            // Copy only PNGs for NEW sprites to temp directory
-            string newSpritesDir = Path.Combine(packDir, "new_sprites");
-            Directory.CreateDirectory(newSpritesDir);
-            int copiedFiles = 0;
-            foreach (string folder in newSpriteFolders)
-            {
-                foreach (string pngFile in GetFilesIn(folder, "*.png"))
-                {
-                    File.WriteAllBytes(Path.Combine(newSpritesDir, Path.GetFileName(pngFile)), FReadBytes(pngFile));
-                    copiedFiles++;
-                }
-            }
-            Log($"[ImportSprites] Copied {copiedFiles} PNG files for {newSpriteFolders.Count} new sprites to repack");
+            var pngFiles = newSpriteFolders
+                .SelectMany(folder => GetFilesIn(folder, "*.png"))
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
 
-            if (copiedFiles == 0)
+            Log($"[ImportSprites] Prepared {pngFiles.Length} PNG files from {newSpriteFolders.Count} sprite folders for repacking");
+            ReportProgress(5, 100);
+
+            if (pngFiles.Length == 0)
             {
                 Log("[ImportSprites] No PNGs to repack");
                 return;
             }
 
             var packer = new SpritePacker();
-            packer.Process(newSpritesDir, "*.png", atlasSize, 2, false, imagesToCleanup);
-            packer.SaveAtlasses(Path.Combine(packDir, "atlas.txt"));
+            packer.ProcessFiles(
+                pngFiles,
+                atlasSize,
+                2,
+                false,
+                imagesToCleanup,
+                ReportProgress
+            );
+            ReportProgress(50, 100);
 
             int newCreated = 0;
-            int atlasCount = 0;
+            int atlasIndex = 0;
+            int atlasTotal = Math.Max(packer.Atlasses.Count, 1);
 
             foreach (var atlas in packer.Atlasses)
             {
-                string atlasName = Path.Combine(packDir, $"atlas{atlasCount:000}.png");
-                using MagickImage atlasImage = TextureWorker.ReadBGRAImageFromFile(atlasName);
+                using MagickImage atlasImage = SpritePacker.CreateAtlasImage(atlas);
                 IPixelCollection<byte> atlasPixels = atlasImage.GetPixels();
 
                 var texture = new UndertaleEmbeddedTexture
@@ -618,16 +621,17 @@ public static partial class ResourceImportService
                     catch { maskSpr.CollisionMasks.Clear(); }
                 }
                 maskNodes.Clear();
-                atlasCount++;
+                atlasIndex++;
+                ReportProgress(50 + (atlasIndex * 45 / atlasTotal), 100);
             }
 
+            ReportProgress(100, 100);
             Log($"[ImportSprites] Repack done. New from repack: {newCreated}");
         }
         catch (Exception ex) { Log($"[ImportSprites] REPACK ERROR: {ex.Message}"); throw; }
         finally
         {
             foreach (var img in imagesToCleanup) img.Dispose();
-            try { Directory.Delete(packDir, true); } catch { }
         }
     }
 
@@ -673,12 +677,18 @@ public static partial class ResourceImportService
         public List<PackerAtlas> Atlasses = [];
 
 #pragma warning disable IDE0060
-        public void Process(string sourceDir, string pattern, int atlasSize, int padding, bool debugMode, List<MagickImage> cleanup)
+        public void ProcessFiles(
+            IReadOnlyList<string> sourceFiles,
+            int atlasSize,
+            int padding,
+            bool debugMode,
+            List<MagickImage> cleanup,
+            Action<int, int>? progressCallback = null)
 #pragma warning restore IDE0060
         {
             Padding = padding;
             AtlasSize = atlasSize;
-            ScanForTextures(sourceDir, pattern, cleanup);
+            ScanForTextures(sourceFiles, cleanup, progressCallback);
             var textures = SourceTextures.ToList();
             Atlasses = [];
             while (textures.Count > 0)
@@ -701,37 +711,26 @@ public static partial class ResourceImportService
             }
         }
 
-        public void SaveAtlasses(string dest)
+        private void ScanForTextures(
+            IReadOnlyList<string> sourceFiles,
+            List<MagickImage> cleanup,
+            Action<int, int>? progressCallback)
         {
-            int count = 0;
-            string prefix = dest.Replace(Path.GetExtension(dest), "");
-            using var tw = new StreamWriter(dest);
-            tw.WriteLine("source_tex, atlas_tex, x, y, width, height");
-            foreach (var atlas in Atlasses)
+            SourceTextures = new List<PackerTextureInfo>(sourceFiles.Count);
+            for (int i = 0; i < sourceFiles.Count; i++)
             {
-                string atlasName = $"{prefix}{count:000}.png";
-                using (var img = CreateAtlasImage(atlas))
-                    TextureWorker.SaveImageToFile(img, atlasName);
-                foreach (var n in atlas.Nodes)
+                string sourceFile = sourceFiles[i];
+                var img = GetPatchFileSystem() != null
+                    ? new MagickImage(FReadBytes(sourceFile))
+                    : new MagickImage(sourceFile);
+                int w = (int)img.Width;
+                int h = (int)img.Height;
+                if (w > AtlasSize || h > AtlasSize)
                 {
-                    if (n.Texture != null)
-                        tw.WriteLine($"{n.Texture.Source}, {atlasName}, {n.Bounds.X}, {n.Bounds.Y}, {n.Bounds.Width}, {n.Bounds.Height}");
+                    img.Dispose();
+                    continue;
                 }
-                count++;
-            }
-        }
 
-        private void ScanForTextures(string path, string wildcard, List<MagickImage> cleanup)
-        {
-            var di = new DirectoryInfo(path);
-            var files = di.GetFiles(wildcard, SearchOption.AllDirectories);
-            foreach (var fi in files)
-            {
-                (int w, int h) = TextureWorker.GetImageSizeFromFile(fi.FullName);
-                if (w == -1 || h == -1) continue;
-                if (w > AtlasSize || h > AtlasSize) continue;
-
-                var img = new MagickImage(fi.FullName);
                 cleanup.Add(img);
 
                 // Exported PNGs are already cropped TPI source regions.
@@ -739,7 +738,7 @@ public static partial class ResourceImportService
                 // Actual TargetX/Y and BoundingWidth/Height come from sprite metadata.
                 var ti = new PackerTextureInfo
                 {
-                    Source = fi.FullName,
+                    Source = sourceFile,
                     Width = w,
                     Height = h,
                     BoundingWidth = w,
@@ -749,6 +748,7 @@ public static partial class ResourceImportService
                     Image = img
                 };
                 SourceTextures.Add(ti);
+                progressCallback?.Invoke(i + 1, sourceFiles.Count);
             }
         }
 
@@ -830,7 +830,7 @@ public static partial class ResourceImportService
             return best;
         }
 
-        private static MagickImage CreateAtlasImage(PackerAtlas atlas)
+        internal static MagickImage CreateAtlasImage(PackerAtlas atlas)
         {
             var img = new MagickImage(MagickColors.Transparent, (uint)atlas.Width, (uint)atlas.Height);
             foreach (var n in atlas.Nodes)

@@ -23,12 +23,27 @@ public static partial class ResourceImportService
     // Thread-static so concurrent usage is safe
     [ThreadStatic]
     private static PatchFileSystem? _pfs;
+    [ThreadStatic]
+    private static (int Start, int End)? _progressRange;
 
     /// <summary>Set in-memory file system for imports. Pass null to revert to disk.</summary>
     public static void SetPatchFileSystem(PatchFileSystem? pfs) => _pfs = pfs;
 
     /// <summary>Get current PatchFileSystem (may be null if using disk).</summary>
     public static PatchFileSystem? GetPatchFileSystem() => _pfs;
+
+    public static void SetProgressRange(int? startPercent = null, int? endPercent = null)
+    {
+        _progressRange = startPercent.HasValue && endPercent.HasValue
+            ? (startPercent.Value, endPercent.Value)
+            : null;
+    }
+
+    private static void ReportProgress(int current, int total)
+    {
+        if (_progressRange is { } range)
+            LogService.ProgressRange(current, total, range.Start, range.End);
+    }
 
     // File-system wrappers: use PFS when available, disk otherwise
     private static string[] GetDirs(string path) =>
