@@ -26,6 +26,8 @@ dotnet publish G3MToolCLI -c Release -r <platform>
 
 Output files are saved next to the G3MTool executable by default.
 
+Run `G3MTool --version` or `G3MTool -V` to print the application version.
+
 ### xpatch - xdelta Patches
 
 Create or apply binary xdelta patches.
@@ -168,6 +170,7 @@ Compare two data.win or patch files and generate a diff report.
 | `--verbose`, `-v` | Enable verbose output |
 | `--log [path]` | Enable logging (default: `logs/{command}_{timestamp}.log`) |
 | `--json` | JSON output (for `info`, `patch validate`) |
+| `--version`, `-V` | Print the application version and exit |
 
 ## Legal
 

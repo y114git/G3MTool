@@ -8,7 +8,7 @@
     <Nullable>enable</Nullable>
     <RootNamespace>G3MToolCLI</RootNamespace>
     <AssemblyName>G3MTool</AssemblyName>
-    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     
     <!-- Publish settings -->
     <PublishSingleFile>true</PublishSingleFile>

@@ -44,6 +44,7 @@ class Program
         // Build parser with middleware to apply global options before any command handler
         var parser = new CommandLineBuilder(rootCommand)
             .UseDefaults()
+            .UseVersionOption(["--version", "-V"])
             .AddMiddleware(async (context, next) =>
             {
                 var parseResult = context.ParseResult;
@@ -59,6 +60,12 @@ class Program
             return await RunInteractiveMode(parser);
         }
 
+        if (args.Length == 1 && (args[0] == "--version" || args[0] == "-V"))
+        {
+            Console.WriteLine(AppVersionService.Version);
+            return 0;
+        }
+
         var exitCode = await parser.InvokeAsync(args);
 
         if (exitCode == 0 && Environment.ExitCode != 0)
@@ -71,7 +78,7 @@ class Program
 
     static async Task<int> RunInteractiveMode(Parser parser)
     {
-        Console.WriteLine("G3MTool - by Y114");
+        Console.WriteLine($"{AppVersionService.GetBannerText()} - by Y114");
         Console.WriteLine("Type 'help' for available commands or 'exit' to quit");
         Console.WriteLine();
 
