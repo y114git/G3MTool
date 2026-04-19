@@ -11,16 +11,20 @@ public static class PatchCommand
         var command = new Command("patch", "Create, apply, validate, or merge G3M resource patches. Subcommands: create, apply, validate, merge");
 
         // patch create
-        var createCommand = new Command("create", "Create a G3M patch by comparing original and modified data files.\n  Usage: patch create <original> <modified> [output]");
+        var createCommand = new Command("create", "Create a G3M patch by comparing original and modified data files.\n  Usage: patch create <original> <modified> [output] [--xdelta-fallback]");
         var originalArg = new Argument<FileInfo>("original", "Path to original data file (.win/.ios/.droid/.unx)");
         var modifiedArg = new Argument<FileInfo>("modified", "Path to modified data file (.win/.ios/.droid/.unx)");
         var outputArg = new Argument<FileInfo?>("output", () => null, "Output patch file (optional). Default: next to G3MTool executable");
+        var xdeltaFallbackOption = new Option<bool>(
+            name: "--xdelta-fallback",
+            description: "Embed an optional xdelta fallback in Xdelta/. Disabled by default to keep g3mpatch semantic and merge-friendly.");
 
         createCommand.AddArgument(originalArg);
         createCommand.AddArgument(modifiedArg);
         createCommand.AddArgument(outputArg);
+        createCommand.AddOption(xdeltaFallbackOption);
 
-        createCommand.SetHandler(async (original, modified, output) =>
+        createCommand.SetHandler(async (original, modified, output, xdeltaFallback) =>
         {
             var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
             var defaultOutput = Path.Combine(PlatformUtil.GetExecutableDirectory(), $"patch_{timestamp}.g3mpatch");
@@ -30,8 +34,13 @@ public static class PatchCommand
             LogService.Log($"  Original: {original.FullName}");
             LogService.Log($"  Modified: {modified.FullName}");
             LogService.Log($"  Output:   {outputPath}");
+            LogService.Log($"  Xdelta fallback: {(xdeltaFallback ? "enabled" : "disabled")}");
 
-            var result = await PatchService.CreatePatchAsync(original.FullName, modified.FullName, outputPath);
+            var result = await PatchService.CreatePatchAsync(
+                original.FullName,
+                modified.FullName,
+                outputPath,
+                includeXdeltaFallback: xdeltaFallback);
 
             if (result.Success)
             {
@@ -53,7 +62,7 @@ public static class PatchCommand
                 Console.Error.WriteLine($"Error: {result.Error}");
                 Environment.ExitCode = 1;
             }
-        }, originalArg, modifiedArg, outputArg);
+        }, originalArg, modifiedArg, outputArg, xdeltaFallbackOption);
 
         // patch apply
         var applyCommand = new Command("apply", "Apply a G3M patch to a data file.\n  Input can be .g3mpatch, .xdelta, or data file (.win/.ios/.droid/.unx).\n  Non-g3mpatch inputs are auto-converted using the original data file as reference.\n  Usage: patch apply <data> <patch> [output]");

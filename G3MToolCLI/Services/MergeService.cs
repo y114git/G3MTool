@@ -1488,26 +1488,26 @@ public static partial class MergeService
     // Sprite index remapping helpers
     // ═══════════════════════════════════════════════════════════════════
 
-    [GeneratedRegex(@"(pushi\.e )(-?\d+)")]
-    private static partial Regex AsmPushiRegex();
-    [GeneratedRegex(@"(push\.i )(-?\d+)")]
-    private static partial Regex AsmPushIntRegex();
+    [GeneratedRegex(@"^(?<prefix>\s*pushi\.e\s+)(?<value>-?\d+)(?<suffix>\s*;.*\bg3m-resource\s*=\s*sprite\b.*)$",
+        RegexOptions.IgnoreCase | RegexOptions.Multiline)]
+    private static partial Regex AsmSpritePushiRegex();
+    [GeneratedRegex(@"^(?<prefix>\s*push\.i\s+)(?<value>-?\d+)(?<suffix>\s*;.*\bg3m-resource\s*=\s*sprite\b.*)$",
+        RegexOptions.IgnoreCase | RegexOptions.Multiline)]
+    private static partial Regex AsmSpritePushIntRegex();
 
     private static string RemapSpriteIndicesAsm(string asm, Dictionary<int, int> remap)
     {
         if (remap.Count == 0) return asm;
-        // Remap pushi.e <value> (compact 16-bit immediate)
-        asm = AsmPushiRegex().Replace(asm, m =>
+        asm = AsmSpritePushiRegex().Replace(asm, m =>
         {
-            if (int.TryParse(m.Groups[2].Value, out int val) && remap.TryGetValue(val, out int newVal))
-                return m.Groups[1].Value + newVal.ToString();
+            if (int.TryParse(m.Groups["value"].Value, out int val) && remap.TryGetValue(val, out int newVal))
+                return m.Groups["prefix"].Value + newVal.ToString() + m.Groups["suffix"].Value;
             return m.Value;
         });
-        // Remap push.i <value> (32-bit immediate, NOT [type]name resource refs)
-        asm = AsmPushIntRegex().Replace(asm, m =>
+        asm = AsmSpritePushIntRegex().Replace(asm, m =>
         {
-            if (int.TryParse(m.Groups[2].Value, out int val) && remap.TryGetValue(val, out int newVal))
-                return m.Groups[1].Value + newVal.ToString();
+            if (int.TryParse(m.Groups["value"].Value, out int val) && remap.TryGetValue(val, out int newVal))
+                return m.Groups["prefix"].Value + newVal.ToString() + m.Groups["suffix"].Value;
             return m.Value;
         });
         return asm;

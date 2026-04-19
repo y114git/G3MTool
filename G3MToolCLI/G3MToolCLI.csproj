@@ -21,9 +21,9 @@
     <CopyDocumentationFilesToPublishDirectory>false</CopyDocumentationFilesToPublishDirectory>
     
     <!-- Version info -->
-    <Version>1.0.1</Version>
-    <AssemblyVersion>1.0.1.0</AssemblyVersion>
-    <FileVersion>1.0.1.0</FileVersion>
+    <Version>1.0.2</Version>
+    <AssemblyVersion>1.0.2.0</AssemblyVersion>
+    <FileVersion>1.0.2.0</FileVersion>
     <Product>G3MTool</Product>
     <Description>Cross-platform tool for various actions with GameMaker data files.</Description>
   </PropertyGroup>

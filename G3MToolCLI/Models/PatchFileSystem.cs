@@ -116,7 +116,8 @@ public sealed class PatchFileSystem
                 continue; // Don't store code entry bytes (already parsed to strings)
             }
 
-            if (fullName.StartsWith("Exact/", StringComparison.OrdinalIgnoreCase))
+            if (fullName.StartsWith("Xdelta/", StringComparison.OrdinalIgnoreCase) ||
+                fullName.StartsWith("Exact/", StringComparison.OrdinalIgnoreCase))
             {
                 if (pfs.ExactPatchBytes == null &&
                     entry.Name.EndsWith(".xdelta", StringComparison.OrdinalIgnoreCase))
@@ -127,7 +128,7 @@ public sealed class PatchFileSystem
                 else if (!entry.Name.EndsWith(".xdelta", StringComparison.OrdinalIgnoreCase))
                 {
                     LogService.Warning(
-                        $"[PatchFileSystem] Ignoring non-xdelta Exact entry '{entry.Name}' at '{fullName}'");
+                        $"[PatchFileSystem] Ignoring non-xdelta fallback entry '{entry.Name}' at '{fullName}'");
                 }
                 continue;
             }

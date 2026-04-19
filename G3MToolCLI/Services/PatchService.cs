@@ -24,7 +24,7 @@ public partial class PatchService
         string outputPath,
         Dictionary<string, Dictionary<string, string>>? precomputedOriginalHashes = null,
         DataFileInfo? precomputedOriginalInfo = null,
-        bool includeExactFallback = true)
+        bool includeXdeltaFallback = false)
     {
         if (!File.Exists(originalPath))
             return new PatchCreateResult { Success = false, Error = $"Original file not found: {originalPath}" };
@@ -144,6 +144,10 @@ public partial class PatchService
                     GmsVersion = GeneralInfoUtil.GetVersionDisplay(modifiedData.GeneralInfo),
                     GeneralInfo = GeneralInfoUtil.ExtractGeneralInfo(modifiedData)
                 };
+
+                var compatibilityError = GetCreateCompatibilityError(originalInfo, modifiedInfo);
+                if (compatibilityError != null)
+                    return new PatchCreateResult { Success = false, Error = compatibilityError };
 
                 // Hash modified resources in memory (fast comparison)
                 phaseSw.Restart();
@@ -355,11 +359,11 @@ public partial class PatchService
                         LogService.Log("[PatchService] Helpers data added to patch");
                     }
 
-                    if (includeExactFallback && exactPatchSourcePath == null)
+                    if (includeXdeltaFallback && exactPatchSourcePath == null)
                     {
                         var xdeltaService = new XDeltaService();
                         tempExactPatch = Path.Combine(
-                            Path.GetTempPath(), $"g3mtool_exact_{Guid.NewGuid():N}.xdelta"
+                            Path.GetTempPath(), $"g3mtool_xdelta_fallback_{Guid.NewGuid():N}.xdelta"
                         );
                         var exactResult = await xdeltaService.CreatePatchAsync(
                             originalPath, modifiedPath, tempExactPatch
@@ -367,20 +371,20 @@ public partial class PatchService
                         if (exactResult.Success && File.Exists(tempExactPatch))
                         {
                             exactPatchSourcePath = tempExactPatch;
-                            LogService.Log("[PatchService] Embedded exact xdelta fallback");
+                            LogService.Log("[PatchService] Embedded xdelta fallback");
                         }
                         else
                         {
                             LogService.Warning(
-                                $"[PatchService] Exact xdelta fallback was not created: {exactResult.Error}"
+                                $"[PatchService] Xdelta fallback was not created: {exactResult.Error}"
                             );
                         }
                     }
 
-                    if (includeExactFallback && exactPatchSourcePath != null && File.Exists(exactPatchSourcePath))
+                    if (includeXdeltaFallback && exactPatchSourcePath != null && File.Exists(exactPatchSourcePath))
                     {
                         var exactEntry = archive.CreateEntry(
-                            $"Exact/{Path.GetFileName(exactPatchSourcePath)}",
+                            $"Xdelta/{Path.GetFileName(exactPatchSourcePath)}",
                             CompressionLevel.NoCompression
                         );
                         using var exactStream = exactEntry.Open();
@@ -621,6 +625,9 @@ public partial class PatchService
         if (!File.Exists(patchPath))
             return new PatchApplyResult { Success = false, Error = $"Patch file not found: {patchPath}" };
 
+        PatchFileSystem? pfsForFallback = null;
+        G3MPatchManifest? manifestForFallback = null;
+
         try
         {
             var totalSw = Stopwatch.StartNew();
@@ -629,22 +636,14 @@ public partial class PatchService
             LogService.SetOperation("Applying patch");
             LogService.Progress(0, 100);
 
-            // Load patch ZIP first so we can use an exact fallback before semantic import.
+            // Load patch ZIP first. Xdelta payloads are used only as a fallback after semantic apply fails.
             phaseSw.Restart();
             LogService.Log("[PatchService] Loading patch ZIP into memory...");
             var pfs = await Task.Run(() => PatchFileSystem.LoadFromZip(patchPath));
             G3MPatchManifest? manifest = pfs.Manifest;
 
-            if (await TryApplyExactPatchAsync(dataPath, outputPath, pfs, manifest))
-            {
-                LogService.Progress(100, 100);
-                LogService.ProgressComplete();
-                totalSw.Stop();
-                LogService.Log(
-                    $"[Timing] === PATCH APPLY TOTAL (exact): {totalSw.Elapsed.TotalSeconds:F1}s ==="
-                );
-                return new PatchApplyResult { Success = true };
-            }
+            pfsForFallback = pfs;
+            manifestForFallback = manifest;
 
             phaseSw.Restart();
             LogService.Log("[PatchService] Loading data file for semantic patch application...");
@@ -682,6 +681,12 @@ public partial class PatchService
                 if (resourceTypesToProcess.Count == 0)
                 {
                     LogService.Log("[PatchService] No resources to apply");
+                    var noOpOutDir = Path.GetDirectoryName(outputPath);
+                    if (!string.IsNullOrEmpty(noOpOutDir) && !Directory.Exists(noOpOutDir))
+                        Directory.CreateDirectory(noOpOutDir);
+                    File.Copy(dataPath, outputPath, overwrite: true);
+                    LogService.Progress(100, 100);
+                    LogService.ProgressComplete();
                     return new PatchApplyResult { Success = true };
                 }
 
@@ -928,8 +933,24 @@ public partial class PatchService
                 totalSw.Stop();
                 LogService.Log($"[Timing] === PATCH APPLY TOTAL: {totalSw.Elapsed.TotalSeconds:F1}s === RAM: {Process.GetCurrentProcess().WorkingSet64 / 1024 / 1024}MB");
 
+                string? expectedModifiedHash = manifest?.Modified?.Md5;
+                if (!string.IsNullOrWhiteSpace(expectedModifiedHash))
+                {
+                    string actualModifiedHash = await HashService.ComputeFileHashAsync(outputPath);
+                    if (!actualModifiedHash.Equals(expectedModifiedHash, StringComparison.OrdinalIgnoreCase))
+                    {
+                        LogService.Warning("[PatchService] Semantic output hash differs from the patch's modified file hash");
+                        if (await TryApplyXdeltaFallbackAsync(dataPath, outputPath, pfs, manifest))
+                            return new PatchApplyResult { Success = true };
+                    }
+                }
+
                 if (appliedCount == 0)
+                {
+                    if (await TryApplyXdeltaFallbackAsync(dataPath, outputPath, pfs, manifest))
+                        return new PatchApplyResult { Success = true };
                     return new PatchApplyResult { Success = false, Error = "No resources were applied successfully" };
+                }
 
                 if (failedCount > 0)
                     LogService.Warning($"Patch applied with warnings: {appliedCount} succeeded, {failedCount} failed");
@@ -944,6 +965,12 @@ public partial class PatchService
         }
         catch (Exception ex)
         {
+            if (pfsForFallback != null &&
+                await TryApplyXdeltaFallbackAsync(dataPath, outputPath, pfsForFallback, manifestForFallback))
+            {
+                return new PatchApplyResult { Success = true };
+            }
+
             try
             {
                 if (File.Exists(outputPath))
@@ -1014,7 +1041,7 @@ public partial class PatchService
         }
     }
 
-    private static async Task<bool> TryApplyExactPatchAsync(
+    private static async Task<bool> TryApplyXdeltaFallbackAsync(
         string dataPath,
         string outputPath,
         PatchFileSystem pfs,
@@ -1029,7 +1056,7 @@ public partial class PatchService
             !currentHash.Equals(expectedOriginalHash, StringComparison.OrdinalIgnoreCase))
         {
             LogService.Warning(
-                "[PatchService] Exact xdelta fallback skipped because the original MD5 does not match"
+                "[PatchService] Xdelta fallback skipped because the original MD5 does not match"
             );
             return false;
         }
@@ -1041,15 +1068,17 @@ public partial class PatchService
         string tempExactPatch = Path.Combine(
             Path.GetTempPath(), $"g3mtool_exact_apply_{Guid.NewGuid():N}{extension}"
         );
+
         try
         {
             await File.WriteAllBytesAsync(tempExactPatch, pfs.ExactPatchBytes);
+            try { if (File.Exists(outputPath)) File.Delete(outputPath); } catch { }
             var xdeltaService = new XDeltaService();
             var exactResult = await xdeltaService.ApplyPatchAsync(dataPath, tempExactPatch, outputPath);
             if (!exactResult.Success)
             {
                 LogService.Warning(
-                    $"[PatchService] Exact xdelta fallback failed, using semantic patch path: {exactResult.Error}"
+                    $"[PatchService] Xdelta fallback failed: {exactResult.Error}"
                 );
                 return false;
             }
@@ -1061,14 +1090,14 @@ public partial class PatchService
                 if (!actualHash.Equals(expectedModifiedHash, StringComparison.OrdinalIgnoreCase))
                 {
                     LogService.Warning(
-                        "[PatchService] Exact xdelta fallback output hash mismatch, falling back to semantic patch path"
+                        "[PatchService] Xdelta fallback output hash mismatch"
                     );
                     try { File.Delete(outputPath); } catch { }
                     return false;
                 }
             }
 
-            LogService.Log("[PatchService] Patch applied via exact xdelta fallback");
+            LogService.Log("[PatchService] Patch applied via xdelta fallback");
             return true;
         }
         finally
@@ -1898,7 +1927,7 @@ public partial class PatchService
             outputZip,
             precomputedOriginalHashes,
             precomputedOriginalInfo,
-            includeExactFallback: false
+            includeXdeltaFallback: false
         );
         if (!result.Success)
             throw new Exception($"Failed to create .g3mpatch from '{Path.GetFileName(inputPath)}': {result.Error}");
@@ -1908,6 +1937,52 @@ public partial class PatchService
             try { File.Delete(dataFilePath); } catch { }
 
         return outputZip;
+    }
+
+    public static string? GetCreateCompatibilityError(DataFileInfo original, DataFileInfo modified)
+    {
+        if (original.BytecodeVersion != modified.BytecodeVersion)
+        {
+            return $"Incompatible data files: bytecode version differs ({original.BytecodeVersion} vs {modified.BytecodeVersion}). " +
+                   "Use the exact original data file for this modified file.";
+        }
+
+        var originalInfo = original.GeneralInfo;
+        var modifiedInfo = modified.GeneralInfo;
+        if (originalInfo == null || modifiedInfo == null)
+            return null;
+
+        if (!SameText(originalInfo.DisplayName, modifiedInfo.DisplayName) &&
+            IsLikelyChapterMismatch(originalInfo.DisplayName, modifiedInfo.DisplayName))
+        {
+            return $"Incompatible data files: display name differs ('{originalInfo.DisplayName}' vs '{modifiedInfo.DisplayName}'). " +
+                   "This usually means a different GameMaker game/chapter/build was used as the base.";
+        }
+
+        if (originalInfo.RoomOrderCount > 0 && modifiedInfo.RoomOrderCount > 0)
+        {
+            var smaller = Math.Min(originalInfo.RoomOrderCount, modifiedInfo.RoomOrderCount);
+            var larger = Math.Max(originalInfo.RoomOrderCount, modifiedInfo.RoomOrderCount);
+            if (larger > smaller * 3)
+            {
+                return $"Incompatible data files: room order count differs too much ({originalInfo.RoomOrderCount} vs {modifiedInfo.RoomOrderCount}). " +
+                       "Use the exact original data file for this modified file.";
+            }
+        }
+
+        return null;
+    }
+
+    private static bool SameText(string? left, string? right) =>
+        string.Equals(left?.Trim(), right?.Trim(), StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsLikelyChapterMismatch(string? left, string? right)
+    {
+        static bool HasChapterMarker(string? value) =>
+            !string.IsNullOrWhiteSpace(value) &&
+            value.Contains("chapter", StringComparison.OrdinalIgnoreCase);
+
+        return HasChapterMarker(left) || HasChapterMarker(right);
     }
 
     /// <summary>

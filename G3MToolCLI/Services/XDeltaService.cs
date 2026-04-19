@@ -6,10 +6,17 @@ namespace G3MToolCLI.Services;
 public class XDeltaService
 {
     private readonly string? _xdeltaPath;
+    private readonly TimeSpan _processTimeout;
 
     public XDeltaService()
+        : this(PlatformUtil.GetXDeltaPath(), TimeSpan.FromMinutes(5))
     {
-        _xdeltaPath = PlatformUtil.GetXDeltaPath();
+    }
+
+    public XDeltaService(string? xdeltaPath, TimeSpan processTimeout)
+    {
+        _xdeltaPath = xdeltaPath;
+        _processTimeout = processTimeout;
     }
 
     public async Task<XDeltaResult> CreatePatchAsync(string originalPath, string modifiedPath, string outputPath)
@@ -87,7 +94,32 @@ public class XDeltaService
             var outputTask = process.StandardOutput.ReadToEndAsync();
             var errorTask = process.StandardError.ReadToEndAsync();
 
-            await process.WaitForExitAsync();
+            using var timeoutCts = new CancellationTokenSource(_processTimeout);
+            try
+            {
+                await process.WaitForExitAsync(timeoutCts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                try
+                {
+                    process.Kill(entireProcessTree: true);
+                    await process.WaitForExitAsync();
+                }
+                catch
+                {
+                    // Preserve the timeout error even if the process exits between timeout and kill.
+                }
+
+                var timedOutOutput = await outputTask.WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+                var timedOutError = await errorTask.WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+                return new XDeltaResult
+                {
+                    Success = false,
+                    Error = $"xdelta timed out after {_processTimeout.TotalSeconds:F0}s and was terminated",
+                    Output = string.Concat(timedOutOutput, timedOutError)
+                };
+            }
 
             var output = await outputTask;
             var error = await errorTask;
