@@ -121,7 +121,7 @@ public static class PatchCommand
                 Console.WriteLine("Patch is valid.");
                 if (result.Manifest != null)
                 {
-                    Console.WriteLine($"  Version: {result.Manifest.Version}");
+                    Console.WriteLine($"  Tool: {result.Manifest.Tool?.Name} v{result.Manifest.Tool?.Version}");
                     Console.WriteLine($"  Created: {result.Manifest.CreatedAt}");
                     Console.WriteLine($"  Resources: {result.Manifest.Statistics?.TotalChanged ?? 0} changed, {result.Manifest.Statistics?.TotalNew ?? 0} new, {result.Manifest.Statistics?.TotalDeleted ?? 0} deleted");
                 }

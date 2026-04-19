@@ -535,7 +535,6 @@ public static class InfoCommand
         else
         {
             Console.WriteLine($"G3M Patch: {Path.GetFileName(path)}");
-            Console.WriteLine($"Version: {manifest.Version}");
             Console.WriteLine($"Created: {manifest.CreatedAt}");
             Console.WriteLine($"Tool: {manifest.Tool?.Name} v{manifest.Tool?.Version}");
             Console.WriteLine();

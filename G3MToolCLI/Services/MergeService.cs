@@ -1246,9 +1246,8 @@ public static partial class MergeService
 
         return new G3MPatchManifest
         {
-            Version = "1.0",
             CreatedAt = DateTime.UtcNow.ToString("o"),
-            Tool = new Models.ToolInfo { Name = "G3MTool", Version = "1.0.0-merge" },
+            Tool = new Models.ToolInfo { Name = "G3MTool", Version = AppVersionService.Version },
             Original = originalInfo,
             Resources = mergedResources,
             Statistics = stats

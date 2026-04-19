@@ -4,9 +4,6 @@ namespace G3MToolCLI.Models;
 
 public class G3MPatchManifest
 {
-    [JsonPropertyName("version")]
-    public string Version { get; set; } = "1.0";
-
     [JsonPropertyName("createdAt")]
     public string? CreatedAt { get; set; }
 

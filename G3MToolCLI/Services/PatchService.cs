@@ -227,9 +227,8 @@ public partial class PatchService
 
             var manifest = new G3MPatchManifest
             {
-                Version = "1.0",
                 CreatedAt = DateTime.UtcNow.ToString("o"),
-                Tool = new Models.ToolInfo { Name = "G3MTool", Version = "1.0.0" },
+                Tool = new Models.ToolInfo { Name = "G3MTool", Version = AppVersionService.Version },
                 Original = originalInfo,
                 Modified = modifiedInfo,
                 Resources = [],
