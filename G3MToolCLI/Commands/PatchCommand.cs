@@ -78,9 +78,39 @@ public static class PatchCommand
         {
             var defaultOutput = Path.Combine(PlatformUtil.GetExecutableDirectory(), Path.GetFileName(data.FullName));
             var outputPath = output?.FullName ?? defaultOutput;
+            var patchExtension = Path.GetExtension(patch.FullName);
 
-            // Auto-convert non-g3mpatch inputs
-            var patchPath = await PatchService.EnsureG3MPatchAsync(data.FullName, patch.FullName);
+            if (patchExtension.Equals(".xdelta", StringComparison.OrdinalIgnoreCase))
+            {
+                LogService.Warning($"Input '{Path.GetFileName(patch.FullName)}' is xdelta, applying directly...");
+
+                var xdelta = new XDeltaService();
+                var xdeltaResult = await xdelta.ApplyPatchAsync(data.FullName, patch.FullName, outputPath);
+
+                if (xdeltaResult.Success)
+                {
+                    Console.WriteLine($"Patch applied successfully: {outputPath}");
+                }
+                else
+                {
+                    Console.Error.WriteLine($"Error: {xdeltaResult.Error}");
+                    Environment.ExitCode = 1;
+                }
+                return;
+            }
+
+            string patchPath;
+            try
+            {
+                // Auto-convert non-g3mpatch inputs
+                patchPath = await PatchService.EnsureG3MPatchAsync(data.FullName, patch.FullName);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Error: {ex.Message}");
+                Environment.ExitCode = 1;
+                return;
+            }
 
             LogService.Log($"Applying G3M patch...");
             LogService.Log($"  Data:   {data.FullName}");

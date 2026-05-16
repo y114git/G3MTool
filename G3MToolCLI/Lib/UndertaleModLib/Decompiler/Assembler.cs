@@ -50,7 +50,7 @@ public static partial class Assembler
     [GeneratedRegex(@"^(.+)\(argc=([0-9]+)\)$", RegexOptions.Compiled)]
     private static partial Regex callInstrRegex();
 
-    // Optional lookup caches for bulk assembly performance (eliminates O(n) ByName scans)
+    // Optional lookup caches for bulk assembly performance used by G3MTool patching flows.
     [ThreadStatic]
     private static Dictionary<string, UndertaleFunction> _funcCache;
     [ThreadStatic]
@@ -62,8 +62,15 @@ public static partial class Assembler
     [ThreadStatic]
     private static Dictionary<string, UndertaleCode> _codeCache;
 
+    // Regex for parsing code entry local/argument counts
+    [GeneratedRegex(@"^\(locals=([0-9]+)\,\s*argc=([0-9]+)\)$", RegexOptions.Compiled)]
+    private static partial Regex codeEntryRegex();
+
+    // Default passthrough action for data updates that may require the main thread to perform.
+    private static readonly Action<Action> passthroughMainThreadAction = static (f) => f();
+
     /// <summary>
-    /// Build lookup caches for functions and variables. Call before bulk Assemble() loops.
+    /// Build lookup caches for bulk assembly operations.
     /// </summary>
     public static void SetLookupCaches(UndertaleData data)
     {
@@ -77,7 +84,6 @@ public static partial class Assembler
             if (v?.Name?.Content != null)
                 _varCache.TryAdd((v.Name.Content, v.InstanceType), v);
 
-        // Build resource name → index cache (same priority order as IndexOfByName)
         _resourceNameCache = new Dictionary<string, int>();
         void CacheList<T>(IList<T> list) where T : UndertaleNamedResource
         {
@@ -102,8 +108,7 @@ public static partial class Assembler
         if (data.Sequences is not null) CacheList(data.Sequences);
         if (data.AudioGroups is not null) CacheList(data.AudioGroups);
 
-        // Build string content → (object, index) cache for O(1) ParseStringReference
-        _stringCache = new Dictionary<string, (UndertaleString, int)>(data.Strings.Count);
+        _stringCache = new Dictionary<string, (UndertaleString Str, int Id)>(data.Strings.Count);
         for (int i = 0; i < data.Strings.Count; i++)
         {
             var s = data.Strings[i];
@@ -111,7 +116,6 @@ public static partial class Assembler
                 _stringCache.TryAdd(s.Content, (s, i));
         }
 
-        // Build code name → object cache for O(1) sub-code entry lookup inside Assemble()
         _codeCache = new Dictionary<string, UndertaleCode>(data.Code.Count);
         foreach (var c in data.Code)
         {
@@ -121,7 +125,7 @@ public static partial class Assembler
     }
 
     /// <summary>
-    /// Clear lookup caches after bulk assembly is done.
+    /// Clear lookup caches after bulk assembly completes.
     /// </summary>
     public static void ClearLookupCaches()
     {
@@ -136,14 +140,15 @@ public static partial class Assembler
     {
         if (_funcCache != null)
         {
-            if (_funcCache.TryGetValue(name, out var f))
-                return f;
-            // Cache miss — function may have been added after cache was built (e.g. EnsureDefined)
+            if (_funcCache.TryGetValue(name, out var cached))
+                return cached;
+
             var result = list.ByName(name);
             if (result != null)
                 _funcCache[name] = result;
             return result;
         }
+
         return list.ByName(name);
     }
 
@@ -151,27 +156,44 @@ public static partial class Assembler
     {
         if (_varCache != null)
         {
-            if (_varCache.TryGetValue((name, instType), out var v))
-                return v;
-            // Cache miss — variable may have been added after cache was built
+            if (_varCache.TryGetValue((name, instType), out var cached))
+                return cached;
+
             var result = list.FirstOrDefault(var => var.Name.Content == name && var.InstanceType == instType);
             if (result != null)
                 _varCache[(name, instType)] = result;
             return result;
         }
+
         return list.FirstOrDefault(var => var.Name.Content == name && var.InstanceType == instType);
     }
-
-    // Regex for parsing code entry local/argument counts
-    [GeneratedRegex(@"^\(locals=([0-9]+)\,\s*argc=([0-9]+)\)$", RegexOptions.Compiled)]
-    private static partial Regex codeEntryRegex();
 
     /// <summary>
     /// Assembles a single <see cref="UndertaleInstruction"/>, with the provided data, and possibly local variables. Labels are not allowed.
     /// </summary>
-    public static UndertaleInstruction AssembleOne(string source, UndertaleData data, Dictionary<string, UndertaleVariable> localvars = null)
+    /// <param name="source">Single assembly instruction to assemble.</param>
+    /// <param name="data"><see cref="UndertaleData"/> instance to use for finding information, and updating code.</param>
+    /// <param name="localvars">Lookup map of local variables to use when assembling the instruction.</param>
+    /// <param name="mainThreadAction">Main thread action to be called when updating data, if necessary. Must execute the supplied callback synchronously.</param>
+    public static UndertaleInstruction AssembleOne(string source, UndertaleData data, Dictionary<string, UndertaleVariable> localvars = null, Action<Action> mainThreadAction = null)
     {
-        UndertaleInstruction instr = AssembleOne(source, data, localvars, out string label);
+        UndertaleInstruction instr = AssembleOne(source, data, localvars, out string label, mainThreadAction);
+        if (label is not null)
+        {
+            throw new Exception("Cannot use labels in this context");
+        }
+        return instr;
+    }
+
+    /// <summary>
+    /// Assembles a single <see cref="UndertaleInstruction"/>, with the provided data, and no local variables. Labels are not allowed.
+    /// </summary>
+    /// <param name="source">Single assembly instruction to assemble.</param>
+    /// <param name="data"><see cref="UndertaleData"/> instance to use for finding information, and updating code.</param>
+    /// <param name="mainThreadAction">Main thread action to be called when updating data, if necessary. Must execute the supplied callback synchronously.</param>
+    public static UndertaleInstruction AssembleOne(string source, UndertaleData data, Action<Action> mainThreadAction)
+    {
+        UndertaleInstruction instr = AssembleOne(source, data, null, out string label, mainThreadAction);
         if (label is not null)
         {
             throw new Exception("Cannot use labels in this context");
@@ -182,8 +204,16 @@ public static partial class Assembler
     /// <summary>
     /// Assembles a single <see cref="UndertaleInstruction"/>, with the provided data, and possibly local variables. Labels are not allowed.
     /// </summary>
-    public static UndertaleInstruction AssembleOne(string source, UndertaleData data, Dictionary<string, UndertaleVariable> localvars, out string label)
+    /// <param name="source">Single assembly instruction to assemble.</param>
+    /// <param name="data"><see cref="UndertaleData"/> instance to use for finding information, and updating code.</param>
+    /// <param name="localvars">Lookup map of local variables to use when assembling the instruction.</param>
+    /// <param name="label">Output label name, if one was found while parsing the instruction, or <see langword="null"/> if not.</param>
+    /// <param name="mainThreadAction">Main thread action to be called when updating data, if necessary. Must execute the supplied callback synchronously.</param>
+    public static UndertaleInstruction AssembleOne(string source, UndertaleData data, Dictionary<string, UndertaleVariable> localvars, out string label, Action<Action> mainThreadAction = null)
     {
+        // Use a passthrough main thread action if none was supplied
+        mainThreadAction ??= passthroughMainThreadAction;
+
         // Default label output to null
         label = null;
 
@@ -249,7 +279,7 @@ public static partial class Assembler
                             instr.ComparisonKind = (UndertaleInstruction.ComparisonType)(spec | 0x80);
                             line = line[..space];
                         }
-                    }
+                    }   
 
                     // Parse regular (first) parameter
                     instr.Extra = byte.Parse(line);
@@ -290,7 +320,7 @@ public static partial class Assembler
                     // Nothing was valid
                     throw new Exception($"Unknown goto target \"{line}\"");
                 }
-
+                
                 line = "";
                 break;
 
@@ -463,15 +493,20 @@ public static partial class Assembler
         if (_resourceNameCache != null)
         {
             if (_resourceNameCache.TryGetValue(line, out int cachedId))
+            {
                 return cachedId;
-            // Cache miss — resource may have been added after cache was built
+            }
+
             int fallbackId = data.IndexOfByName(line);
             if (fallbackId >= 0)
+            {
                 _resourceNameCache[line] = fallbackId;
-            else
-                throw new FormatException($"Unable to parse \"{line}\" as a number or resource name");
-            return fallbackId;
+                return fallbackId;
+            }
+
+            throw new FormatException($"Unable to parse \"{line}\" as a number or resource name");
         }
+
         int id = data.IndexOfByName(line);
         if (id < 0)
         {
@@ -483,8 +518,14 @@ public static partial class Assembler
     /// <summary>
     /// Assembles many instructions, separated by newlines, using the provided data.
     /// </summary>
-    public static List<UndertaleInstruction> Assemble(string source, UndertaleData data)
+    /// <param name="source">Assembly source to assemble.</param>
+    /// <param name="data"><see cref="UndertaleData"/> instance to use for finding information, and updating code.</param>
+    /// <param name="mainThreadAction">Main thread action to be called when updating data, if necessary. Must execute the supplied callback synchronously.</param>
+    public static List<UndertaleInstruction> Assemble(string source, UndertaleData data, Action<Action> mainThreadAction = null)
     {
+        // Use a passthrough main thread action if none was supplied
+        mainThreadAction ??= passthroughMainThreadAction;
+
         // Initialize structures
         Dictionary<string, uint> labels = new();
         List<(UndertaleInstruction Instruction, uint InstructionAddress, string Label)> labelTargets = new();
@@ -517,13 +558,17 @@ public static partial class Assembler
                     if (!_codeCache.TryGetValue(codeName, out code))
                     {
                         code = data.Code.ByName(codeName);
-                        if (code != null) _codeCache[codeName] = code;
+                        if (code != null)
+                        {
+                            _codeCache[codeName] = code;
+                        }
                     }
                 }
                 else
                 {
                     code = data.Code.ByName(codeName);
                 }
+
                 if (code is null)
                     throw new Exception($"Failed to find code entry with name \"{codeName}\"");
 
@@ -536,9 +581,12 @@ public static partial class Assembler
                 }
 
                 // Update info on the code entry
-                code.LocalsCount = ushort.Parse(match.Groups[1].Value);
-                code.ArgumentsCount = ushort.Parse(match.Groups[2].Value);
-                code.Offset = address * 4;
+                mainThreadAction(() =>
+                {
+                    code.LocalsCount = ushort.Parse(match.Groups[1].Value);
+                    code.ArgumentsCount = ushort.Parse(match.Groups[2].Value);
+                    code.Offset = address * 4;
+                });
                 continue;
             }
 
@@ -606,7 +654,7 @@ public static partial class Assembler
             instructions.Add(instr);
             address += instr.CalculateInstructionSize();
         }
-
+        
         // Resolve jump offsets for instructions that reference labels
         foreach ((UndertaleInstruction instr, uint instrAddress, string label) in labelTargets)
         {
@@ -661,17 +709,18 @@ public static partial class Assembler
         }
         else if (_stringCache != null && str is not null && _stringCache.TryGetValue(str, out var cached))
         {
-            // O(1) cached string lookup (avoids O(n) MakeString scan)
             strobj = cached.Str;
             id = cached.Id;
         }
         else
         {
-            // Fallback: linear scan + create if needed
+            // New string needs to be created
             strobj = strg.MakeString(str, out int newId);
             id = newId;
             if (_stringCache != null && str is not null)
+            {
                 _stringCache.TryAdd(str, (strobj, id));
+            }
         }
 
         return new UndertaleResourceById<UndertaleString, UndertaleChunkSTRG>() { Resource = strobj, CachedId = id };
@@ -715,18 +764,18 @@ public static partial class Assembler
             // Adjust VARI instance type based on existing type
             variInstanceType = instance switch
             {
-                >= 0 => UndertaleInstruction.InstanceType.Self,
-                UndertaleInstruction.InstanceType.Other => UndertaleInstruction.InstanceType.Self,
-                UndertaleInstruction.InstanceType.Arg => UndertaleInstruction.InstanceType.Builtin,
-                UndertaleInstruction.InstanceType.Builtin => UndertaleInstruction.InstanceType.Self,      // used with @@This@@
-                UndertaleInstruction.InstanceType.Stacktop => UndertaleInstruction.InstanceType.Self,      // used with @@GetInstance@@
-                _ => instance
+                >= 0                                        => UndertaleInstruction.InstanceType.Self,
+                UndertaleInstruction.InstanceType.Other     => UndertaleInstruction.InstanceType.Self,
+                UndertaleInstruction.InstanceType.Arg       => UndertaleInstruction.InstanceType.Builtin,
+                UndertaleInstruction.InstanceType.Builtin   => UndertaleInstruction.InstanceType.Self,      // used with @@This@@
+                UndertaleInstruction.InstanceType.Stacktop  => UndertaleInstruction.InstanceType.Self,      // used with @@GetInstance@@
+                _                                           => instance
             };
 
             // Set up for parsing after the dot
             strPosition = instanceTypeDot + 1;
         }
-
+        
         // Parse variable type, if present here, as well as the alternate location of the instance type, if present (directly after it)
         if (strPosition < str.Length && str[strPosition] == '[')
         {
@@ -789,7 +838,6 @@ public static partial class Assembler
         if (variInstanceType == UndertaleInstruction.InstanceType.Local && data.CodeLocals is not null)
         {
             locatedVariable = localvars.GetValueOrDefault(variableName);
-            // Fallback: child entry locals may lack .localvar directives
             locatedVariable ??= FindVariable(variableName, variInstanceType, data.Variables);
         }
         else

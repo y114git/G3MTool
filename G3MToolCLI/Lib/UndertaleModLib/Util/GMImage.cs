@@ -141,64 +141,12 @@ public class GMImage
     }
 
     /// <summary>
-    /// Removes non-semantic PNG time metadata so repeated conversions remain byte-stable.
+    /// Returns the raw backing data bytes of this image.
     /// </summary>
-    private static byte[] NormalizePngForDeterminism(byte[] pngData)
-    {
-        if (pngData.Length < 8 || !pngData.AsSpan(0, 8).SequenceEqual(MagicPng))
-            return pngData;
-
-        using var output = new MemoryStream(pngData.Length);
-        output.Write(pngData, 0, 8);
-
-        bool removedChunk = false;
-        int offset = 8;
-        while (offset + 12 <= pngData.Length)
-        {
-            uint chunkLength = BinaryPrimitives.ReadUInt32BigEndian(pngData.AsSpan(offset, 4));
-            int totalLength = checked((int)chunkLength + 12);
-            if (offset + totalLength > pngData.Length)
-                return pngData;
-
-            var chunkTypeBytes = pngData.AsSpan(offset + 4, 4);
-            var chunkData = pngData.AsSpan(offset + 8, (int)chunkLength);
-
-            if (!ShouldStripPngChunk(chunkTypeBytes, chunkData))
-            {
-                output.Write(pngData, offset, totalLength);
-            }
-            else
-            {
-                removedChunk = true;
-            }
-
-            offset += totalLength;
-            if (chunkTypeBytes.SequenceEqual("IEND"u8))
-                break;
-        }
-
-        return removedChunk ? output.ToArray() : pngData;
-    }
-
-    private static bool ShouldStripPngChunk(ReadOnlySpan<byte> chunkTypeBytes, ReadOnlySpan<byte> chunkData)
-    {
-        if (chunkTypeBytes.SequenceEqual("tIME"u8))
-            return true;
-
-        bool isTextChunk =
-            chunkTypeBytes.SequenceEqual("tEXt"u8) ||
-            chunkTypeBytes.SequenceEqual("zTXt"u8) ||
-            chunkTypeBytes.SequenceEqual("iTXt"u8);
-        if (!isTextChunk)
-            return false;
-
-        int keywordEnd = chunkData.IndexOf((byte)0);
-        if (keywordEnd <= 0)
-            return false;
-
-        string keyword = System.Text.Encoding.ASCII.GetString(chunkData[..keywordEnd]);
-        return keyword.StartsWith("date:", StringComparison.OrdinalIgnoreCase);
-    }
+    /// <remarks>
+    /// This preserves the older G3MTool integration API used for hashing/export paths.
+    /// </remarks>
+    public byte[] GetData() => _data;
 
     /// <summary>
     /// Searches for the BZ2 footer magic, when around the end of a BZ2 stream, 
@@ -710,12 +658,6 @@ public class GMImage
     }
 
     /// <summary>
-    /// Returns the raw backing data bytes of this image (compressed or not, depending on format).
-    /// Useful for fast hashing/comparison without re-encoding.
-    /// </summary>
-    public byte[] GetData() => _data;
-
-    /// <summary>
     /// Saves this image as a PNG file, writing the data to the provided <see cref="Stream"/>.
     /// </summary>
     public void SavePng(Stream stream)
@@ -728,15 +670,13 @@ public class GMImage
                     using var image = new MagickImage(_data, GetMagickRawToPngSettings());
                     image.Alpha(AlphaOption.Set);
                     image.Format = MagickFormat.Png32;
-                    var pngBytes = NormalizePngForDeterminism(image.ToByteArray());
-                    stream.Write(pngBytes, 0, pngBytes.Length);
+                    image.Write(stream);
                     break;
                 }
             case ImageFormat.Png:
                 {
-                    // Data is already encoded as PNG; normalize transient metadata only.
-                    var pngBytes = NormalizePngForDeterminism(_data);
-                    stream.Write(pngBytes, 0, pngBytes.Length);
+                    // Data is already encoded as PNG; just use that
+                    stream.Write(_data);
                     break;
                 }
             case ImageFormat.Qoi:
@@ -749,7 +689,7 @@ public class GMImage
             case ImageFormat.Bz2Qoi:
                 {
                     GMImage rawImage;
-
+                    
                     using (MemoryStream uncompressedData = new(GetInitialUncompressedBufferCapacity()))
                     {
                         // Decompress BZ2 data
@@ -773,8 +713,7 @@ public class GMImage
                     using var image = new MagickImage(_data, GetMagickDdsToPngSettings());
                     image.Alpha(AlphaOption.Set);
                     image.Format = MagickFormat.Png32;
-                    var pngBytes = NormalizePngForDeterminism(image.ToByteArray());
-                    stream.Write(pngBytes, 0, pngBytes.Length);
+                    image.Write(stream);
                     break;
                 }
             case ImageFormat.Unknown:
@@ -866,13 +805,12 @@ public class GMImage
                     using var image = new MagickImage(_data, GetMagickRawToPngSettings());
                     image.Alpha(AlphaOption.Set);
                     image.Format = MagickFormat.Png32;
-                    return new GMImage(ImageFormat.Png, Width, Height, NormalizePngForDeterminism(image.ToByteArray()));
+                    return new GMImage(ImageFormat.Png, Width, Height, image.ToByteArray());
                 }
             case ImageFormat.Png:
                 {
-                    // Already in correct format; normalize transient metadata only.
-                    var normalized = NormalizePngForDeterminism(_data);
-                    return ReferenceEquals(normalized, _data) ? this : new GMImage(ImageFormat.Png, Width, Height, normalized);
+                    // Already in correct format; no conversion to be done
+                    return this;
                 }
             case ImageFormat.Qoi:
                 {
@@ -906,7 +844,7 @@ public class GMImage
                     using var image = new MagickImage(_data, GetMagickDdsToPngSettings());
                     image.Alpha(AlphaOption.Set);
                     image.Format = MagickFormat.Png32;
-                    return new GMImage(ImageFormat.Png, Width, Height, NormalizePngForDeterminism(image.ToByteArray()));
+                    return new GMImage(ImageFormat.Png, Width, Height, image.ToByteArray());
                 }
             case ImageFormat.Unknown:
                 throw new InvalidOperationException("Cannot convert unknown image format to PNG");

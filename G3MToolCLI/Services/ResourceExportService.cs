@@ -162,8 +162,9 @@ public static class ResourceExportService
         w.WriteBoolean("useAppDataSaveLocation", (gi.Info & UndertaleGeneralInfo.InfoFlags.UseAppDataSaveLocation) != 0);
         w.WriteBoolean("borderlessWindow", (gi.Info & UndertaleGeneralInfo.InfoFlags.BorderlessWindow) != 0);
         w.WriteBoolean("javaScriptMode", (gi.Info & UndertaleGeneralInfo.InfoFlags.JavaScriptMode) != 0);
-        w.WriteBoolean("licenseExclusions", (gi.Info & UndertaleGeneralInfo.InfoFlags.LicenseExclusions) != 0);
-        w.WriteBoolean("gameRunFromGMS2IDE", (gi.Info & UndertaleGeneralInfo.InfoFlags.GameRunFromGMS2IDE) != 0);
+        bool gameRunFromGms2Ide = (gi.Info & UndertaleGeneralInfo.InfoFlags.GameRunFromGMS2IDE) != 0;
+        w.WriteBoolean("licenseExclusions", gameRunFromGms2Ide);
+        w.WriteBoolean("gameRunFromGMS2IDE", gameRunFromGms2Ide);
         w.WriteEndObject();
 
         w.WriteNumber("licenseCRC32", gi.LicenseCRC32);
