@@ -41,6 +41,7 @@ Create or apply binary xdelta patches.
 ```
 
 **Arguments:**
+
 - `original` - Path to original file
 - `modified` - Path to modified file (create) or patch file (apply)
 - `output` - (Optional) Output file path. Default: next to executable
@@ -56,6 +57,7 @@ Create, apply, validate, or merge G3M resource patches.
 ```
 
 **Arguments:**
+
 - `original` - Path to original data.win
 - `modified` - Path to modified data.win or .xdelta file (auto-applied)
 - `output` - (Optional) Output .g3mpatch path. Default: `patch_{timestamp}.g3mpatch`
@@ -67,6 +69,7 @@ Create, apply, validate, or merge G3M resource patches.
 ```
 
 **Arguments:**
+
 - `data` - Path to original data.win
 - `patch` - Path to patch (.g3mpatch, .xdelta, or data file - auto-converted)
 - `output` - (Optional) Output data.win path. Default: next to executable
@@ -78,9 +81,11 @@ Create, apply, validate, or merge G3M resource patches.
 ```
 
 **Arguments:**
+
 - `patch` - Path to G3M patch file (.g3mpatch)
 
 **Options:**
+
 - `--data`, `-d` - (Optional) Path to data.win to check compatibility
 
 #### patch merge
@@ -90,10 +95,12 @@ Create, apply, validate, or merge G3M resource patches.
 ```
 
 **Arguments:**
+
 - `original` - Path to original data.win (required as context)
 - `patches` - 2+ patch files (low → high priority). Accepts .g3mpatch, .xdelta, or data files
 
 **Options:**
+
 - `--out`, `-o` - Output path for merged .g3mpatch (default mode)
 - `--apply`, `-a` - Apply merged patch and save resulting data file to this path
 - `--code` - Enable deep merge for GML code files
@@ -121,10 +128,12 @@ Execute .csx scripts, external programs, or xdelta commands.
 ```
 
 **Arguments:**
+
 - `target` - Program, script (.csx), or 'xdelta'
 - `args` - Arguments to pass to the target
 
 **Options:**
+
 - `--data`, `-d` - Path to data.win file (optional for .csx scripts)
 - `--output`, `-o` - Output file path (required when --data is used)
 - `--input`, `-i` - Input directory for scripts (e.g., sprites folder)
@@ -140,9 +149,11 @@ Display information about data.win or patch files.
 ```
 
 **Arguments:**
+
 - `target` - Path to data.win or .g3mpatch
 
 **Options:**
+
 - `--verbose`, `-v` - Show detailed per-resource listing (every item with all properties)
 
 **Without -v:** Resource counts, GeneralInfo, breakdowns  
@@ -157,6 +168,7 @@ Compare two data.win or patch files and generate a diff report.
 ```
 
 **Arguments:**
+
 - `file1` - First file (data.win or .g3mpatch)
 - `file2` - Second file (data.win or .g3mpatch)
 - `output-dir` - (Optional) Output directory for diff report. Default: `./diff/`
@@ -166,7 +178,7 @@ Compare two data.win or patch files and generate a diff report.
 ## Global Options
 
 | Option | Description |
-|--------|-------------|
+| -------- | ------------- |
 | `--verbose`, `-v` | Enable verbose output |
 | `--log [path]` | Enable logging (default: `logs/{command}_{timestamp}.log`) |
 | `--json` | JSON output (for `info`, `patch validate`) |
