@@ -10,10 +10,10 @@ public static class ResourceTypeRegistry
     /// </summary>
     public static readonly string[] AllTypes =
     [
-        "GeneralInfo", "AudioGroups", "TextureGroupInfo",
+        "GeneralInfo", "Options", "GlobalScripts", "Scripts", "Language", "FeatureFlags", "Tags", "FilterEffects", "AudioGroups", "EmbeddedAudio", "TextureGroupInfo", "EmbeddedTextures", "TexturePageItems", "EmbeddedImages",
         "Sprites", "Backgrounds", "Fonts", "Sounds", "Paths",
         "Tilesets", "Shaders", "Timelines", "GameObjects",
-        "Rooms", "CodeEntries", "Extensions"
+        "AnimationCurves", "ParticleSystemEmitters", "ParticleSystems", "Sequences", "Rooms", "CodeEntries", "Extensions"
     ];
 
     /// <summary>
@@ -22,10 +22,10 @@ public static class ResourceTypeRegistry
     /// </summary>
     public static readonly string[] ImportOrder =
     [
-        "AudioGroups", "TextureGroupInfo",
+        "Options", "GlobalScripts", "Scripts", "Language", "FeatureFlags", "Tags", "FilterEffects", "AudioGroups", "EmbeddedAudio", "TextureGroupInfo", "EmbeddedTextures", "TexturePageItems", "EmbeddedImages",
         "Sprites", "Backgrounds", "Fonts", "Sounds", "Paths",
         "Tilesets", "Shaders", "Timelines", "GameObjects",
-        "Rooms", "Extensions", "GeneralInfo", "CodeEntries"
+        "AnimationCurves", "ParticleSystemEmitters", "ParticleSystems", "Sequences", "Rooms", "Extensions", "GeneralInfo", "CodeEntries"
     ];
 
 }

@@ -689,7 +689,7 @@ public class GMImage
             case ImageFormat.Bz2Qoi:
                 {
                     GMImage rawImage;
-                    
+
                     using (MemoryStream uncompressedData = new(GetInitialUncompressedBufferCapacity()))
                     {
                         // Decompress BZ2 data
@@ -1027,16 +1027,21 @@ public class GMImage
             return _data.AsSpan();
         }
 
-        // We need to perform a full write with a BinaryWriter
-        using (MemoryStream ms = new(_data.Length + 16))
+        int headerSize = gm2022_5 ? 12 : 8;
+        byte[] bytes = new byte[headerSize + _data.Length];
+        MagicBz2Qoi.CopyTo(bytes);
+        BinaryPrimitives.WriteInt16LittleEndian(bytes.AsSpan(4, 2), (short)Width);
+        BinaryPrimitives.WriteInt16LittleEndian(bytes.AsSpan(6, 2), (short)Height);
+        if (gm2022_5)
         {
-            using (BinaryWriter bw = new(ms))
-            {
-                WriteToBinaryWriter(bw, gm2022_5);
-            }
+            if (_bz2UncompressedSize == -1)
+                throw new InvalidOperationException("BZ2 uncompressed data size was not set");
 
-            return ms.GetBuffer()[..(int)ms.Position].AsSpan();
+            BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(8, 4), _bz2UncompressedSize);
         }
+
+        _data.AsSpan().CopyTo(bytes.AsSpan(headerSize));
+        return bytes;
     }
 
     /// <summary>

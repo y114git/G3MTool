@@ -1,6 +1,5 @@
 using G3MToolCLI.Services;
 using UndertaleModLib;
-using UndertaleModLib.Models;
 
 namespace G3MToolCLI.Models;
 

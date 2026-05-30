@@ -69,6 +69,7 @@ public static partial class ResourceImportService
             return idx >= 0 ? idx : int.MaxValue;
         }).ToArray();
 
+        var lookup = RoomImportLookup.Build(data);
         Log($"[ImportRooms] Found {sorted.Length} room folder(s) to import.");
 
         foreach (string roomDir in sorted)
@@ -82,16 +83,16 @@ public static partial class ResourceImportService
                 using var jsonDoc = JsonDocument.Parse(FReadText(roomFile));
                 var root = jsonDoc.RootElement;
 
-                var room = data.Rooms.ByName(roomName);
-                if (room == null)
+                if (!lookup.Rooms.TryGetValue(roomName, out var room))
                 {
-                    room = new UndertaleRoom { Name = data.Strings.MakeString(roomName) };
+                    room = new UndertaleRoom { Name = MakeRoomString(data, lookup, roomName) };
                     data.Rooms.Add(room);
+                    lookup.Rooms[roomName] = room;
                     data.GeneralInfo?.RoomOrder?.Add(
                         new UndertaleResourceById<UndertaleRoom, UndertaleChunkROOM> { Resource = room });
                 }
 
-                UpdateRoomFromJson(data, room, root);
+                UpdateRoomFromJson(data, room, root, lookup);
             }
             catch (Exception ex)
             {
@@ -101,10 +102,10 @@ public static partial class ResourceImportService
         Log("[ImportRooms] Done.");
     }
 
-    private static void UpdateRoomFromJson(UndertaleData data, UndertaleRoom room, JsonElement d)
+    private static void UpdateRoomFromJson(UndertaleData data, UndertaleRoom room, JsonElement d, RoomImportLookup lookup)
     {
         if (d.TryGetProperty("caption", out var captionElm) && captionElm.ValueKind == JsonValueKind.String)
-            room.Caption = data.Strings.MakeString(captionElm.GetString()!);
+            room.Caption = MakeRoomString(data, lookup, captionElm.GetString()!);
         if (d.TryGetProperty("width", out var wElm) && wElm.ValueKind == JsonValueKind.Number)
             room.Width = (uint)Math.Max(0, wElm.GetInt32());
         if (d.TryGetProperty("height", out var hElm) && hElm.ValueKind == JsonValueKind.Number)
@@ -122,11 +123,11 @@ public static partial class ResourceImportService
             string cn = ccElm.GetString() ?? "";
             if (cn.Length > 0)
             {
-                var code = data.Code.ByName(cn);
-                if (code == null)
+                if (!lookup.Code.TryGetValue(cn, out var code))
                 {
-                    code = new UndertaleCode { Name = data.Strings.MakeString(cn) };
+                    code = new UndertaleCode { Name = MakeRoomString(data, lookup, cn) };
                     data.Code.Add(code);
+                    lookup.Code[cn] = code;
                     var cl = new UndertaleCodeLocals { Name = code.Name };
                     data.CodeLocals.Add(cl);
                     code.LocalsCount = 0;
@@ -173,7 +174,7 @@ public static partial class ResourceImportService
                 if (bgElm.TryGetProperty("backgroundDefinition", out var bdElm) && bdElm.ValueKind == JsonValueKind.String)
                 {
                     string bn = bdElm.GetString() ?? "";
-                    if (bn.Length > 0) { var bgDef = data.Backgrounds.ByName(bn); if (bgDef != null) bg.BackgroundDefinition = bgDef; }
+                    if (bn.Length > 0 && lookup.Backgrounds.TryGetValue(bn, out var bgDef)) bg.BackgroundDefinition = bgDef;
                 }
                 if (bgElm.TryGetProperty("x", out var xElm) && xElm.ValueKind == JsonValueKind.Number) bg.X = xElm.GetInt32();
                 if (bgElm.TryGetProperty("y", out var yElm) && yElm.ValueKind == JsonValueKind.Number) bg.Y = yElm.GetInt32();
@@ -213,7 +214,7 @@ public static partial class ResourceImportService
                 if (vElm.TryGetProperty("objectId", out var oiElm) && oiElm.ValueKind == JsonValueKind.String)
                 {
                     string on = oiElm.GetString() ?? "";
-                    if (on.Length > 0) { var obj = data.GameObjects.ByName(on); if (obj != null) view.ObjectId = obj; }
+                    if (on.Length > 0 && lookup.GameObjects.TryGetValue(on, out var obj)) view.ObjectId = obj;
                 }
                 room.Views.Add(view);
             }
@@ -231,14 +232,14 @@ public static partial class ResourceImportService
                 if (oElm.TryGetProperty("objectDefinition", out var odElm) && odElm.ValueKind == JsonValueKind.String)
                 {
                     string on = odElm.GetString() ?? "";
-                    if (on.Length > 0) { var od = data.GameObjects.ByName(on); if (od != null) go.ObjectDefinition = od; }
+                    if (on.Length > 0 && lookup.GameObjects.TryGetValue(on, out var od)) go.ObjectDefinition = od;
                 }
                 if (oElm.TryGetProperty("instanceID", out var iiElm) && TryGetUInt32(iiElm, out uint instanceId))
                     go.InstanceID = instanceId;
                 if (oElm.TryGetProperty("creationCode", out var ccElm2) && ccElm2.ValueKind == JsonValueKind.String)
                 {
                     string cn = ccElm2.GetString() ?? "";
-                    if (cn.Length > 0) go.CreationCode = EnsureCodeEntry(data, cn);
+                    if (cn.Length > 0) go.CreationCode = EnsureCodeEntry(data, cn, lookup);
                 }
                 if (oElm.TryGetProperty("scaleX", out var sxElm) && sxElm.ValueKind == JsonValueKind.Number) go.ScaleX = (float)sxElm.GetDouble();
                 if (oElm.TryGetProperty("scaleY", out var syElm) && syElm.ValueKind == JsonValueKind.Number) go.ScaleY = (float)syElm.GetDouble();
@@ -247,7 +248,7 @@ public static partial class ResourceImportService
                 if (oElm.TryGetProperty("preCreateCode", out var pcElm) && pcElm.ValueKind == JsonValueKind.String)
                 {
                     string pcn = pcElm.GetString() ?? "";
-                    if (pcn.Length > 0) go.PreCreateCode = EnsureCodeEntry(data, pcn);
+                    if (pcn.Length > 0) go.PreCreateCode = EnsureCodeEntry(data, pcn, lookup);
                 }
                 if (data.IsVersionAtLeast(2, 2, 2, 302))
                 {
@@ -259,6 +260,9 @@ public static partial class ResourceImportService
                 room.GameObjects.Add(go);
             }
         }
+        var roomGameObjectsByInstanceId = new Dictionary<uint, UndertaleRoom.GameObject>(room.GameObjects.Count);
+        foreach (var go in room.GameObjects)
+            roomGameObjectsByInstanceId.TryAdd(go.InstanceID, go);
 
         // Tiles
         if (d.TryGetProperty("tiles", out var tilesElm) && tilesElm.ValueKind == JsonValueKind.Array)
@@ -276,7 +280,7 @@ public static partial class ResourceImportService
                     if (tElm.TryGetProperty("spriteDefinition", out var sdElm) && sdElm.ValueKind == JsonValueKind.String)
                     {
                         string sn = sdElm.GetString() ?? "";
-                        if (sn.Length > 0) { var spr = data.Sprites.ByName(sn); if (spr != null) tile.SpriteDefinition = spr; }
+                        if (sn.Length > 0 && lookup.Sprites.TryGetValue(sn, out var spr)) tile.SpriteDefinition = spr;
                     }
                 }
                 else
@@ -284,7 +288,7 @@ public static partial class ResourceImportService
                     if (tElm.TryGetProperty("backgroundDefinition", out var bdElm) && bdElm.ValueKind == JsonValueKind.String)
                     {
                         string bn = bdElm.GetString() ?? "";
-                        if (bn.Length > 0) { var bg = data.Backgrounds.ByName(bn); if (bg != null) tile.BackgroundDefinition = bg; }
+                        if (bn.Length > 0 && lookup.Backgrounds.TryGetValue(bn, out var bg)) tile.BackgroundDefinition = bg;
                     }
                 }
                 if (tElm.TryGetProperty("sourceX", out var sxElm) && sxElm.ValueKind == JsonValueKind.Number) tile.SourceX = sxElm.GetInt32();
@@ -315,7 +319,7 @@ public static partial class ResourceImportService
                 };
 
                 if (lElm.TryGetProperty("layerName", out var lnElm) && lnElm.ValueKind == JsonValueKind.String)
-                    layer.LayerName = data.Strings.MakeString(lnElm.GetString()!);
+                    layer.LayerName = MakeRoomString(data, lookup, lnElm.GetString()!);
                 if (lElm.TryGetProperty("layerId", out var liElm) && TryGetUInt32(liElm, out uint layerId))
                     layer.LayerId = layerId;
                 if (lElm.TryGetProperty("layerDepth", out var ldElm) && ldElm.ValueKind == JsonValueKind.Number)
@@ -335,7 +339,7 @@ public static partial class ResourceImportService
                     if (lElm.TryGetProperty("effectEnabled", out var eeElm) && (eeElm.ValueKind == JsonValueKind.True || eeElm.ValueKind == JsonValueKind.False))
                         layer.EffectEnabled = eeElm.GetBoolean();
                     if (lElm.TryGetProperty("effectType", out var etElm) && etElm.ValueKind == JsonValueKind.String)
-                        layer.EffectType = data.Strings.MakeString(etElm.GetString()!);
+                        layer.EffectType = MakeRoomString(data, lookup, etElm.GetString()!);
                 }
 
                 if (lt == (int)UndertaleRoom.LayerType.Instances)
@@ -346,8 +350,8 @@ public static partial class ResourceImportService
                         foreach (var idElm in idsElm.EnumerateArray())
                         {
                             if (!TryGetUInt32(idElm, out uint iid)) continue;
-                            var go = room.GameObjects.FirstOrDefault(g => g.InstanceID == iid);
-                            if (go != null) instData.Instances.Add(go);
+                            if (roomGameObjectsByInstanceId.TryGetValue(iid, out var go))
+                                instData.Instances.Add(go);
                         }
                     }
                     layer.Data = instData;
@@ -358,7 +362,7 @@ public static partial class ResourceImportService
                     if (lElm.TryGetProperty("tilesBackground", out var tbElm) && tbElm.ValueKind == JsonValueKind.String)
                     {
                         string bn = tbElm.GetString() ?? "";
-                        if (bn.Length > 0) { var bg = data.Backgrounds.ByName(bn); if (bg != null) tilesData.Background = bg; }
+                        if (bn.Length > 0 && lookup.Backgrounds.TryGetValue(bn, out var bg)) tilesData.Background = bg;
                     }
                     if (lElm.TryGetProperty("tilesX", out var txElm) && TryGetUInt32(txElm, out uint tilesX))
                         tilesData.TilesX = tilesX;
@@ -390,7 +394,7 @@ public static partial class ResourceImportService
                         if (bdElm.TryGetProperty("sprite", out var sElm) && sElm.ValueKind == JsonValueKind.String)
                         {
                             string sn = sElm.GetString() ?? "";
-                            if (sn.Length > 0) { var spr = data.Sprites.ByName(sn); if (spr != null) bgData.Sprite = spr; }
+                            if (sn.Length > 0 && lookup.Sprites.TryGetValue(sn, out var spr)) bgData.Sprite = spr;
                         }
                         if (bdElm.TryGetProperty("tiledHorizontally", out var thElm) && (thElm.ValueKind == JsonValueKind.True || thElm.ValueKind == JsonValueKind.False))
                             bgData.TiledHorizontally = thElm.GetBoolean();
@@ -421,14 +425,15 @@ public static partial class ResourceImportService
 
                     if (lElm.TryGetProperty("assetsData", out var adElm) && adElm.ValueKind == JsonValueKind.Object)
                     {
-                        bool supportsLegacy = SupportsLegacyRoomTiles(data);
-                        if (supportsLegacy && adElm.TryGetProperty("legacyTiles", out var ltElm2) && ltElm2.ValueKind == JsonValueKind.Array)
+                        if (adElm.TryGetProperty("legacyTiles", out var ltElm2) && ltElm2.ValueKind == JsonValueKind.Array)
                         {
                             foreach (var tElm in ltElm2.EnumerateArray())
                             {
                                 var tile = new UndertaleRoom.Tile();
                                 if (tElm.TryGetProperty("x", out var xElm) && xElm.ValueKind == JsonValueKind.Number) tile.X = xElm.GetInt32();
                                 if (tElm.TryGetProperty("y", out var yElm) && yElm.ValueKind == JsonValueKind.Number) tile.Y = yElm.GetInt32();
+                                if (tElm.TryGetProperty("spriteMode", out var smElm) && (smElm.ValueKind == JsonValueKind.True || smElm.ValueKind == JsonValueKind.False))
+                                    tile.spriteMode = smElm.GetBoolean();
                                 if (tElm.TryGetProperty("sourceX", out var sxElm) && sxElm.ValueKind == JsonValueKind.Number) tile.SourceX = sxElm.GetInt32();
                                 if (tElm.TryGetProperty("sourceY", out var syElm) && syElm.ValueKind == JsonValueKind.Number) tile.SourceY = syElm.GetInt32();
                                 if (tElm.TryGetProperty("width", out var wElm2) && TryGetUInt32(wElm2, out uint legacyWidth)) tile.Width = legacyWidth;
@@ -438,10 +443,23 @@ public static partial class ResourceImportService
                                 if (tElm.TryGetProperty("scaleX", out var scxElm) && scxElm.ValueKind == JsonValueKind.Number) tile.ScaleX = (float)scxElm.GetDouble();
                                 if (tElm.TryGetProperty("scaleY", out var scyElm) && scyElm.ValueKind == JsonValueKind.Number) tile.ScaleY = (float)scyElm.GetDouble();
                                 if (tElm.TryGetProperty("color", out var colElm) && TryGetUInt32(colElm, out uint legacyTileColor)) tile.Color = legacyTileColor;
-                                if (tElm.TryGetProperty("background", out var bgElm) && bgElm.ValueKind == JsonValueKind.String)
+                                if (tile.spriteMode)
+                                {
+                                    if (tElm.TryGetProperty("spriteDefinition", out var sdElm) && sdElm.ValueKind == JsonValueKind.String)
+                                    {
+                                        string sn = sdElm.GetString() ?? "";
+                                        if (sn.Length > 0 && lookup.Sprites.TryGetValue(sn, out var spr)) tile.SpriteDefinition = spr;
+                                    }
+                                }
+                                else if (tElm.TryGetProperty("backgroundDefinition", out var bdElm) && bdElm.ValueKind == JsonValueKind.String)
+                                {
+                                    string bn = bdElm.GetString() ?? "";
+                                    if (bn.Length > 0 && lookup.Backgrounds.TryGetValue(bn, out var bg)) tile.BackgroundDefinition = bg;
+                                }
+                                else if (tElm.TryGetProperty("background", out var bgElm) && bgElm.ValueKind == JsonValueKind.String)
                                 {
                                     string bn = bgElm.GetString() ?? "";
-                                    if (bn.Length > 0) { var bg = data.Backgrounds.ByName(bn); if (bg != null) tile.BackgroundDefinition = bg; }
+                                    if (bn.Length > 0 && lookup.Backgrounds.TryGetValue(bn, out var bg)) tile.BackgroundDefinition = bg;
                                 }
                                 assetsData.LegacyTiles.Add(tile);
                             }
@@ -453,11 +471,11 @@ public static partial class ResourceImportService
                             {
                                 var si = new UndertaleRoom.SpriteInstance();
                                 if (sElm.TryGetProperty("name", out var nElm) && nElm.ValueKind == JsonValueKind.String)
-                                    si.Name = data.Strings.MakeString(nElm.GetString()!);
+                                    si.Name = MakeRoomString(data, lookup, nElm.GetString()!);
                                 if (sElm.TryGetProperty("sprite", out var srElm) && srElm.ValueKind == JsonValueKind.String)
                                 {
                                     string sn = srElm.GetString() ?? "";
-                                    if (sn.Length > 0) { var spr = data.Sprites.ByName(sn); if (spr != null) si.Sprite = spr; }
+                                    if (sn.Length > 0 && lookup.Sprites.TryGetValue(sn, out var spr)) si.Sprite = spr;
                                 }
                                 if (sElm.TryGetProperty("x", out var xElm) && xElm.ValueKind == JsonValueKind.Number) si.X = xElm.GetInt32();
                                 if (sElm.TryGetProperty("y", out var yElm) && yElm.ValueKind == JsonValueKind.Number) si.Y = yElm.GetInt32();
@@ -496,8 +514,7 @@ public static partial class ResourceImportService
                 if (sElm.ValueKind != JsonValueKind.String) continue;
                 string sn = sElm.GetString() ?? "";
                 if (sn.Length == 0) continue;
-                var seq = data.Sequences.ByName(sn);
-                if (seq != null)
+                if (lookup.Sequences.TryGetValue(sn, out var seq))
                     room.Sequences.Add(new UndertaleResourceById<UndertaleSequence, UndertaleChunkSEQN> { Resource = seq });
             }
         }
@@ -513,13 +530,68 @@ public static partial class ResourceImportService
         }
     }
 
-    private static UndertaleCode EnsureCodeEntry(UndertaleData data, string codeName)
+    private sealed class RoomImportLookup
     {
-        var code = data.Code.ByName(codeName);
-        if (code == null)
+        public Dictionary<string, UndertaleRoom> Rooms { get; } = new(StringComparer.Ordinal);
+        public Dictionary<string, UndertaleCode> Code { get; } = new(StringComparer.Ordinal);
+        public Dictionary<string, UndertaleBackground> Backgrounds { get; } = new(StringComparer.Ordinal);
+        public Dictionary<string, UndertaleGameObject> GameObjects { get; } = new(StringComparer.Ordinal);
+        public Dictionary<string, UndertaleSprite> Sprites { get; } = new(StringComparer.Ordinal);
+        public Dictionary<string, UndertaleSequence> Sequences { get; } = new(StringComparer.Ordinal);
+        public Dictionary<string, UndertaleString> Strings { get; } = new(StringComparer.Ordinal);
+
+        public static RoomImportLookup Build(UndertaleData data)
         {
-            code = new UndertaleCode { Name = data.Strings.MakeString(codeName) };
+            var lookup = new RoomImportLookup();
+            foreach (var room in data.Rooms)
+                if (room?.Name?.Content != null)
+                    lookup.Rooms.TryAdd(room.Name.Content, room);
+            foreach (var code in data.Code)
+                if (code?.Name?.Content != null)
+                    lookup.Code.TryAdd(code.Name.Content, code);
+            foreach (var bg in data.Backgrounds)
+                if (bg?.Name?.Content != null)
+                    lookup.Backgrounds.TryAdd(bg.Name.Content, bg);
+            foreach (var obj in data.GameObjects)
+                if (obj?.Name?.Content != null)
+                    lookup.GameObjects.TryAdd(obj.Name.Content, obj);
+            foreach (var sprite in data.Sprites)
+                if (sprite?.Name?.Content != null)
+                    lookup.Sprites.TryAdd(sprite.Name.Content, sprite);
+            foreach (var str in data.Strings)
+                if (str?.Content != null)
+                    lookup.Strings.TryAdd(str.Content, str);
+            if (data.Sequences != null)
+            {
+                foreach (var sequence in data.Sequences)
+                    if (sequence?.Name?.Content != null)
+                        lookup.Sequences.TryAdd(sequence.Name.Content, sequence);
+            }
+            return lookup;
+        }
+    }
+
+    private static UndertaleString MakeRoomString(UndertaleData data, RoomImportLookup lookup, string content)
+    {
+        if (lookup.Strings.TryGetValue(content, out var existing))
+            return existing;
+
+        var created = new UndertaleString(content);
+        if (data.Strings is UndertaleObservableList<UndertaleString> stringList)
+            stringList.InternalAdd(created);
+        else
+            data.Strings.Add(created);
+        lookup.Strings[content] = created;
+        return created;
+    }
+
+    private static UndertaleCode EnsureCodeEntry(UndertaleData data, string codeName, RoomImportLookup lookup)
+    {
+        if (!lookup.Code.TryGetValue(codeName, out var code))
+        {
+            code = new UndertaleCode { Name = MakeRoomString(data, lookup, codeName) };
             data.Code.Add(code);
+            lookup.Code[codeName] = code;
             var cl = new UndertaleCodeLocals { Name = code.Name };
             data.CodeLocals.Add(cl);
             code.LocalsCount = 0;

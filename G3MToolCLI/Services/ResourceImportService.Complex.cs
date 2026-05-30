@@ -1,7 +1,10 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
+using ImageMagick;
 using UndertaleModLib;
 using UndertaleModLib.Models;
+using UndertaleModLib.Util;
 
 namespace G3MToolCLI.Services;
 
@@ -16,6 +19,45 @@ public static partial class ResourceImportService
         if (objDirs.Length == 0) return;
 
         Log($"[ImportGameObjects] Found {objDirs.Length} game object folders to import");
+
+        var objectsByName = new Dictionary<string, UndertaleGameObject>(StringComparer.Ordinal);
+        for (int i = 0; i < data.GameObjects.Count; i++)
+        {
+            var obj = data.GameObjects[i];
+            if (obj?.Name?.Content != null)
+                objectsByName.TryAdd(obj.Name.Content, obj);
+        }
+        var objectIndices = new Dictionary<UndertaleGameObject, int>();
+        for (int i = 0; i < data.GameObjects.Count; i++)
+            if (data.GameObjects[i] != null)
+                objectIndices[data.GameObjects[i]] = i;
+        var spritesByName = new Dictionary<string, UndertaleSprite>(StringComparer.Ordinal);
+        foreach (var sprite in data.Sprites)
+            if (sprite?.Name?.Content != null)
+                spritesByName.TryAdd(sprite.Name.Content, sprite);
+        var stringLookup = new Dictionary<string, UndertaleString>(StringComparer.Ordinal);
+        foreach (var str in data.Strings)
+            if (str?.Content != null)
+                stringLookup.TryAdd(str.Content, str);
+
+        UndertaleGameObject? FindObject(string name) =>
+            objectsByName.TryGetValue(name, out var obj) ? obj : null;
+
+        UndertaleSprite? FindSprite(string name) =>
+            spritesByName.TryGetValue(name, out var sprite) ? sprite : null;
+
+        UndertaleString MakeObjectString(string content)
+        {
+            if (stringLookup.TryGetValue(content, out var existing))
+                return existing;
+            var created = new UndertaleString(content);
+            if (data.Strings is UndertaleObservableList<UndertaleString> stringList)
+                stringList.InternalAdd(created);
+            else
+                data.Strings.Add(created);
+            stringLookup[content] = created;
+            return created;
+        }
 
         // Phase 1: Collect all JSONs
         var importDataList = new List<(int TargetIndex, string Name, JsonElement Root, bool IsNew, int ActualIndex)>();
@@ -53,7 +95,7 @@ public static partial class ResourceImportService
                 if (string.IsNullOrEmpty(objName)) continue;
 
                 int nameCount = importDataList.Count(d => d.Name == objName);
-                bool existsInData = data.GameObjects.ByName(objName) != null;
+                bool existsInData = FindObject(objName) != null;
                 bool isNew = !existsInData || nameCount > 0;
 
                 importDataList.Add((targetIndex, objName, root, isNew, -1));
@@ -68,8 +110,18 @@ public static partial class ResourceImportService
             var (targetIndex, name, root, isNew, actualIndex) = importDataList[i];
             if (!isNew) continue;
 
-            var go = new UndertaleGameObject { Name = data.Strings.MakeString(name) };
+            if (targetIndex >= 0 && targetIndex < data.GameObjects.Count &&
+                string.Equals(data.GameObjects[targetIndex]?.Name?.Content, name, StringComparison.Ordinal))
+            {
+                importDataList[i] = (targetIndex, name, root, isNew, targetIndex);
+                updated++;
+                continue;
+            }
+
+            var go = new UndertaleGameObject { Name = MakeObjectString(name) };
             data.GameObjects.Add(go);
+            objectIndices[go] = data.GameObjects.Count - 1;
+            objectsByName.TryAdd(name, go);
             importDataList[i] = (targetIndex, name, root, isNew, data.GameObjects.Count - 1);
             created++;
         }
@@ -81,23 +133,26 @@ public static partial class ResourceImportService
             {
                 UndertaleGameObject? go = null;
 
-                if (isNew && actualIndex >= 0 && actualIndex < data.GameObjects.Count)
+                if (targetIndex >= 0 && targetIndex < data.GameObjects.Count &&
+                    string.Equals(data.GameObjects[targetIndex]?.Name?.Content, name, StringComparison.Ordinal))
+                    go = data.GameObjects[targetIndex];
+                else if (isNew && actualIndex >= 0 && actualIndex < data.GameObjects.Count)
                     go = data.GameObjects[actualIndex];
                 else if (targetIndex >= 0 && targetIndex < data.GameObjects.Count)
                 {
                     go = data.GameObjects[targetIndex];
                     if (go?.Name?.Content != name)
-                        go = data.GameObjects.ByName(name);
+                        go = FindObject(name);
                 }
                 else
-                    go = data.GameObjects.ByName(name);
+                    go = FindObject(name);
 
                 if (go == null) continue;
 
                 if (root.TryGetProperty("parent", out JsonElement parentElm))
                 {
                     string pName = parentElm.GetString() ?? "";
-                    go.ParentId = pName.Length > 0 ? data.GameObjects.ByName(pName) : null;
+                    go.ParentId = pName.Length > 0 ? FindObject(pName) : null;
                 }
 
                 if (root.TryGetProperty("sprite", out JsonElement sprElm))
@@ -105,7 +160,7 @@ public static partial class ResourceImportService
                     string sn = sprElm.GetString() ?? "";
                     if (sn.Length > 0)
                     {
-                        var spr = data.Sprites.ByName(sn);
+                        var spr = FindSprite(sn);
                         if (spr != null) go.Sprite = spr;
                     }
                     else go.Sprite = null;
@@ -119,7 +174,7 @@ public static partial class ResourceImportService
                 if (root.TryGetProperty("textureMask", out JsonElement tmElm))
                 {
                     string tmName = tmElm.GetString() ?? "";
-                    go.TextureMaskId = tmName.Length > 0 ? data.Sprites.ByName(tmName) : null;
+                    go.TextureMaskId = tmName.Length > 0 ? FindSprite(tmName) : null;
                 }
 
                 if (data.IsVersionAtLeast(2022, 5) && root.TryGetProperty("managed", out JsonElement mngElm))
@@ -173,8 +228,8 @@ public static partial class ResourceImportService
                             string coName = coElm.GetString() ?? "";
                             if (coName.Length > 0)
                             {
-                                var co = data.GameObjects.ByName(coName);
-                                if (co != null) eventSubtype = (uint)data.GameObjects.IndexOf(co);
+                                var co = FindObject(coName);
+                                if (co != null && objectIndices.TryGetValue(co, out int coIndex)) eventSubtype = (uint)coIndex;
                                 else continue;
                             }
                         }
@@ -215,6 +270,20 @@ public static partial class ResourceImportService
         Log($"[ImportGameObjects] Done. {imported} imported ({created} new, {updated} updated)");
     }
 
+    private static int GetGameObjectOccurrence(UndertaleData data, int objectIndex)
+    {
+        if (objectIndex < 0 || objectIndex >= data.GameObjects.Count)
+            return -1;
+        var name = data.GameObjects[objectIndex]?.Name?.Content;
+        if (name == null)
+            return -1;
+        int occurrence = 0;
+        for (int i = 0; i < objectIndex; i++)
+            if (string.Equals(data.GameObjects[i]?.Name?.Content, name, StringComparison.Ordinal))
+                occurrence++;
+        return occurrence;
+    }
+
     // =========================================================================
     // ImportAssetOrder
     // =========================================================================
@@ -253,34 +322,16 @@ public static partial class ResourceImportService
                             var script = new UndertaleScript
                             {
                                 Name = data.Strings.MakeString(sn),
-                                Code = data.Code.ByName("gml_Script_" + sn) ?? data.Code.ByName("gml_GlobalScript_" + sn)
+                                Code = PatchService.ScriptCodeResolver.Resolve(data, sn)
                             };
                             data.Scripts.Add(script);
                             createdScripts++;
                         }
                     }
                     if (createdScripts > 0) Log($"[ImportAssetOrder] Scripts: Created {createdScripts} new script entries");
-                    // Snapshot scripts that have a live Code entry before Reorganize -
-                    // Reorganize drops entries not in TARGET order, but dropping a Script
-                    // whose Code entry still exists causes a runtime crash.
-                    var targetScriptNames = new HashSet<string>(currentList);
-                    var preservedScripts = new List<UndertaleScript>();
-                    foreach (var s in data.Scripts)
-                    {
-                        if (s?.Name?.Content != null && !targetScriptNames.Contains(s.Name.Content) && s.Code != null)
-                            preservedScripts.Add(s);
-                    }
                     Reorganize(data.Scripts, currentList, "Scripts"); totalReorganized++;
-                    // Re-add scripts with live Code entries that were dropped by Reorganize
-                    if (preservedScripts.Count > 0)
-                    {
-                        foreach (var ps in preservedScripts)
-                        {
-                            if (data.Scripts.All(s => s?.Name?.Content != ps.Name?.Content))
-                                data.Scripts.Add(ps);
-                        }
-                        Log($"[ImportAssetOrder] Scripts: Preserved {preservedScripts.Count} script(s) with live Code entries not in TARGET order");
-                    }
+                    while (data.Scripts.Count > currentList.Count)
+                        data.Scripts.RemoveAt(data.Scripts.Count - 1);
                     break;
                 case "fonts": Reorganize(data.Fonts, currentList, "Fonts"); totalReorganized++; break;
                 case "objects":
@@ -373,7 +424,8 @@ public static partial class ResourceImportService
                         string? cn = cnElem.GetString();
                         if (!string.IsNullOrEmpty(cn))
                         {
-                            collisionNames.Add(cn);
+                            int occurrence = evt.TryGetProperty("co", out var coElem) ? coElem.GetInt32() : -1;
+                            collisionNames.Add($"{cn}#{occurrence}");
                             continue;
                         }
                     }
@@ -391,7 +443,9 @@ public static partial class ResourceImportService
                             int collObjIdx = (int)obj.Events[et][j].EventSubtype;
                             string? collObjName = collObjIdx >= 0 && collObjIdx < data.GameObjects.Count
                                 ? data.GameObjects[collObjIdx]?.Name?.Content : null;
-                            shouldKeep = !string.IsNullOrEmpty(collObjName) && collisionNames.Contains(collObjName);
+                            int occurrence = !string.IsNullOrEmpty(collObjName) ? GetGameObjectOccurrence(data, collObjIdx) : -1;
+                            shouldKeep = !string.IsNullOrEmpty(collObjName) &&
+                                (collisionNames.Contains($"{collObjName}#{occurrence}") || collisionNames.Contains($"{collObjName}#-1"));
                         }
                         else
                         {
@@ -414,6 +468,8 @@ public static partial class ResourceImportService
             if (eventsRemoved > 0) Log($"[ImportAssetOrder] Event sync: removed {eventsRemoved} events from {objectsFixed} objects");
         }
 
+        int importedEmbeddedTextures = ImportEmbeddedTexturesForAssetOrder(data, inputDir);
+
         // Trim EmbeddedTextures
         if (targetCounts.TryGetValue("EmbeddedTextures", out int targetTexCount))
         {
@@ -433,6 +489,11 @@ public static partial class ResourceImportService
         {
             int oldCount = data.TexturePageItems.Count;
             var tpiData = JsonSerializer.Deserialize<List<int[]>>(FReadText(tpiPath))!;
+            if (!CanResolveTexturePages(tpiData, data.EmbeddedTextures.Count))
+            {
+                Log("[ImportAssetOrder] Skipping TexturePageItems relink because texture pages are not present in this patch");
+                return;
+            }
             int newCount = tpiData.Count;
 
             void ApplyTpi(UndertaleTexturePageItem tpi, int[] arr)
@@ -529,17 +590,142 @@ public static partial class ResourceImportService
         }
     }
 
+    private static bool CanResolveTexturePages(List<int[]> tpiData, int embeddedTextureCount)
+    {
+        foreach (var tpi in tpiData)
+        {
+            if (tpi.Length > 0 && tpi[0] >= embeddedTextureCount)
+                return false;
+        }
+        return true;
+    }
+
+    private static int ImportEmbeddedTexturesForAssetOrder(UndertaleData data, string inputDir)
+    {
+        string embeddedDir = Path.Combine(inputDir, "EmbeddedTextures");
+        if (!DirExists(embeddedDir))
+        {
+            string? parent = Path.GetDirectoryName(inputDir);
+            embeddedDir = string.IsNullOrEmpty(parent)
+                ? "EmbeddedTextures"
+                : Path.Combine(parent, "EmbeddedTextures");
+        }
+        if (!DirExists(embeddedDir))
+            return 0;
+
+        int imported = 0;
+        foreach (var texDir in GetDirs(embeddedDir))
+        {
+            string folderName = Path.GetFileName(texDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            string jsonPath = Path.Combine(texDir, folderName + ".json");
+            string pngPath = Path.Combine(texDir, folderName + ".png");
+            string binPath = Path.Combine(texDir, folderName + ".bin");
+            if (!FExists(jsonPath) || (!FExists(binPath) && !FExists(pngPath)))
+                continue;
+
+            try
+            {
+                using var doc = JsonDocument.Parse(FReadText(jsonPath));
+                var root = doc.RootElement;
+                int folderIndex = ParseTrailingResourceIndex(folderName);
+                int jsonIndex = root.TryGetProperty("index", out var idxElm) && idxElm.ValueKind == JsonValueKind.Number
+                    ? idxElm.GetInt32()
+                    : data.EmbeddedTextures.Count;
+                int index = folderIndex >= 0 ? folderIndex : jsonIndex;
+                string name = root.TryGetProperty("name", out var nameElm) && nameElm.ValueKind == JsonValueKind.String
+                    ? nameElm.GetString() ?? ""
+                    : "";
+                string format = root.TryGetProperty("format", out var formatElm) && formatElm.ValueKind == JsonValueKind.String
+                    ? formatElm.GetString() ?? "Png"
+                    : "Png";
+
+                while (data.EmbeddedTextures.Count <= index)
+                {
+                    data.EmbeddedTextures.Add(new UndertaleEmbeddedTexture
+                    {
+                        Name = new UndertaleString($"Texture {data.EmbeddedTextures.Count}")
+                    });
+                }
+
+                var texture = data.EmbeddedTextures[index];
+                texture.Name = new UndertaleString(string.IsNullOrWhiteSpace(name) ? $"Texture {index}" : name);
+                if (root.TryGetProperty("scaled", out var scaledElm))
+                    texture.Scaled = scaledElm.ValueKind == JsonValueKind.Number ? scaledElm.GetUInt32() : (scaledElm.GetBoolean() ? 1u : 0u);
+                if (root.TryGetProperty("generatedMips", out var mipsElm))
+                    texture.GeneratedMips = mipsElm.ValueKind == JsonValueKind.Number ? mipsElm.GetUInt32() : (mipsElm.GetBoolean() ? 1u : 0u);
+
+                bool loadedImage = false;
+                if (FExists(binPath))
+                {
+                    try
+                    {
+                        using var stream = new MemoryStream(FReadBytes(binPath), writable: false);
+                        using var reader = new FileBinaryReader(stream);
+                        texture.TextureData.Image = GMImage.FromBinaryReader(
+                            reader,
+                            stream.Length,
+                            data.IsVersionAtLeast(2022, 5));
+                        loadedImage = true;
+                    }
+                    catch (Exception ex) when (FExists(pngPath))
+                    {
+                        Log($"[ImportAssetOrder] EmbeddedTexture '{folderName}' bin import failed, using png: {ex.Message}");
+                    }
+                }
+
+                if (!loadedImage)
+                {
+                    using var image = new MagickImage(FReadBytes(pngPath));
+                    var gmImage = GMImage.FromMagickImage(image);
+                    if (Enum.TryParse<GMImage.ImageFormat>(format, out var targetFormat) &&
+                        targetFormat != GMImage.ImageFormat.Png)
+                    {
+                        gmImage = gmImage.ConvertToFormat(targetFormat);
+                    }
+                    else
+                    {
+                        gmImage = gmImage.ConvertToPng();
+                    }
+                    texture.TextureData.Image = gmImage;
+                }
+                imported++;
+            }
+            catch (Exception ex)
+            {
+                Log($"[ImportAssetOrder] EmbeddedTexture import error '{folderName}': {ex.Message}");
+            }
+        }
+
+        if (imported > 0)
+            Log($"[ImportAssetOrder] Imported {imported} embedded texture page(s)");
+        return imported;
+    }
+
+    private static int ParseTrailingResourceIndex(string value)
+    {
+        var match = TrailingNumberRegex().Match(value);
+        return match.Success && int.TryParse(match.Groups[1].Value, out int index) ? index : -1;
+    }
+
+    [GeneratedRegex(@"(\d+)$")]
+    private static partial Regex TrailingNumberRegex();
+
     private static void Reorganize<T>(IList<T> list, List<string> order, string typeName) where T : UndertaleNamedResource, new()
     {
         if (order.Count == 0) return;
 
         var nameToIndices = new Dictionary<string, List<int>>();
         var emptyNameIndices = new List<int>();
+        var nullIndices = new Queue<int>();
 
         for (int i = 0; i < list.Count; i++)
         {
             var asset = list[i];
-            if (asset == null) continue;
+            if (asset == null)
+            {
+                nullIndices.Enqueue(i);
+                continue;
+            }
             string? name = asset.Name?.Content;
             if (string.IsNullOrEmpty(name)) { emptyNameIndices.Add(i); }
             else
@@ -555,7 +741,17 @@ public static partial class ResourceImportService
 
         foreach (string name in order)
         {
-            if (name == "(null)") continue;
+            if (name == "(null)")
+            {
+                if (nullIndices.Count > 0)
+                {
+                    int idx = nullIndices.Dequeue();
+                    if (!usedIndices.Contains(idx)) { newOrder.Add(default!); usedIndices.Add(idx); }
+                }
+                else if (typeName.Equals("Sprites", StringComparison.OrdinalIgnoreCase))
+                    newOrder.Add(default!);
+                continue;
+            }
             if (int.TryParse(name, out _))
             {
                 if (emptyNameIdx < emptyNameIndices.Count)
@@ -564,6 +760,8 @@ public static partial class ResourceImportService
                     if (!usedIndices.Contains(idx)) { newOrder.Add(list[idx]); usedIndices.Add(idx); }
                     emptyNameIdx++;
                 }
+                else
+                    newOrder.Add(default!);
                 continue;
             }
             if (string.IsNullOrWhiteSpace(name)) continue;
@@ -577,13 +775,21 @@ public static partial class ResourceImportService
             else missingCount++;
         }
 
-        int droppedCount = 0;
+        int preservedCount = 0;
         for (int i = 0; i < list.Count; i++)
-            if (!usedIndices.Contains(i) && list[i] != null) droppedCount++;
-        if (droppedCount > 0) Log($"[ImportAssetOrder] {typeName}: Dropping {droppedCount} resource(s) not in TARGET order");
+        {
+            if (!usedIndices.Contains(i) && list[i] != null)
+            {
+                newOrder.Add(list[i]);
+                usedIndices.Add(i);
+                preservedCount++;
+            }
+        }
+        if (preservedCount > 0)
+            Log($"[ImportAssetOrder] {typeName}: Preserved {preservedCount} resource(s) not in TARGET order");
 
         list.Clear();
         foreach (var asset in newOrder) list.Add(asset);
-        Log($"[ImportAssetOrder] {typeName}: Reorganized {list.Count} items (missing: {missingCount}, dropped: {droppedCount})");
+        Log($"[ImportAssetOrder] {typeName}: Reorganized {list.Count} items (missing: {missingCount}, preserved: {preservedCount})");
     }
 }

@@ -2,10 +2,10 @@ using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using ImageMagick;
 using UndertaleModLib;
 using UndertaleModLib.Decompiler;
 using UndertaleModLib.Models;
+using UndertaleModLib.Project;
 
 namespace G3MToolCLI.Services;
 
@@ -19,23 +19,38 @@ public static class ResourceHashService
     /// <summary>
     /// Hash all resource types. Returns type -> (resourceName -> hashHex).
     /// </summary>
-    public static Dictionary<string, Dictionary<string, string>> HashAll(UndertaleData data)
+    public static Dictionary<string, Dictionary<string, string>> HashAll(UndertaleData data, string? dataFilePath = null)
     {
         Dictionary<string, Dictionary<string, string>> result = [];
 
         result["GeneralInfo"] = HashGeneralInfo(data);
+        result["Options"] = HashOptions(data);
+        result["GlobalScripts"] = HashGlobalScripts(data);
+        result["Scripts"] = HashScripts(data);
+        result["Language"] = HashLanguage(data);
+        result["FeatureFlags"] = HashFeatureFlags(data);
+        result["Tags"] = HashTags(data);
+        result["FilterEffects"] = HashFilterEffects(data);
         result["AudioGroups"] = HashAudioGroups(data);
+        result["EmbeddedAudio"] = HashEmbeddedAudio(data);
         result["TextureGroupInfo"] = HashTextureGroupInfo(data);
+        result["EmbeddedTextures"] = HashEmbeddedTextures(data);
+        result["TexturePageItems"] = HashTexturePageItems(data);
+        result["EmbeddedImages"] = HashEmbeddedImages(data);
         result["Sprites"] = HashSprites(data);
         result["Backgrounds"] = HashBackgrounds(data);
         result["Fonts"] = HashFonts(data);
-        result["Sounds"] = HashSounds(data);
+        result["Sounds"] = HashSounds(data, dataFilePath);
         result["Paths"] = HashPaths(data);
         result["Tilesets"] = HashTilesets(data);
         result["Shaders"] = HashShaders(data);
         result["Timelines"] = HashTimelines(data);
         result["GameObjects"] = HashGameObjects(data);
         result["Rooms"] = HashRooms(data);
+        result["AnimationCurves"] = HashAnimationCurves(data);
+        result["ParticleSystemEmitters"] = HashParticleSystemEmitters(data);
+        result["ParticleSystems"] = HashParticleSystems(data);
+        result["Sequences"] = HashSequences(data);
         result["CodeEntries"] = HashCodeEntries(data);
         result["Extensions"] = HashExtensions(data);
 
@@ -57,6 +72,51 @@ public static class ResourceHashService
     }
 
     // ── GeneralInfo ──────────────────────────────────────────────────
+
+    private static Dictionary<string, string> HashEmbeddedAudio(UndertaleData data)
+    {
+        if (data.EmbeddedAudio == null) return [];
+        var result = new ConcurrentDictionary<string, string>();
+
+        Parallel.For(0, data.EmbeddedAudio.Count, i =>
+        {
+            var audio = data.EmbeddedAudio[i];
+            string name = $"audio_{i:D4}";
+            var bytes = audio?.Data ?? [];
+            result[name] = HexHash(bytes);
+        });
+
+        return new Dictionary<string, string>(result, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static Dictionary<string, string> HashEmbeddedTextures(UndertaleData data)
+    {
+        if (data.EmbeddedTextures == null) return [];
+        var result = new ConcurrentDictionary<string, string>();
+
+        Parallel.For(0, data.EmbeddedTextures.Count, i =>
+        {
+            var texture = data.EmbeddedTextures[i];
+            if (texture == null)
+                return;
+
+            string name = $"texture_{i:D4}";
+            string hash = JsonHash(w =>
+            {
+                w.WriteStartObject();
+                w.WriteString("name", texture.Name?.Content ?? "");
+                w.WriteNumber("scaled", texture.Scaled);
+                w.WriteNumber("generatedMips", texture.GeneratedMips);
+                w.WriteString("format", texture.TextureData?.Image?.Format.ToString() ?? "");
+                var imageData = texture.TextureData?.Image?.GetData();
+                w.WriteString("image", imageData != null ? Convert.ToBase64String(imageData) : "");
+                w.WriteEndObject();
+            });
+            result[name] = hash;
+        });
+
+        return new Dictionary<string, string>(result, StringComparer.OrdinalIgnoreCase);
+    }
 
     private static Dictionary<string, string> HashGeneralInfo(UndertaleData data)
     {
@@ -163,6 +223,192 @@ public static class ResourceHashService
         return new(result);
     }
 
+    private static Dictionary<string, string> HashFeatureFlags(UndertaleData data)
+    {
+        if (data.FeatureFlags?.List == null) return [];
+
+        var hash = JsonHash(w =>
+        {
+            w.WriteStartObject();
+            w.WriteStartArray("flags");
+            foreach (var flag in data.FeatureFlags.List.Select(f => f?.Content ?? "").OrderBy(f => f, StringComparer.Ordinal))
+                w.WriteStringValue(flag);
+            w.WriteEndArray();
+            w.WriteEndObject();
+        });
+
+        return new Dictionary<string, string> { ["FeatureFlags"] = hash };
+    }
+
+    private static Dictionary<string, string> HashLanguage(UndertaleData data)
+    {
+        if (data.Language == null) return [];
+
+        var hash = JsonHash(w =>
+        {
+            w.WriteStartObject();
+            w.WriteNumber("unknown1", data.Language.Unknown1);
+            w.WriteStartArray("entryIds");
+            foreach (var entryId in data.Language.EntryIDs ?? [])
+                w.WriteStringValue(entryId?.Content ?? "");
+            w.WriteEndArray();
+            w.WriteStartArray("languages");
+            foreach (var language in data.Language.Languages ?? [])
+            {
+                if (language == null) continue;
+                w.WriteStartObject();
+                w.WriteString("name", language.Name?.Content ?? "");
+                w.WriteString("region", language.Region?.Content ?? "");
+                w.WriteStartArray("entries");
+                foreach (var entry in language.Entries ?? [])
+                    w.WriteStringValue(entry?.Content ?? "");
+                w.WriteEndArray();
+                w.WriteEndObject();
+            }
+            w.WriteEndArray();
+            w.WriteEndObject();
+        });
+
+        return new Dictionary<string, string> { ["Language"] = hash };
+    }
+
+    private static Dictionary<string, string> HashTags(UndertaleData data)
+    {
+        if (data.Tags == null) return [];
+
+        var hash = JsonHash(w =>
+        {
+            w.WriteStartObject();
+            w.WriteStartArray("tags");
+            if (data.Tags.Tags != null)
+            {
+                foreach (var tag in data.Tags.Tags.Select(t => t?.Content ?? "").OrderBy(t => t, StringComparer.Ordinal))
+                    w.WriteStringValue(tag);
+            }
+            w.WriteEndArray();
+
+            w.WriteStartArray("assetTags");
+            if (data.Tags.AssetTags != null)
+            {
+                foreach (var (AssetId, Tags, Decoded) in data.Tags.AssetTags
+                    .Select(kvp => (AssetId: kvp.Key, Tags: kvp.Value, Decoded: DecodeAssetTagId(data, kvp.Key)))
+                    .OrderBy(e => e.Decoded.Type, StringComparer.Ordinal)
+                    .ThenBy(e => e.Decoded.Name, StringComparer.Ordinal)
+                    .ThenBy(e => e.AssetId))
+                {
+                    w.WriteStartObject();
+                    w.WriteString("assetType", Decoded.Type);
+                    w.WriteString("assetName", Decoded.Name);
+                    if (string.IsNullOrEmpty(Decoded.Name))
+                        w.WriteNumber("assetId", AssetId);
+                    w.WriteStartArray("tags");
+                    foreach (var tag in (Tags ?? []).Select(t => t?.Content ?? "").OrderBy(t => t, StringComparer.Ordinal))
+                        w.WriteStringValue(tag);
+                    w.WriteEndArray();
+                    w.WriteEndObject();
+                }
+            }
+            w.WriteEndArray();
+            w.WriteEndObject();
+        });
+
+        return new Dictionary<string, string> { ["Tags"] = hash };
+    }
+
+    private static Dictionary<string, string> HashFilterEffects(UndertaleData data)
+    {
+        if (data.FilterEffects == null) return [];
+
+        var result = new ConcurrentDictionary<string, string>();
+        Parallel.ForEach(data.FilterEffects, effect =>
+        {
+            if (effect?.Name?.Content == null) return;
+            var hash = JsonHash(w =>
+            {
+                w.WriteStartObject();
+                w.WriteString("name", effect.Name.Content);
+                w.WriteString("value", effect.Value?.Content ?? "");
+                w.WriteEndObject();
+            });
+            result[effect.Name.Content] = hash;
+        });
+        return new(result);
+    }
+
+    private static (string Type, string Name) DecodeAssetTagId(UndertaleData data, int assetId)
+    {
+        var type = (ResourceType)(assetId >> 24);
+        int rawIndex = assetId & 0xFFFFFF;
+        int index = type == ResourceType.Script ? rawIndex - 100000 : rawIndex;
+        return (type.ToString(), GetAssetNameByTagType(data, type, index) ?? "");
+    }
+
+    private static string? GetAssetNameByTagType(UndertaleData data, ResourceType type, int index)
+    {
+        return type switch
+        {
+            ResourceType.Object when index >= 0 && index < data.GameObjects.Count => data.GameObjects[index]?.Name?.Content,
+            ResourceType.Sprite when index >= 0 && index < data.Sprites.Count => data.Sprites[index]?.Name?.Content,
+            ResourceType.Sound when index >= 0 && index < data.Sounds.Count => data.Sounds[index]?.Name?.Content,
+            ResourceType.Room when index >= 0 && index < data.Rooms.Count => data.Rooms[index]?.Name?.Content,
+            ResourceType.Path when index >= 0 && index < data.Paths.Count => data.Paths[index]?.Name?.Content,
+            ResourceType.Script when index >= 0 && index < data.Scripts.Count => data.Scripts[index]?.Name?.Content,
+            ResourceType.Font when index >= 0 && index < data.Fonts.Count => data.Fonts[index]?.Name?.Content,
+            ResourceType.Timeline when index >= 0 && index < data.Timelines.Count => data.Timelines[index]?.Name?.Content,
+            ResourceType.Background when index >= 0 && index < data.Backgrounds.Count => data.Backgrounds[index]?.Name?.Content,
+            ResourceType.Shader when index >= 0 && index < data.Shaders.Count => data.Shaders[index]?.Name?.Content,
+            ResourceType.Sequence when data.Sequences != null && index >= 0 && index < data.Sequences.Count => data.Sequences[index]?.Name?.Content,
+            ResourceType.AnimCurve when data.AnimationCurves != null && index >= 0 && index < data.AnimationCurves.Count => data.AnimationCurves[index]?.Name?.Content,
+            ResourceType.ParticleSystem when data.ParticleSystems != null && index >= 0 && index < data.ParticleSystems.Count => data.ParticleSystems[index]?.Name?.Content,
+            _ => null
+        };
+    }
+
+    private static Dictionary<string, string> HashTexturePageItems(UndertaleData data)
+    {
+        if (data.TexturePageItems == null) return [];
+
+        var embeddedTextureIndices = new Dictionary<UndertaleEmbeddedTexture, int>();
+        if (data.EmbeddedTextures != null)
+            for (int i = 0; i < data.EmbeddedTextures.Count; i++)
+                embeddedTextureIndices[data.EmbeddedTextures[i]] = i;
+
+        var hash = JsonHash(w =>
+        {
+            w.WriteStartObject();
+            w.WriteStartArray("items");
+            for (int i = 0; i < data.TexturePageItems.Count; i++)
+            {
+                var tpi = data.TexturePageItems[i];
+                if (tpi == null)
+                {
+                    w.WriteNullValue();
+                    continue;
+                }
+
+                w.WriteStartObject();
+                w.WriteNumber("index", i);
+                w.WriteString("name", tpi.Name?.Content ?? "");
+                w.WriteNumber("texturePageIndex", tpi.TexturePage != null && embeddedTextureIndices.TryGetValue(tpi.TexturePage, out var texIdx) ? texIdx : -1);
+                w.WriteNumber("sourceX", tpi.SourceX);
+                w.WriteNumber("sourceY", tpi.SourceY);
+                w.WriteNumber("sourceWidth", tpi.SourceWidth);
+                w.WriteNumber("sourceHeight", tpi.SourceHeight);
+                w.WriteNumber("targetX", tpi.TargetX);
+                w.WriteNumber("targetY", tpi.TargetY);
+                w.WriteNumber("targetWidth", tpi.TargetWidth);
+                w.WriteNumber("targetHeight", tpi.TargetHeight);
+                w.WriteNumber("boundingWidth", tpi.BoundingWidth);
+                w.WriteNumber("boundingHeight", tpi.BoundingHeight);
+                w.WriteEndObject();
+            }
+            w.WriteEndArray();
+            w.WriteEndObject();
+        });
+
+        return new Dictionary<string, string> { ["TexturePageItems"] = hash };
+    }
+
     // ── Sprites ──────────────────────────────────────────────────────
 
     private static Dictionary<string, string> HashSprites(UndertaleData data)
@@ -208,6 +454,7 @@ public static class ResourceHashService
 
             using var image = tex.TextureData.Image.GetMagickImage();
             int pageW = (int)image.Width;
+            int pageH = (int)image.Height;
             using var pixels = image.GetPixels();
             byte[]? allPixels = pixels.ToByteArray("RGBA");
             if (allPixels == null)
@@ -220,6 +467,15 @@ public static class ResourceHashService
 
             foreach (var (srcX, srcY, srcW, srcH) in regions)
             {
+                if (srcW == 0 || srcH == 0 ||
+                    srcX >= pageW || srcY >= pageH ||
+                    srcX + srcW > pageW || srcY + srcH > pageH)
+                {
+                    frameHashes[(pageIdx, srcX, srcY, srcW, srcH)] =
+                        $"invalid:{pageIdx}:{srcX}:{srcY}:{srcW}:{srcH}:{pageW}:{pageH}";
+                    continue;
+                }
+
                 int regionSize = srcW * srcH * bpp;
                 var regionBytes = new byte[regionSize];
                 int dst = 0;
@@ -243,6 +499,9 @@ public static class ResourceHashService
                 w.WriteString("name", sprite.Name.Content);
                 w.WriteNumber("width", sprite.Width);
                 w.WriteNumber("height", sprite.Height);
+                w.WriteBoolean("transparent", sprite.Transparent);
+                w.WriteBoolean("smooth", sprite.Smooth);
+                w.WriteBoolean("preload", sprite.Preload);
                 w.WriteNumber("marginLeft", sprite.MarginLeft);
                 w.WriteNumber("marginRight", sprite.MarginRight);
                 w.WriteNumber("marginTop", sprite.MarginTop);
@@ -258,6 +517,24 @@ public static class ResourceHashService
                 if (sprite.SpineJSON != null) w.WriteString("spineJSON", sprite.SpineJSON);
                 if (sprite.SpineAtlas != null) w.WriteString("spineAtlas", sprite.SpineAtlas);
                 w.WriteNumber("sWFVersion", sprite.SWFVersion);
+                if (sprite.V3NineSlice != null)
+                {
+                    w.WriteStartObject("nineSlice");
+                    w.WriteNumber("left", sprite.V3NineSlice.Left);
+                    w.WriteNumber("top", sprite.V3NineSlice.Top);
+                    w.WriteNumber("right", sprite.V3NineSlice.Right);
+                    w.WriteNumber("bottom", sprite.V3NineSlice.Bottom);
+                    w.WriteBoolean("enabled", sprite.V3NineSlice.Enabled);
+                    w.WriteStartArray("tileModes");
+                    foreach (var mode in sprite.V3NineSlice.TileModes)
+                        w.WriteNumberValue((int)mode);
+                    w.WriteEndArray();
+                    w.WriteEndObject();
+                }
+                else
+                {
+                    w.WriteNull("nineSlice");
+                }
 
                 // Hash texture page item references + per-frame pixel hash
                 w.WriteStartArray("textures");
@@ -298,9 +575,22 @@ public static class ResourceHashService
                 if (sprite.CollisionMasks != null)
                 {
                     w.WriteNumber("maskCount", sprite.CollisionMasks.Count);
-                    w.WriteStartArray("maskLengths");
+                    w.WriteStartArray("masks");
                     foreach (var mask in sprite.CollisionMasks)
-                        w.WriteNumberValue(mask?.Data?.Length ?? 0);
+                    {
+                        if (mask == null)
+                        {
+                            w.WriteNullValue();
+                            continue;
+                        }
+
+                        w.WriteStartObject();
+                        w.WriteNumber("width", mask.Width);
+                        w.WriteNumber("height", mask.Height);
+                        w.WriteNumber("length", mask.Data?.Length ?? 0);
+                        w.WriteString("dataHash", mask.Data != null ? HexHash(mask.Data) : "");
+                        w.WriteEndObject();
+                    }
                     w.WriteEndArray();
                 }
 
@@ -309,6 +599,36 @@ public static class ResourceHashService
             result[sprite.Name.Content] = hash;
         });
         return new(result);
+    }
+
+    private static string HashTextureRegion(UndertaleTexturePageItem? tpi)
+    {
+        if (tpi?.TexturePage?.TextureData?.Image == null) return "";
+
+        using var image = tpi.TexturePage.TextureData.Image.GetMagickImage();
+        int pageW = (int)image.Width;
+        int pageH = (int)image.Height;
+        if (tpi.SourceWidth == 0 || tpi.SourceHeight == 0 ||
+            tpi.SourceX >= pageW || tpi.SourceY >= pageH ||
+            tpi.SourceX + tpi.SourceWidth > pageW || tpi.SourceY + tpi.SourceHeight > pageH)
+        {
+            return $"invalid:{tpi.SourceX}:{tpi.SourceY}:{tpi.SourceWidth}:{tpi.SourceHeight}:{pageW}:{pageH}";
+        }
+
+        using var pixels = image.GetPixels();
+        byte[]? allPixels = pixels.ToByteArray("RGBA");
+        if (allPixels == null) return "";
+
+        const int bpp = 4;
+        int regionSize = tpi.SourceWidth * tpi.SourceHeight * bpp;
+        var regionBytes = new byte[regionSize];
+        int dst = 0;
+        for (int y = tpi.SourceY; y < tpi.SourceY + tpi.SourceHeight; y++)
+        {
+            Buffer.BlockCopy(allPixels, (y * pageW + tpi.SourceX) * bpp, regionBytes, dst, tpi.SourceWidth * bpp);
+            dst += tpi.SourceWidth * bpp;
+        }
+        return HexHash(regionBytes);
     }
 
     // ── Backgrounds ──────────────────────────────────────────────────
@@ -369,6 +689,7 @@ public static class ResourceHashService
                 w.WriteStartObject();
                 w.WriteString("name", font.Name.Content);
                 w.WriteString("displayName", font.DisplayName?.Content ?? "");
+                w.WriteBoolean("emSizeIsFloat", font.EmSizeIsFloat);
                 w.WriteNumber("emSize", font.EmSize);
                 w.WriteBoolean("bold", font.Bold);
                 w.WriteBoolean("italic", font.Italic);
@@ -380,6 +701,8 @@ public static class ResourceHashService
                 w.WriteNumber("scaleY", font.ScaleY);
                 w.WriteNumber("ascenderOffset", font.AscenderOffset);
                 w.WriteNumber("ascender", font.Ascender);
+                w.WriteNumber("sdfSpread", font.SDFSpread);
+                w.WriteNumber("lineHeight", font.LineHeight);
                 w.WriteNumber("glyphCount", font.Glyphs?.Count ?? 0);
                 var tpi = font.Texture;
                 if (tpi != null)
@@ -388,7 +711,44 @@ public static class ResourceHashService
                     w.WriteNumber("texSrcY", tpi.SourceY);
                     w.WriteNumber("texSrcW", tpi.SourceWidth);
                     w.WriteNumber("texSrcH", tpi.SourceHeight);
+                    w.WriteString("textureHash", HashTextureRegion(tpi));
                 }
+                w.WriteStartArray("glyphs");
+                if (font.Glyphs != null)
+                {
+                    foreach (var glyph in font.Glyphs.OrderBy(g => g.Character))
+                    {
+                        if (glyph == null)
+                        {
+                            w.WriteNullValue();
+                            continue;
+                        }
+
+                        w.WriteStartObject();
+                        w.WriteNumber("character", glyph.Character);
+                        w.WriteNumber("sourceX", glyph.SourceX);
+                        w.WriteNumber("sourceY", glyph.SourceY);
+                        w.WriteNumber("sourceWidth", glyph.SourceWidth);
+                        w.WriteNumber("sourceHeight", glyph.SourceHeight);
+                        w.WriteNumber("shift", glyph.Shift);
+                        w.WriteNumber("offset", glyph.Offset);
+                        w.WriteNumber("unknownAlwaysZero", glyph.UnknownAlwaysZero);
+                        w.WriteStartArray("kerning");
+                        if (glyph.Kerning != null)
+                        {
+                            foreach (var kern in glyph.Kerning.OrderBy(k => k.Character))
+                            {
+                                w.WriteStartObject();
+                                w.WriteNumber("character", kern.Character);
+                                w.WriteNumber("shiftModifier", kern.ShiftModifier);
+                                w.WriteEndObject();
+                            }
+                        }
+                        w.WriteEndArray();
+                        w.WriteEndObject();
+                    }
+                }
+                w.WriteEndArray();
                 w.WriteEndObject();
             });
             result[font.Name.Content] = hash;
@@ -398,9 +758,10 @@ public static class ResourceHashService
 
     // ── Sounds ───────────────────────────────────────────────────────
 
-    private static Dictionary<string, string> HashSounds(UndertaleData data)
+    private static Dictionary<string, string> HashSounds(UndertaleData data, string? dataFilePath = null)
     {
         if (data.Sounds == null) return [];
+        var externalAudioHashes = LoadExternalAudioHashes(data, dataFilePath);
         var result = new ConcurrentDictionary<string, string>();
         Parallel.ForEach(data.Sounds, snd =>
         {
@@ -412,16 +773,471 @@ public static class ResourceHashService
                 w.WriteNumber("flags", (uint)snd.Flags);
                 w.WriteString("type", snd.Type?.Content ?? "");
                 w.WriteString("file", snd.File?.Content ?? "");
+                w.WriteNumber("effects", snd.Effects);
                 w.WriteNumber("volume", snd.Volume);
+                w.WriteBoolean("preload", snd.Preload);
                 w.WriteNumber("pitch", snd.Pitch);
                 w.WriteString("audioGroup", snd.AudioGroup?.Name?.Content ?? "");
                 w.WriteNumber("audioID", snd.AudioID);
                 w.WriteNumber("groupID", snd.GroupID);
+                w.WriteNumber("audioLength", snd.AudioLength);
+                w.WriteString("audioHash", GetSoundAudioHash(snd, externalAudioHashes));
                 w.WriteEndObject();
             });
             result[snd.Name.Content] = hash;
         });
         return new(result);
+    }
+
+    private static string GetSoundAudioHash(UndertaleSound sound, Dictionary<int, Dictionary<int, string>> externalAudioHashes)
+    {
+        if (sound.AudioFile?.Data != null)
+            return HexHash(sound.AudioFile.Data);
+
+        if (sound.GroupID > 0 &&
+            sound.AudioID >= 0 &&
+            externalAudioHashes.TryGetValue(sound.GroupID, out var groupHashes) &&
+            groupHashes.TryGetValue(sound.AudioID, out var hash))
+        {
+            return hash;
+        }
+
+        return "";
+    }
+
+    private static Dictionary<int, Dictionary<int, string>> LoadExternalAudioHashes(UndertaleData data, string? dataFilePath)
+    {
+        if (data.Sounds == null || string.IsNullOrWhiteSpace(dataFilePath))
+            return [];
+
+        var dataDir = Path.GetDirectoryName(dataFilePath);
+        if (string.IsNullOrWhiteSpace(dataDir))
+            return [];
+
+        var groupIds = data.Sounds
+            .Where(sound => sound != null && sound.GroupID > 0 && sound.AudioID >= 0)
+            .Select(sound => sound.GroupID)
+            .Distinct()
+            .ToArray();
+
+        var result = new Dictionary<int, Dictionary<int, string>>();
+        foreach (int groupId in groupIds)
+        {
+            string? audioGroupPath = ResolveAudioGroupPath(data, dataDir, groupId);
+            if (audioGroupPath == null)
+                continue;
+            if (!File.Exists(audioGroupPath))
+                continue;
+
+            try
+            {
+                using var stream = new FileStream(audioGroupPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                var audioGroupData = UndertaleIO.Read(stream);
+                if (audioGroupData.EmbeddedAudio == null)
+                    continue;
+
+                var hashes = new Dictionary<int, string>();
+                for (int i = 0; i < audioGroupData.EmbeddedAudio.Count; i++)
+                {
+                    var audio = audioGroupData.EmbeddedAudio[i];
+                    if (audio?.Data != null)
+                        hashes[i] = HexHash(audio.Data);
+                }
+
+                if (hashes.Count > 0)
+                    result[groupId] = hashes;
+            }
+            catch
+            {
+                // Missing or incompatible external audio should not make hashing fail.
+            }
+        }
+
+        return result;
+    }
+
+    private static Dictionary<string, string> HashOptions(UndertaleData data)
+    {
+        if (data.Options == null) return [];
+        return new Dictionary<string, string>
+        {
+            ["Options"] = JsonHash(w =>
+            {
+                WriteOptionsJson(w, data);
+            })
+        };
+    }
+
+    private static Dictionary<string, string> HashGlobalScripts(UndertaleData data)
+    {
+        return new Dictionary<string, string>
+        {
+            ["GlobalScripts"] = JsonHash(w =>
+            {
+                WriteGlobalScriptsJson(w, data);
+            })
+        };
+    }
+
+    private static Dictionary<string, string> HashScripts(UndertaleData data)
+    {
+        if (data.Scripts == null) return [];
+        var scripts = data.Scripts
+            .Where(script => script?.Name?.Content != null)
+            .Select(script => script!)
+            .ToList();
+        var keyedScripts = BuildUniqueResourceKeys(scripts, script => script.Name!.Content);
+
+        var result = new ConcurrentDictionary<string, string>();
+        Parallel.ForEach(keyedScripts, entry =>
+        {
+            var script = entry.Item;
+            result[entry.Key] = JsonHash(w =>
+            {
+                w.WriteStartObject();
+                w.WriteString("name", script.Name.Content);
+                w.WriteString("code", script.Code?.Name?.Content ?? "");
+                w.WriteBoolean("isConstructor", script.IsConstructor);
+                w.WriteEndObject();
+            });
+        });
+        return new(result);
+    }
+
+    private static List<(T Item, string Key)> BuildUniqueResourceKeys<T>(
+        List<T> items,
+        Func<T, string> getName)
+    {
+        var used = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var result = new List<(T Item, string Key)>(items.Count);
+
+        foreach (var item in items)
+        {
+            var baseName = getName(item);
+            if (!used.TryGetValue(baseName, out var count))
+            {
+                used[baseName] = 1;
+                result.Add((item, baseName));
+                continue;
+            }
+
+            string uniqueName;
+            do
+            {
+                count++;
+                uniqueName = $"{baseName}__{count}";
+            }
+            while (used.ContainsKey(uniqueName));
+
+            used[baseName] = count;
+            used[uniqueName] = 1;
+            result.Add((item, uniqueName));
+        }
+
+        return result;
+    }
+
+    private static Dictionary<string, string> HashEmbeddedImages(UndertaleData data)
+    {
+        if (data.EmbeddedImages == null) return [];
+        var result = new ConcurrentDictionary<string, string>();
+        Parallel.ForEach(data.EmbeddedImages, image =>
+        {
+            if (image?.Name?.Content == null) return;
+            result[image.Name.Content] = JsonHash(w =>
+            {
+                w.WriteStartObject();
+                w.WriteString("name", image.Name.Content);
+                WriteTexturePageItemRef(w, data, image.TextureEntry);
+                w.WriteEndObject();
+            });
+        });
+        return new(result);
+    }
+
+    private static void WriteTexturePageItemRef(Utf8JsonWriter w, UndertaleData data, UndertaleTexturePageItem? tpi)
+    {
+        w.WriteNumber("texturePageItemIndex", tpi != null && data.TexturePageItems != null ? data.TexturePageItems.IndexOf(tpi) : -1);
+        if (tpi == null)
+            return;
+
+        w.WriteString("texturePageItemName", tpi.Name?.Content ?? "");
+        w.WriteNumber("sourceX", tpi.SourceX);
+        w.WriteNumber("sourceY", tpi.SourceY);
+        w.WriteNumber("sourceWidth", tpi.SourceWidth);
+        w.WriteNumber("sourceHeight", tpi.SourceHeight);
+        w.WriteNumber("targetX", tpi.TargetX);
+        w.WriteNumber("targetY", tpi.TargetY);
+        w.WriteNumber("targetWidth", tpi.TargetWidth);
+        w.WriteNumber("targetHeight", tpi.TargetHeight);
+        w.WriteNumber("boundingWidth", tpi.BoundingWidth);
+        w.WriteNumber("boundingHeight", tpi.BoundingHeight);
+    }
+
+    private static void WriteOptionsJson(Utf8JsonWriter w, UndertaleData data)
+    {
+        var options = data.Options;
+        w.WriteStartObject();
+        if (options == null)
+        {
+            w.WriteEndObject();
+            return;
+        }
+
+        w.WriteBoolean("newFormat", options.NewFormat);
+        w.WriteNumber("shaderExtensionFlag", options.ShaderExtensionFlag);
+        w.WriteNumber("shaderExtensionVersion", options.ShaderExtensionVersion);
+        w.WriteNumber("info", (ulong)options.Info);
+        w.WriteNumber("scale", options.Scale);
+        w.WriteNumber("windowColor", options.WindowColor);
+        w.WriteNumber("colorDepth", options.ColorDepth);
+        w.WriteNumber("resolution", options.Resolution);
+        w.WriteNumber("frequency", options.Frequency);
+        w.WriteNumber("vertexSync", options.VertexSync);
+        w.WriteNumber("priority", options.Priority);
+        w.WriteNumber("loadAlpha", options.LoadAlpha);
+        w.WriteStartArray("constants");
+        if (options.Constants != null)
+        {
+            foreach (var constant in options.Constants)
+            {
+                w.WriteStartObject();
+                w.WriteString("name", constant?.Name?.Content ?? "");
+                w.WriteString("value", constant?.Value?.Content ?? "");
+                w.WriteEndObject();
+            }
+        }
+        w.WriteEndArray();
+        w.WriteEndObject();
+    }
+
+    private static void WriteGlobalScriptsJson(Utf8JsonWriter w, UndertaleData data)
+    {
+        w.WriteStartObject();
+        WriteCodeRefArray(w, "globalInitScripts", data.GlobalInitScripts);
+        WriteCodeRefArray(w, "gameEndScripts", data.GameEndScripts);
+        w.WriteEndObject();
+    }
+
+    private static void WriteCodeRefArray(Utf8JsonWriter w, string propertyName, IList<UndertaleGlobalInit>? scripts)
+    {
+        w.WriteStartArray(propertyName);
+        if (scripts != null)
+        {
+            foreach (var script in scripts)
+                w.WriteStringValue(script?.Code?.Name?.Content ?? "");
+        }
+        w.WriteEndArray();
+    }
+
+    private static string? ResolveAudioGroupPath(UndertaleData data, string dataDir, int groupId)
+    {
+        string relativePath = $"audiogroup{groupId}.dat";
+        if (data.AudioGroups != null &&
+            groupId >= 0 &&
+            groupId < data.AudioGroups.Count &&
+            !string.IsNullOrWhiteSpace(data.AudioGroups[groupId]?.Path?.Content))
+        {
+            relativePath = data.AudioGroups[groupId].Path.Content;
+        }
+
+        try
+        {
+            string baseDir = Path.GetFullPath(dataDir);
+            string fullPath = Path.GetFullPath(Path.Combine(baseDir, relativePath));
+            if (!fullPath.StartsWith(baseDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar,
+                    StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(fullPath, baseDir, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+            return fullPath;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    // ── AnimationCurves ─────────────────────────────────────────────
+
+    private static Dictionary<string, string> HashAnimationCurves(UndertaleData data)
+    {
+        if (data.AnimationCurves == null) return [];
+
+        var result = new ConcurrentDictionary<string, string>();
+        Parallel.ForEach(data.AnimationCurves, curve =>
+        {
+            if (curve?.Name?.Content == null) return;
+            var hash = JsonHash(w =>
+            {
+                w.WriteStartObject();
+                WriteAnimationCurveJson(w, data, curve);
+                w.WriteEndObject();
+            });
+            result[curve.Name.Content] = hash;
+        });
+        return new(result);
+    }
+
+    private static Dictionary<string, string> HashSequences(UndertaleData data)
+    {
+        if (data.Sequences == null) return [];
+
+        var result = new ConcurrentDictionary<string, string>();
+        string tempRoot = Path.Combine(Path.GetTempPath(), "g3mtool_seq_hash", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            var context = CreateProjectContext(data, tempRoot);
+            foreach (var sequence in data.Sequences)
+            {
+                if (sequence?.Name?.Content == null) continue;
+                string file = Path.Combine(tempRoot, SafeFileName(sequence.Name.Content) + ".json");
+                SerializableProjectAssetBridge.Export(context, sequence, file);
+                result[sequence.Name.Content] = HexHash(File.ReadAllBytes(file));
+            }
+        }
+        finally
+        {
+            try { Directory.Delete(tempRoot, recursive: true); } catch { }
+            try
+            {
+                string? parentDir = Path.GetDirectoryName(tempRoot);
+                if (!string.IsNullOrWhiteSpace(parentDir) &&
+                    Directory.Exists(parentDir) &&
+                    !Directory.EnumerateFileSystemEntries(parentDir).Any())
+                {
+                    Directory.Delete(parentDir);
+                }
+            }
+            catch { }
+        }
+
+        return new(result);
+    }
+
+    private static Dictionary<string, string> HashParticleSystems(UndertaleData data)
+    {
+        if (data.ParticleSystems == null) return [];
+        var result = new ConcurrentDictionary<string, string>();
+        Parallel.ForEach(data.ParticleSystems, ps =>
+        {
+            if (ps?.Name?.Content == null) return;
+            result[ps.Name.Content] = JsonHash(w =>
+            {
+                w.WriteStartObject();
+                w.WriteString("name", ps.Name.Content);
+                w.WriteNumber("originX", ps.OriginX);
+                w.WriteNumber("originY", ps.OriginY);
+                w.WriteNumber("drawOrder", (int)ps.DrawOrder);
+                w.WriteBoolean("globalSpaceParticles", ps.GlobalSpaceParticles);
+                w.WriteStartArray("emitters");
+                foreach (var e in ps.Emitters ?? [])
+                    w.WriteStringValue(e?.Resource?.Name?.Content ?? "");
+                w.WriteEndArray();
+                w.WriteEndObject();
+            });
+        });
+        return new(result);
+    }
+
+    private static Dictionary<string, string> HashParticleSystemEmitters(UndertaleData data)
+    {
+        if (data.ParticleSystemEmitters == null) return [];
+        var result = new ConcurrentDictionary<string, string>();
+        Parallel.ForEach(data.ParticleSystemEmitters, e =>
+        {
+            if (e?.Name?.Content == null) return;
+            result[e.Name.Content] = JsonHash(w =>
+            {
+                w.WriteStartObject();
+                w.WriteString("name", e.Name.Content);
+                w.WriteString("sprite", e.Sprite?.Name?.Content ?? "");
+                w.WriteString("spawnOnDeath", e.SpawnOnDeath?.Name?.Content ?? "");
+                w.WriteString("spawnOnUpdate", e.SpawnOnUpdate?.Name?.Content ?? "");
+                foreach (var prop in typeof(UndertaleParticleSystemEmitter).GetProperties().OrderBy(p => p.Name, StringComparer.Ordinal))
+                {
+                    if (!prop.CanRead || !prop.CanWrite) continue;
+                    if (prop.Name is "Name" or "Sprite" or "SpawnOnDeath" or "SpawnOnUpdate" or
+                        "SizeMin" or "SizeMax" or "SizeIncrease" or "SizeWiggle")
+                        continue;
+                    var type = Nullable.GetUnderlyingType(prop.PropertyType) ?? prop.PropertyType;
+                    if (type.IsEnum)
+                        w.WriteNumber(prop.Name, Convert.ToInt32(prop.GetValue(e)));
+                    else if (type == typeof(bool))
+                        w.WriteBoolean(prop.Name, (bool)(prop.GetValue(e) ?? false));
+                    else if (type == typeof(int))
+                        w.WriteNumber(prop.Name, (int)(prop.GetValue(e) ?? 0));
+                    else if (type == typeof(uint))
+                        w.WriteNumber(prop.Name, (uint)(prop.GetValue(e) ?? 0u));
+                    else if (type == typeof(float))
+                        w.WriteNumber(prop.Name, (float)(prop.GetValue(e) ?? 0f));
+                }
+                w.WriteEndObject();
+            });
+        });
+        return new(result);
+    }
+
+    private static ProjectContext CreateProjectContext(UndertaleData data, string root)
+    {
+        string load = Path.Combine(root, "load.win");
+        string save = Path.Combine(root, "save.win");
+        string project = Path.Combine(root, "project", "project.yy");
+        Directory.CreateDirectory(Path.GetDirectoryName(project)!);
+        return new ProjectContext(data, load, save, project, "G3MTool");
+    }
+
+    private static string SafeFileName(string name)
+    {
+        foreach (char c in Path.GetInvalidFileNameChars())
+            name = name.Replace(c, '_');
+        return string.IsNullOrWhiteSpace(name) ? "unnamed" : name;
+    }
+
+    private static void WriteAnimationCurveJson(Utf8JsonWriter w, UndertaleData data, UndertaleAnimationCurve curve)
+    {
+        w.WriteString("name", curve.Name?.Content ?? "");
+        w.WriteNumber("graphType", (uint)curve.GraphType);
+        w.WriteStartArray("channels");
+        if (curve.Channels != null)
+        {
+            foreach (var channel in curve.Channels)
+            {
+                if (channel == null)
+                    continue;
+
+                w.WriteStartObject();
+                w.WriteString("name", channel.Name?.Content ?? "");
+                w.WriteNumber("curve", (uint)channel.Curve);
+                w.WriteNumber("iterations", channel.Iterations);
+                w.WriteStartArray("points");
+                if (channel.Points != null)
+                {
+                    foreach (var point in channel.Points)
+                    {
+                        if (point == null)
+                            continue;
+
+                        w.WriteStartObject();
+                        w.WriteNumber("x", point.X);
+                        w.WriteNumber("value", point.Value);
+                        if (data.IsVersionAtLeast(2, 3, 1))
+                        {
+                            w.WriteNumber("bezierX0", point.BezierX0);
+                            w.WriteNumber("bezierY0", point.BezierY0);
+                            w.WriteNumber("bezierX1", point.BezierX1);
+                            w.WriteNumber("bezierY1", point.BezierY1);
+                        }
+                        w.WriteEndObject();
+                    }
+                }
+                w.WriteEndArray();
+                w.WriteEndObject();
+            }
+        }
+        w.WriteEndArray();
     }
 
     // ── Paths ────────────────────────────────────────────────────────
@@ -572,54 +1388,64 @@ public static class ResourceHashService
     private static Dictionary<string, string> HashGameObjects(UndertaleData data)
     {
         if (data.GameObjects == null) return [];
-        var result = new ConcurrentDictionary<string, string>();
-        Parallel.ForEach(data.GameObjects, obj =>
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        var groups = data.GameObjects
+            .Select((obj, index) => (obj, index))
+            .Where(item => item.obj?.Name?.Content != null)
+            .GroupBy(item => item.obj!.Name.Content, StringComparer.Ordinal);
+
+        foreach (var group in groups)
         {
-            if (obj?.Name?.Content == null) return;
             var hash = JsonHash(w =>
             {
-                w.WriteStartObject();
-                w.WriteString("name", obj.Name.Content);
-                w.WriteString("spriteName", obj.Sprite?.Name?.Content ?? "");
-                w.WriteBoolean("visible", obj.Visible);
-                w.WriteBoolean("managed", obj.Managed);
-                w.WriteBoolean("solid", obj.Solid);
-                w.WriteNumber("depth", obj.Depth);
-                w.WriteBoolean("persistent", obj.Persistent);
-                w.WriteString("parentName", obj.ParentId?.Name?.Content ?? "");
-                w.WriteString("maskSpriteName", obj.TextureMaskId?.Name?.Content ?? "");
-                w.WriteBoolean("usesPhysics", obj.UsesPhysics);
-                w.WriteBoolean("isSensor", obj.IsSensor);
-                w.WriteNumber("collisionShape", (int)obj.CollisionShape);
-                w.WriteNumber("density", obj.Density);
-                w.WriteNumber("restitution", obj.Restitution);
-                w.WriteNumber("group", obj.Group);
-                w.WriteNumber("linearDamping", obj.LinearDamping);
-                w.WriteNumber("angularDamping", obj.AngularDamping);
-                w.WriteNumber("friction", obj.Friction);
-                w.WriteBoolean("kinematic", obj.Kinematic);
-                // Events
-                w.WriteStartArray("events");
-                for (int evtType = 0; evtType < obj.Events.Count; evtType++)
+                w.WriteStartArray();
+                foreach (var (obj, index) in group.OrderBy(item => item.index))
                 {
-                    foreach (var evt in obj.Events[evtType])
+                    w.WriteStartObject();
+                    w.WriteNumber("index", index);
+                    w.WriteString("name", obj!.Name.Content);
+                    w.WriteString("spriteName", obj.Sprite?.Name?.Content ?? "");
+                    w.WriteBoolean("visible", obj.Visible);
+                    w.WriteBoolean("managed", obj.Managed);
+                    w.WriteBoolean("solid", obj.Solid);
+                    w.WriteNumber("depth", obj.Depth);
+                    w.WriteBoolean("persistent", obj.Persistent);
+                    w.WriteString("parentName", obj.ParentId?.Name?.Content ?? "");
+                    w.WriteString("maskSpriteName", obj.TextureMaskId?.Name?.Content ?? "");
+                    w.WriteBoolean("usesPhysics", obj.UsesPhysics);
+                    w.WriteBoolean("isSensor", obj.IsSensor);
+                    w.WriteNumber("collisionShape", (int)obj.CollisionShape);
+                    w.WriteNumber("density", obj.Density);
+                    w.WriteNumber("restitution", obj.Restitution);
+                    w.WriteNumber("group", obj.Group);
+                    w.WriteNumber("linearDamping", obj.LinearDamping);
+                    w.WriteNumber("angularDamping", obj.AngularDamping);
+                    w.WriteNumber("friction", obj.Friction);
+                    w.WriteBoolean("kinematic", obj.Kinematic);
+                    // Events
+                    w.WriteStartArray("events");
+                    for (int evtType = 0; evtType < obj.Events.Count; evtType++)
                     {
-                        w.WriteStartObject();
-                        w.WriteNumber("type", evtType);
-                        w.WriteNumber("subtype", evt.EventSubtype);
-                        w.WriteStartArray("actions");
-                        foreach (var action in evt.Actions)
-                            w.WriteStringValue(action.CodeId?.Name?.Content ?? "");
-                        w.WriteEndArray();
-                        w.WriteEndObject();
+                        foreach (var evt in obj.Events[evtType])
+                        {
+                            w.WriteStartObject();
+                            w.WriteNumber("type", evtType);
+                            w.WriteNumber("subtype", evt.EventSubtype);
+                            w.WriteStartArray("actions");
+                            foreach (var action in evt.Actions)
+                                w.WriteStringValue(action.CodeId?.Name?.Content ?? "");
+                            w.WriteEndArray();
+                            w.WriteEndObject();
+                        }
                     }
+                    w.WriteEndArray();
+                    w.WriteEndObject();
                 }
                 w.WriteEndArray();
-                w.WriteEndObject();
             });
-            result[obj.Name.Content] = hash;
-        });
-        return new(result);
+            result[group.Key] = hash;
+        }
+        return result;
     }
 
     // ── Rooms ────────────────────────────────────────────────────────
@@ -837,15 +1663,22 @@ public static class ResourceHashService
             if (c?.Name?.Content != null && c.ParentEntry == null)
                 topLevel.Add(c);
         }
-        var result = new ConcurrentDictionary<string, string>();
+        var result = new Dictionary<string, string>(topLevel.Count, StringComparer.Ordinal);
+        var localsByName = data.CodeLocals?
+            .Where(locals => locals?.Name?.Content != null)
+            .GroupBy(locals => locals!.Name.Content, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
 
-        Parallel.ForEach(topLevel, entry =>
+        var perName = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        foreach (var entry in topLevel)
         {
             try
             {
                 // Hash disassembly (parent + children) for name-stable comparison
                 using var ms = new MemoryStream();
-                var bytes = Encoding.UTF8.GetBytes(entry.Disassemble(data.Variables, data.CodeLocals.For(entry)));
+                UndertaleCodeLocals? entryLocals = null;
+                localsByName?.TryGetValue(entry.Name.Content, out entryLocals);
+                var bytes = Encoding.UTF8.GetBytes(entry.Disassemble(data.Variables, entryLocals));
                 ms.Write(bytes, 0, bytes.Length);
                 foreach (var child in entry.ChildEntries)
                 {
@@ -853,12 +1686,19 @@ public static class ResourceHashService
                     try
                     {
                         ms.WriteByte(0); // separator
-                        var childBytes = Encoding.UTF8.GetBytes(child.Disassemble(data.Variables, data.CodeLocals.For(child)));
+                        UndertaleCodeLocals? childLocals = null;
+                        localsByName?.TryGetValue(child.Name.Content, out childLocals);
+                        var childBytes = Encoding.UTF8.GetBytes(child.Disassemble(data.Variables, childLocals));
                         ms.Write(childBytes, 0, childBytes.Length);
                     }
                     catch { }
                 }
-                result[entry.Name.Content] = HexHash(ms.GetBuffer().AsSpan(0, (int)ms.Length));
+                if (!perName.TryGetValue(entry.Name.Content, out var hashes))
+                {
+                    hashes = [];
+                    perName[entry.Name.Content] = hashes;
+                }
+                hashes.Add(HexHash(ms.GetBuffer().AsSpan(0, (int)ms.Length)));
             }
             catch
             {
@@ -874,10 +1714,25 @@ public static class ResourceHashService
                     bw.Write((byte)instr.Type2);
                 }
                 bw.Flush();
-                result[entry.Name.Content] = HexHash(ms.GetBuffer().AsSpan(0, (int)ms.Length));
+                if (!perName.TryGetValue(entry.Name.Content, out var hashes))
+                {
+                    hashes = [];
+                    perName[entry.Name.Content] = hashes;
+                }
+                hashes.Add(HexHash(ms.GetBuffer().AsSpan(0, (int)ms.Length)));
             }
-        });
-        return new(result);
+        }
+        foreach (var (name, hashes) in perName)
+        {
+            using var ms = new MemoryStream();
+            using var bw = new BinaryWriter(ms);
+            bw.Write(hashes.Count);
+            foreach (var hash in hashes)
+                bw.Write(hash);
+            bw.Flush();
+            result[name] = HexHash(ms.GetBuffer().AsSpan(0, (int)ms.Length));
+        }
+        return result;
     }
 
     // ── Extensions ───────────────────────────────────────────────────
@@ -895,6 +1750,7 @@ public static class ResourceHashService
                 w.WriteString("name", ext.Name.Content);
                 w.WriteString("className", ext.ClassName?.Content ?? "");
                 w.WriteString("folderName", ext.FolderName?.Content ?? "");
+                w.WriteString("version", ext.Version?.Content ?? "");
                 w.WriteStartArray("files");
                 if (ext.Files != null)
                     foreach (var file in ext.Files)
@@ -904,6 +1760,39 @@ public static class ResourceHashService
                         w.WriteString("cleanupScript", file?.CleanupScript?.Content ?? "");
                         w.WriteString("initScript", file?.InitScript?.Content ?? "");
                         w.WriteNumber("kind", (int)(file?.Kind ?? 0));
+                        w.WriteStartArray("functions");
+                        if (file?.Functions != null)
+                            foreach (var func in file.Functions)
+                            {
+                                w.WriteStartObject();
+                                w.WriteString("name", func?.Name?.Content ?? "");
+                                w.WriteString("extName", func?.ExtName?.Content ?? "");
+                                w.WriteNumber("id", (int)(func?.ID ?? 0));
+                                w.WriteNumber("kind", (int)(func?.Kind ?? 0));
+                                w.WriteNumber("retType", (int)(func?.RetType ?? 0));
+                                w.WriteStartArray("arguments");
+                                if (func?.Arguments != null)
+                                    foreach (var arg in func.Arguments)
+                                    {
+                                        w.WriteStartObject();
+                                        w.WriteNumber("type", (int)(arg?.Type ?? 0));
+                                        w.WriteEndObject();
+                                    }
+                                w.WriteEndArray();
+                                w.WriteEndObject();
+                            }
+                        w.WriteEndArray();
+                        w.WriteEndObject();
+                    }
+                w.WriteEndArray();
+                w.WriteStartArray("options");
+                if (ext.Options != null)
+                    foreach (var option in ext.Options)
+                    {
+                        w.WriteStartObject();
+                        w.WriteString("name", option?.Name?.Content ?? "");
+                        w.WriteString("value", option?.Value?.Content ?? "");
+                        w.WriteNumber("kind", (int)(option?.Kind ?? 0));
                         w.WriteEndObject();
                     }
                 w.WriteEndArray();

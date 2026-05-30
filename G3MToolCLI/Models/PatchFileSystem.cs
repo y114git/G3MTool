@@ -3,11 +3,12 @@ using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
 using G3MToolCLI.Services;
+using G3MToolCLI.Utils;
 
 namespace G3MToolCLI.Models;
 
 /// <summary>
-/// In-memory file system loaded from a ZIP archive.
+/// In-memory representation of a .g3mpatch file.
 /// All file access goes through memory, eliminating disk extraction overhead.
 /// </summary>
 public sealed class PatchFileSystem
@@ -26,6 +27,8 @@ public sealed class PatchFileSystem
 
     /// <summary>Code entries read during loading (ASM source by entry name).</summary>
     public Dictionary<string, string> AsmEntries { get; } = [];
+    public Dictionary<string, string> AsmEntryPaths { get; } = [];
+    public Dictionary<string, string> CodeEntryLogicalNames { get; } = [];
 
     /// <summary>Parsed manifest from g3mpatch.json.</summary>
     public G3MPatchManifest? Manifest { get; private set; }
@@ -36,7 +39,7 @@ public sealed class PatchFileSystem
     /// <summary>Optional exact xdelta payload for byte-perfect patch application.</summary>
     public byte[]? ExactPatchBytes { get; private set; }
 
-    /// <summary>Archive path of the optional exact payload.</summary>
+    /// <summary>Path of the optional exact payload inside the patch.</summary>
     public string? ExactPatchPath { get; private set; }
 
     private static string Norm(string path) => path.Replace('\\', '/').TrimEnd('/');
@@ -50,23 +53,53 @@ public sealed class PatchFileSystem
     }
 
     /// <summary>
-    /// Load entire ZIP into memory in a single pass.
+    /// Load patch entries into memory in a single pass.
     /// Parses manifest and code entries during loading.
     /// </summary>
-    public static PatchFileSystem LoadFromZip(string zipPath)
+    public static PatchFileSystem LoadFromZip(string zipPath, bool loadExactPayloads = true, bool skipAsmBackedGml = false)
     {
         var sw = Stopwatch.StartNew();
         var pfs = new PatchFileSystem();
 
-        // Single sequential read of entire ZIP into memory
-        var zipBytes = File.ReadAllBytes(zipPath);
-        using var ms = new MemoryStream(zipBytes);
-        using var archive = new ZipArchive(ms, ZipArchiveMode.Read);
+        long zipLength = new FileInfo(zipPath).Length;
+        using var zipStream = new FileStream(zipPath, FileMode.Open, FileAccess.Read, FileShare.Read, 1024 * 1024, FileOptions.SequentialScan);
+        using var archive = new ZipArchive(zipStream, ZipArchiveMode.Read);
+        HashSet<string>? asmBackedCodeKeys = null;
+        if (skipAsmBackedGml)
+        {
+            asmBackedCodeKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var entry in archive.Entries)
+            {
+                if (string.IsNullOrEmpty(entry.Name))
+                    continue;
+                var fullName = Norm(entry.FullName);
+                if (TryGetCodeEntryInfo(fullName, entry.Name, out var codeKey, out var extension) &&
+                    extension.Equals(".asm", StringComparison.OrdinalIgnoreCase))
+                {
+                    asmBackedCodeKeys.Add(codeKey);
+                }
+            }
+        }
 
         foreach (var entry in archive.Entries)
         {
             if (string.IsNullOrEmpty(entry.Name)) continue;
             var fullName = Norm(entry.FullName);
+
+            if (!loadExactPayloads &&
+                (fullName.StartsWith("Xdelta/", StringComparison.OrdinalIgnoreCase) ||
+                 fullName.StartsWith("Exact/", StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            if (asmBackedCodeKeys != null &&
+                TryGetCodeEntryInfo(fullName, entry.Name, out var earlyCodeKey, out var earlyExtension) &&
+                earlyExtension.Equals(".gml", StringComparison.OrdinalIgnoreCase) &&
+                asmBackedCodeKeys.Contains(earlyCodeKey))
+            {
+                continue;
+            }
 
             // Read entry bytes
             byte[] bytes;
@@ -105,14 +138,21 @@ public sealed class PatchFileSystem
             // Parse code entries into separate dictionaries
             if (fullName.StartsWith("CodeEntries/", StringComparison.OrdinalIgnoreCase))
             {
-                string codeName = Path.GetFileNameWithoutExtension(entry.Name);
+                if (!TryGetCodeEntryInfo(fullName, entry.Name, out var codeKey, out var extension))
+                    continue;
+
+                string logicalName = Path.GetFileNameWithoutExtension(entry.Name);
                 string content = DecodeUtf8(bytes);
 
-                if (entry.Name.EndsWith(".gml", StringComparison.OrdinalIgnoreCase))
-                    pfs.GmlEntries[codeName] = content;
-                else if (entry.Name.EndsWith(".asm", StringComparison.OrdinalIgnoreCase))
-                    pfs.AsmEntries[codeName] = content;
+                if (extension.Equals(".gml", StringComparison.OrdinalIgnoreCase))
+                    pfs.GmlEntries[codeKey] = content;
+                else if (extension.Equals(".asm", StringComparison.OrdinalIgnoreCase))
+                {
+                    pfs.AsmEntries[codeKey] = content;
+                    pfs.AsmEntryPaths[codeKey] = fullName;
+                }
 
+                pfs.CodeEntryLogicalNames[codeKey] = logicalName;
                 continue; // Don't store code entry bytes (already parsed to strings)
             }
 
@@ -147,14 +187,38 @@ public sealed class PatchFileSystem
             if (hasHelpers) break;
         }
         pfs.HelpersPrefix = hasHelpers ? "Helpers" : (hasAssetOrder ? "AssetOrder" : "Helpers");
+        pfs.HydrateCodeEntryLogicalNamesFromHelpers();
 
         // Build directory index
         pfs.BuildDirectoryIndex();
 
         long totalBytes = pfs._files.Values.Sum(b => (long)b.Length);
-        LogService.Log($"[PatchFileSystem] Loaded {pfs._files.Count} files + {pfs.GmlEntries.Count} GML + {pfs.AsmEntries.Count} ASM in {sw.Elapsed.TotalSeconds:F1}s ({zipBytes.Length / 1024 / 1024}MB ZIP -> {totalBytes / 1024 / 1024}MB memory)");
+        LogService.Log($"[PatchFileSystem] Loaded {pfs._files.Count} files + {pfs.GmlEntries.Count} GML + {pfs.AsmEntries.Count} ASM in {sw.Elapsed.TotalSeconds:F1}s ({zipLength / 1024 / 1024}MB patch -> {totalBytes / 1024 / 1024}MB memory)");
 
         return pfs;
+    }
+
+    private static bool TryGetCodeEntryInfo(string fullName, string entryName, out string codeKey, out string extension)
+    {
+        codeKey = "";
+        extension = Path.GetExtension(entryName);
+        if (!fullName.StartsWith("CodeEntries/", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        string relativePath = fullName["CodeEntries/".Length..];
+        int extIndex = relativePath.LastIndexOf('.');
+        if (extIndex <= 0)
+            return false;
+
+        string noExtPath = relativePath[..extIndex];
+        string[] pathParts = noExtPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (pathParts.Length < 2)
+            return false;
+
+        codeKey = pathParts[^2].Equals(pathParts[^1], StringComparison.OrdinalIgnoreCase)
+            ? pathParts[^2]
+            : $"{pathParts[^2]}/{pathParts[^1]}";
+        return true;
     }
 
     private void BuildDirectoryIndex()
@@ -195,6 +259,41 @@ public sealed class PatchFileSystem
             _childDirs[parent] = [.. children.OrderBy(x => x, StringComparer.OrdinalIgnoreCase)];
         foreach (var (parent, files) in fileSets)
             _childFiles[parent] = [.. files.OrderBy(x => x, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    private void HydrateCodeEntryLogicalNamesFromHelpers()
+    {
+        string helperPath = $"{HelpersPrefix}/variables_functions.json";
+        if (!_files.TryGetValue(helperPath, out var helperBytes))
+            return;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(helperBytes);
+            if (!doc.RootElement.TryGetProperty("codeEntries", out var codeEntries) ||
+                codeEntries.ValueKind != JsonValueKind.Array)
+                return;
+
+            foreach (var entry in codeEntries.EnumerateArray())
+            {
+                if (entry.ValueKind != JsonValueKind.Object)
+                    continue;
+                if (!entry.TryGetProperty("key", out var keyElem) ||
+                    !entry.TryGetProperty("name", out var nameElem))
+                    continue;
+
+                string? key = keyElem.GetString();
+                string? name = nameElem.GetString();
+                if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(name))
+                    continue;
+
+                CodeEntryLogicalNames[key] = name;
+            }
+        }
+        catch
+        {
+            // Old helper shape or invalid helper metadata; keep filename-derived fallback names.
+        }
     }
 
     // === File API ===
@@ -285,22 +384,42 @@ public sealed class PatchFileSystem
     }
 
     /// <summary>Add a GML code entry.</summary>
-    public void AddGmlEntry(string codeName, string gmlContent)
+    public void AddGmlEntry(string entryKey, string gmlContent, string? logicalName = null)
     {
-        GmlEntries[codeName] = gmlContent;
+        GmlEntries[entryKey] = gmlContent;
+        CodeEntryLogicalNames[entryKey] = logicalName ?? CodeEntryLogicalNames.GetValueOrDefault(entryKey) ?? Path.GetFileName(entryKey);
+        RemoveFile($"CodeEntries/{entryKey}/{entryKey}.gml");
     }
 
     /// <summary>Add an ASM code entry.</summary>
-    public void AddAsmEntry(string codeName, string asmContent)
+    public void AddAsmEntry(string entryKey, string asmContent, string? archivePath = null, string? logicalName = null)
     {
-        AsmEntries[codeName] = asmContent;
+        AsmEntries[entryKey] = asmContent;
+        AsmEntryPaths[entryKey] = string.IsNullOrWhiteSpace(archivePath)
+            ? $"CodeEntries/{entryKey}/{entryKey}.asm"
+            : Norm(archivePath);
+        CodeEntryLogicalNames[entryKey] = logicalName ?? CodeEntryLogicalNames.GetValueOrDefault(entryKey) ?? Path.GetFileName(entryKey);
+        RemoveFile($"CodeEntries/{entryKey}/{entryKey}.asm");
     }
 
     /// <summary>Remove a GML code entry. Returns true if removed.</summary>
-    public bool RemoveGmlEntry(string codeName) => GmlEntries.Remove(codeName);
+    public bool RemoveGmlEntry(string entryKey)
+    {
+        bool removed = GmlEntries.Remove(entryKey);
+        if (!AsmEntries.ContainsKey(entryKey))
+            CodeEntryLogicalNames.Remove(entryKey);
+        return removed;
+    }
 
     /// <summary>Remove an ASM code entry. Returns true if removed.</summary>
-    public bool RemoveAsmEntry(string codeName) => AsmEntries.Remove(codeName);
+    public bool RemoveAsmEntry(string entryKey)
+    {
+        AsmEntryPaths.Remove(entryKey);
+        bool removed = AsmEntries.Remove(entryKey);
+        if (!GmlEntries.ContainsKey(entryKey))
+            CodeEntryLogicalNames.Remove(entryKey);
+        return removed;
+    }
 
     /// <summary>Rebuild directory index after mutations. Must be called after Add/Remove operations before using directory APIs.</summary>
     public void RebuildDirectoryIndex()
@@ -313,7 +432,7 @@ public sealed class PatchFileSystem
     private static readonly JsonSerializerOptions s_jsonOptions = new() { WriteIndented = true };
 
     /// <summary>
-    /// Save the in-memory file system to a ZIP archive on disk.
+    /// Save the in-memory patch file system to disk.
     /// Includes all files, GML entries, and ASM entries.
     /// </summary>
     public void SaveToZip(string outputPath, G3MPatchManifest? manifest = null)
@@ -328,7 +447,7 @@ public sealed class PatchFileSystem
         // Write manifest
         if (manifest != null)
         {
-            var entry = archive.CreateEntry("g3mpatch.json", CompressionLevel.NoCompression);
+            var entry = archive.CreateEntry("g3mpatch.json", ArchiveCompressionUtil.GetLevel("g3mpatch.json"));
             using var stream = entry.Open();
             JsonSerializer.Serialize(stream, manifest, s_jsonOptions);
         }
@@ -338,24 +457,26 @@ public sealed class PatchFileSystem
         {
             if (path.Equals("g3mpatch.json", StringComparison.OrdinalIgnoreCase) && manifest != null)
                 continue; // Already written above
-            var entry = archive.CreateEntry(path, CompressionLevel.NoCompression);
+            if (path.StartsWith("CodeEntries/", StringComparison.OrdinalIgnoreCase))
+                continue; // Code entries are emitted from GmlEntries/AsmEntries below.
+            var entry = archive.CreateEntry(path, ArchiveCompressionUtil.GetLevel(path));
             using var stream = entry.Open();
             stream.Write(data, 0, data.Length);
         }
 
         // Write code entries
-        foreach (var (codeName, gml) in GmlEntries)
+        foreach (var (entryKey, gml) in GmlEntries)
         {
-            var entryPath = $"CodeEntries/{codeName}/{codeName}.gml";
-            var entry = archive.CreateEntry(entryPath, CompressionLevel.NoCompression);
+            var entryPath = $"CodeEntries/{entryKey}/{entryKey}.gml";
+            var entry = archive.CreateEntry(entryPath, ArchiveCompressionUtil.GetLevel(entryPath));
             using var writer = new StreamWriter(entry.Open(), Encoding.UTF8);
             writer.Write(gml);
         }
 
-        foreach (var (codeName, asm) in AsmEntries)
+        foreach (var (entryKey, asm) in AsmEntries)
         {
-            var entryPath = $"CodeEntries/{codeName}/{codeName}.asm";
-            var entry = archive.CreateEntry(entryPath, CompressionLevel.NoCompression);
+            var entryPath = AsmEntryPaths.GetValueOrDefault(entryKey) ?? $"CodeEntries/{entryKey}/{entryKey}.asm";
+            var entry = archive.CreateEntry(entryPath, ArchiveCompressionUtil.GetLevel(entryPath));
             using var writer = new StreamWriter(entry.Open(), Encoding.UTF8);
             writer.Write(asm);
         }
@@ -388,9 +509,11 @@ public sealed class PatchFileSystem
     {
         GmlEntries.Clear();
         AsmEntries.Clear();
+        AsmEntryPaths.Clear();
+        CodeEntryLogicalNames.Clear();
     }
 
-    /// <summary>Get all top-level resource type folders present in this archive.</summary>
+    /// <summary>Get all top-level resource type folders present in this patch.</summary>
     public HashSet<string> GetResourceTypes()
     {
         var types = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

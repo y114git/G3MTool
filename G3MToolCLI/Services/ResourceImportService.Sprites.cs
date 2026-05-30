@@ -1,4 +1,3 @@
-using System.Collections;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -27,6 +26,9 @@ public static partial class ResourceImportService
         public bool HasValidTextureIndex;
     }
 
+    private static bool ShouldAutoGenerateCollisionMask(JsonElement? meta) =>
+        !meta.HasValue || meta.Value.TryGetProperty("collisionMasks", out _);
+
     private static void ImportSprites(UndertaleData data, string inputDir)
     {
         string spritesPath = inputDir;
@@ -34,8 +36,34 @@ public static partial class ResourceImportService
 
         var spriteMetadataCache = new Dictionary<string, JsonElement?>();
         var textureFrameCache = new Dictionary<string, List<Dictionary<string, object>>?>();
+        var atlasImageCache = new Dictionary<UndertaleEmbeddedTexture, MagickImage>();
+        var spritesByName = new Dictionary<string, UndertaleSprite>(StringComparer.Ordinal);
+        foreach (var sprite in data.Sprites)
+            if (sprite?.Name?.Content != null)
+                spritesByName.TryAdd(sprite.Name.Content, sprite);
+        var stringLookup = new Dictionary<string, UndertaleString>(StringComparer.Ordinal);
+        foreach (var str in data.Strings)
+            if (str?.Content != null)
+                stringLookup.TryAdd(str.Content, str);
 
         // --- Local helpers (match CSX logic) ---
+        UndertaleString MakeSpriteString(string content)
+        {
+            if (stringLookup.TryGetValue(content, out var existing))
+                return existing;
+
+            var created = new UndertaleString(content);
+            if (data.Strings is UndertaleObservableList<UndertaleString> stringList)
+                stringList.InternalAdd(created);
+            else
+                data.Strings.Add(created);
+            stringLookup[content] = created;
+            return created;
+        }
+
+        UndertaleSprite? FindSprite(string name) =>
+            spritesByName.TryGetValue(name, out var sprite) ? sprite : null;
+
         JsonElement? LoadMeta(string folderName)
         {
             if (spriteMetadataCache.TryGetValue(folderName, out var cached)) return cached;
@@ -81,6 +109,87 @@ public static partial class ResourceImportService
             }
             textureFrameCache[folderName] = null;
             return null;
+        }
+
+        bool SpriteFolderRequiresRepack(string folderPath, string spriteName)
+        {
+            var pngFiles = GetFilesIn(folderPath, "*.png")
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (pngFiles.Length == 0)
+                return false;
+
+            if (IsLocaleArtSpriteName(spriteName))
+            {
+                Log($"[ImportSprites] Repack required for {spriteName}: locale art PNG payload must not be relinked to a shared texture page");
+                return true;
+            }
+
+            var existingSprite = FindSprite(spriteName);
+            if (existingSprite == null)
+            {
+                Log($"[ImportSprites] Repack required for {spriteName}: sprite does not exist yet");
+                return true;
+            }
+
+            int nonNullTextureCount = existingSprite.Textures.Count(te => te?.Texture != null);
+            if (nonNullTextureCount != pngFiles.Length)
+            {
+                Log($"[ImportSprites] Repack required for {spriteName}: texture count mismatch existing={nonNullTextureCount}, pngs={pngFiles.Length}");
+                return true;
+            }
+
+            for (int frameIndex = 0; frameIndex < pngFiles.Length; frameIndex++)
+            {
+                if (frameIndex >= existingSprite.Textures.Count)
+                {
+                    Log($"[ImportSprites] Repack required for {spriteName}: frame index {frameIndex} out of range");
+                    return true;
+                }
+
+                var tpi = existingSprite.Textures[frameIndex]?.Texture;
+                var texturePage = tpi?.TexturePage;
+                if (tpi == null || texturePage?.TextureData?.Image == null)
+                {
+                    Log($"[ImportSprites] Repack required for {spriteName}: missing existing texture page item for frame {frameIndex}");
+                    return true;
+                }
+
+                try
+                {
+                    if (!atlasImageCache.TryGetValue(texturePage, out var sourceAtlas))
+                    {
+                        sourceAtlas = new MagickImage(texturePage.TextureData.Image.ConvertToPng().GetData());
+                        atlasImageCache[texturePage] = sourceAtlas;
+                    }
+                    using var sourceFrame = sourceAtlas.CloneArea(
+                        tpi.SourceX,
+                        tpi.SourceY,
+                        tpi.SourceWidth,
+                        tpi.SourceHeight);
+                    using var importFrame = new MagickImage(FReadBytes(pngFiles[frameIndex]));
+                    if (sourceFrame.Width != importFrame.Width || sourceFrame.Height != importFrame.Height)
+                    {
+                        Log($"[ImportSprites] Repack required for {spriteName}: frame {frameIndex} size mismatch atlas={sourceFrame.Width}x{sourceFrame.Height}, import={importFrame.Width}x{importFrame.Height}");
+                        return true;
+                    }
+                    var sourceBytes = sourceFrame.GetPixels().ToByteArray(PixelMapping.RGBA)!;
+                    var importBytes = importFrame.GetPixels().ToByteArray(PixelMapping.RGBA)!;
+                    if (!sourceBytes.AsSpan().SequenceEqual(importBytes))
+                    {
+                        Log($"[ImportSprites] Repack required for {spriteName}: frame {frameIndex} pixel mismatch");
+                        return true;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log($"[ImportSprites] Repack required for {spriteName}: comparison failed for frame {frameIndex}: {ex.Message}");
+                    return true;
+                }
+            }
+
+            Log($"[ImportSprites] Repack skipped for {spriteName}: imported PNGs match existing texture slices");
+            return false;
         }
 
         UndertaleTexturePageItem? FindExistingTPI(int texturePageIndex, ushort sourceX, ushort sourceY, ushort sourceWidth, ushort sourceHeight)
@@ -137,7 +246,7 @@ public static partial class ResourceImportService
             }
 
             var frameData = LoadFrameData(folderName);
-            bool isNew = data.Sprites.ByName(spriteName) == null;
+            bool isNew = FindSprite(spriteName) == null;
 
             int targetIndex = -1;
             if (meta.Value.TryGetProperty("index", out var indexElm))
@@ -179,10 +288,11 @@ public static partial class ResourceImportService
         int created = 0;
         foreach (var importData in importDataList.Where(d => d.IsNew && d.HasValidTextureIndex))
         {
-            var sprite = CreateSpriteFromMetadata(data, importData, FindExistingTPI);
+            var sprite = CreateSpriteFromMetadata(data, importData, FindExistingTPI, MakeSpriteString);
             if (sprite != null)
             {
                 data.Sprites.Add(sprite);
+                spritesByName.TryAdd(importData.Name, sprite);
                 created++;
             }
         }
@@ -193,7 +303,7 @@ public static partial class ResourceImportService
         int updated = 0;
         foreach (var importData in importDataList.Where(d => !d.IsNew))
         {
-            var sprite = data.Sprites.ByName(importData.Name);
+            var sprite = FindSprite(importData.Name);
             if (sprite == null || !importData.Meta.HasValue) continue;
 
             ApplySpriteMetadata(data, sprite, importData.Meta.Value);
@@ -265,9 +375,20 @@ public static partial class ResourceImportService
         // PHASE 2: Texture repacking - for any folder with PNGs
         // (new sprites without valid TPI + existing sprites with changed images)
         // =====================================================================
-        var foldersWithPngs = spriteFolders.Where(folder =>
-            GetFilesIn(folder, "*.png").Length > 0
-        ).ToList();
+        List<string> foldersWithPngs;
+        try
+        {
+            foldersWithPngs = [.. importDataList
+                .Where(d => GetFilesIn(d.FolderPath, "*.png").Length > 0)
+                .Where(d => SpriteFolderRequiresRepack(d.FolderPath, d.Name))
+                .Select(d => d.FolderPath)];
+        }
+        finally
+        {
+            foreach (var image in atlasImageCache.Values)
+                image.Dispose();
+            atlasImageCache.Clear();
+        }
 
         Log($"[ImportSprites] {foldersWithPngs.Count} sprite folders with PNGs need texture repacking");
         ReportProgress(35, 100);
@@ -279,18 +400,19 @@ public static partial class ResourceImportService
         }
         else
         {
-            DoTextureRepack(data, spritesPath, foldersWithPngs, LoadMeta, LoadFrameData, ApplyFrameProps);
+            DoTextureRepack(data, spritesPath, foldersWithPngs, LoadMeta, LoadFrameData, ApplyFrameProps, FindSprite, MakeSpriteString, spritesByName);
         }
     }
 
     private static UndertaleSprite? CreateSpriteFromMetadata(UndertaleData data, SpriteImportData importData,
-        Func<int, ushort, ushort, ushort, ushort, UndertaleTexturePageItem?> findExistingTPI)
+        Func<int, ushort, ushort, ushort, ushort, UndertaleTexturePageItem?> findExistingTPI,
+        Func<string, UndertaleString> makeString)
     {
         if (importData.FrameData == null) return null;
 
         var sprite = new UndertaleSprite
         {
-            Name = data.Strings.MakeString(importData.Name)
+            Name = makeString(importData.Name)
         };
 
         if (importData.Meta.HasValue)
@@ -354,8 +476,15 @@ public static partial class ResourceImportService
         if (root.TryGetProperty("smooth", out var smthElm)) sprite.Smooth = smthElm.GetBoolean();
         if (root.TryGetProperty("preload", out var plElm)) sprite.Preload = plElm.GetBoolean();
         if (root.TryGetProperty("bboxMode", out var bmElm)) sprite.BBoxMode = (uint)bmElm.GetInt64();
+        bool hasCollisionMasks = root.TryGetProperty("collisionMasks", out var cmElm) &&
+                                 cmElm.ValueKind == JsonValueKind.Array;
         if (root.TryGetProperty("sepMasks", out var smElm))
-            sprite.SepMasks = (UndertaleSprite.SepMaskType)smElm.GetInt32();
+        {
+            var sepMasks = (UndertaleSprite.SepMaskType)smElm.GetInt32();
+            if (!hasCollisionMasks && sprite.SepMasks != sepMasks)
+                sprite.CollisionMasks.Clear();
+            sprite.SepMasks = sepMasks;
+        }
 
         // GMS2 properties (match export property names exactly)
         if (data.IsGameMaker2())
@@ -364,6 +493,10 @@ public static partial class ResourceImportService
             if (root.TryGetProperty("sVersion", out var svElm)) sprite.SVersion = (uint)svElm.GetInt64();
             if (root.TryGetProperty("sSpriteType", out var stElm))
                 sprite.SSpriteType = (UndertaleSprite.SpriteType)stElm.GetInt32();
+            if (root.TryGetProperty("spineVersion", out var spineVersionElm) && sprite.IsSpineSprite)
+                sprite.SpineVersion = spineVersionElm.GetInt32();
+            if (root.TryGetProperty("swfVersion", out var swfVersionElm) && sprite.IsYYSWFSprite)
+                sprite.SWFVersion = swfVersionElm.GetInt32();
             if (root.TryGetProperty("gms2PlaybackSpeed", out var psElm))
                 sprite.GMS2PlaybackSpeed = (float)psElm.GetDouble();
             if (root.TryGetProperty("gms2PlaybackSpeedType", out var pstElm))
@@ -371,7 +504,7 @@ public static partial class ResourceImportService
         }
 
         // Collision masks
-        if (root.TryGetProperty("collisionMasks", out var cmElm) && cmElm.ValueKind == JsonValueKind.Array)
+        if (hasCollisionMasks)
         {
             sprite.CollisionMasks.Clear();
             foreach (var maskElm in cmElm.EnumerateArray())
@@ -420,7 +553,10 @@ public static partial class ResourceImportService
         List<string> newSpriteFolders,
         Func<string, JsonElement?> loadMeta,
         Func<string, List<Dictionary<string, object>>?> loadFrameData,
-        Action<UndertaleTexturePageItem, List<Dictionary<string, object>>, int> applyFrameProps)
+        Action<UndertaleTexturePageItem, List<Dictionary<string, object>>, int> applyFrameProps,
+        Func<string, UndertaleSprite?> findSprite,
+        Func<string, UndertaleString> makeString,
+        Dictionary<string, UndertaleSprite> spritesByName)
     {
         bool bboxMasks = data.IsVersionAtLeast(2024, 6);
         bool noMasksForBasicRectangles = data.IsVersionAtLeast(2022, 9);
@@ -490,7 +626,7 @@ public static partial class ResourceImportService
                     }
                     catch { continue; }
 
-                    var existingSprite = data.Sprites.ByName(spriteName);
+                    var existingSprite = findSprite(spriteName);
 
                     var tpi = new UndertaleTexturePageItem
                     {
@@ -519,7 +655,7 @@ public static partial class ResourceImportService
                     {
                         sprite = new UndertaleSprite
                         {
-                            Name = data.Strings.MakeString(spriteName),
+                            Name = makeString(spriteName),
                             Width = (uint)n.Texture.BoundingWidth,
                             Height = (uint)n.Texture.BoundingHeight,
                             MarginLeft = n.Texture.TargetX,
@@ -536,8 +672,9 @@ public static partial class ResourceImportService
                         for (int i = 0; i < frame; i++)
                             sprite.Textures.Add(new UndertaleSprite.TextureEntry { Texture = null });
 
-                        if (!noMasksForBasicRectangles ||
-                            sprite.SepMasks is not (UndertaleSprite.SepMaskType.AxisAlignedRect or UndertaleSprite.SepMaskType.RotatedRect))
+                        if (ShouldAutoGenerateCollisionMask(meta) &&
+                            (!noMasksForBasicRectangles ||
+                             sprite.SepMasks is not (UndertaleSprite.SepMaskType.AxisAlignedRect or UndertaleSprite.SepMaskType.RotatedRect)))
                         {
                             if (sprite.CollisionMasks.Count == 0)
                                 maskNodes[sprite] = n;
@@ -545,6 +682,7 @@ public static partial class ResourceImportService
 
                         sprite.Textures.Add(texEntry);
                         data.Sprites.Add(sprite);
+                        spritesByName.TryAdd(spriteName, sprite);
                         newCreated++;
                     }
                     else
@@ -574,8 +712,13 @@ public static partial class ResourceImportService
                         sprite.Textures[frame] = texEntry;
                     }
 
-                    if (sprite.SepMasks == UndertaleSprite.SepMaskType.Precise && sprite.CollisionMasks.Count == 0)
+                    var spriteMeta = loadMeta(spriteName);
+                    if (ShouldAutoGenerateCollisionMask(spriteMeta) &&
+                        sprite.SepMasks == UndertaleSprite.SepMaskType.Precise &&
+                        sprite.CollisionMasks.Count == 0)
+                    {
                         maskNodes[sprite] = n;
+                    }
                 }
 
                 // Generate masks
@@ -589,7 +732,7 @@ public static partial class ResourceImportService
                         if (mw <= 0 || mh <= 0) { maskSpr.CollisionMasks.Clear(); continue; }
 
                         int stride = ((mw + 7) / 8) * 8;
-                        var bits = new BitArray(stride * mh);
+                        var bits = new System.Collections.BitArray(stride * mh);
                         for (int y = 0; y < mh && y < maskNode.Bounds.Height; y++)
                         {
                             for (int x = 0; x < mw && x < maskNode.Bounds.Width; x++)
@@ -605,7 +748,7 @@ public static partial class ResourceImportService
                             }
                         }
 
-                        var temp = new BitArray(bits.Length);
+                        var temp = new System.Collections.BitArray(bits.Length);
                         for (int i = 0; i < bits.Length; i += 8)
                             for (int j = 0; j < 8; j++)
                                 temp[j + i] = bits[-(j - 7) + i];
@@ -634,6 +777,10 @@ public static partial class ResourceImportService
             foreach (var img in imagesToCleanup) img.Dispose();
         }
     }
+
+    private static bool IsLocaleArtSpriteName(string spriteName) =>
+        spriteName.StartsWith("spr_ja_", StringComparison.OrdinalIgnoreCase) ||
+        spriteName.StartsWith("bg_lang_ja_", StringComparison.OrdinalIgnoreCase);
 
     // =========================================================================
     // Texture Packer
@@ -734,8 +881,7 @@ public static partial class ResourceImportService
                 cleanup.Add(img);
 
                 // Exported PNGs are already cropped TPI source regions.
-                // Do NOT trim - trimming would compute wrong TargetX/Y offsets.
-                // Actual TargetX/Y and BoundingWidth/Height come from sprite metadata.
+                // Do not trim; metadata supplies target offsets and bounds.
                 var ti = new PackerTextureInfo
                 {
                     Source = sourceFile,

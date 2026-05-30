@@ -5,24 +5,31 @@ namespace G3MToolCLI.Services;
 
 public class XDeltaService
 {
+    private readonly string? _requestedPath;
     private readonly string? _xdeltaPath;
+    private readonly bool _ownsTemporaryExecutable;
+    private readonly string? _temporaryDirectory;
     private readonly TimeSpan _processTimeout;
 
     public XDeltaService()
-        : this(PlatformUtil.GetXDeltaPath(), TimeSpan.FromMinutes(5))
+        : this(Program.XDeltaPathOverride, TimeSpan.FromMinutes(5))
     {
     }
 
-    public XDeltaService(string? xdeltaPath, TimeSpan processTimeout)
+    public XDeltaService(string? requestedPath, TimeSpan processTimeout)
     {
-        _xdeltaPath = xdeltaPath;
+        _requestedPath = requestedPath;
+        var xdeltaPathInfo = PlatformUtil.GetXDeltaPath(requestedPath);
+        _xdeltaPath = xdeltaPathInfo?.Path;
+        _ownsTemporaryExecutable = xdeltaPathInfo?.IsTemporary == true;
+        _temporaryDirectory = xdeltaPathInfo?.TempDirectory;
         _processTimeout = processTimeout;
     }
 
     public async Task<XDeltaResult> CreatePatchAsync(string originalPath, string modifiedPath, string outputPath)
     {
         if (_xdeltaPath == null)
-            return new XDeltaResult { Success = false, Error = "xdelta executable not found" };
+            return new XDeltaResult { Success = false, Error = GetExecutableNotFoundError() };
 
         if (!File.Exists(originalPath))
             return new XDeltaResult { Success = false, Error = $"Original file not found: {originalPath}" };
@@ -42,7 +49,7 @@ public class XDeltaService
     public async Task<XDeltaResult> ApplyPatchAsync(string originalPath, string patchPath, string outputPath)
     {
         if (_xdeltaPath == null)
-            return new XDeltaResult { Success = false, Error = "xdelta executable not found" };
+            return new XDeltaResult { Success = false, Error = GetExecutableNotFoundError() };
 
         if (!File.Exists(originalPath))
             return new XDeltaResult { Success = false, Error = $"Original file not found: {originalPath}" };
@@ -62,7 +69,7 @@ public class XDeltaService
     public async Task<XDeltaResult> ExecuteRawAsync(string[] args)
     {
         if (_xdeltaPath == null)
-            return new XDeltaResult { Success = false, Error = "xdelta executable not found" };
+            return new XDeltaResult { Success = false, Error = GetExecutableNotFoundError() };
 
         return await ExecuteXDeltaAsync(args);
     }
@@ -130,18 +137,65 @@ public class XDeltaService
             }
             else
             {
+                var exitMessage = $"xdelta exited with code {process.ExitCode}";
                 return new XDeltaResult
                 {
                     Success = false,
-                    Error = string.IsNullOrEmpty(error) ? $"xdelta exited with code {process.ExitCode}" : error,
+                    Error = string.IsNullOrEmpty(error)
+                        ? $"{exitMessage}. If the bundled xdelta is blocked or incompatible, pass --xdelta-path <path>."
+                        : $"{error.TrimEnd()}{Environment.NewLine}{exitMessage}",
                     Output = output
                 };
             }
         }
         catch (Exception ex)
         {
-            return new XDeltaResult { Success = false, Error = ex.Message };
+            return new XDeltaResult
+            {
+                Success = false,
+                Error = $"{ex.Message}. If the bundled xdelta is blocked or incompatible, pass --xdelta-path <path>."
+            };
         }
+        finally
+        {
+            CleanupTemporaryExecutable();
+        }
+    }
+
+    private void CleanupTemporaryExecutable()
+    {
+        if (!_ownsTemporaryExecutable)
+            return;
+
+        try
+        {
+            if (!string.IsNullOrEmpty(_xdeltaPath) && File.Exists(_xdeltaPath))
+                File.Delete(_xdeltaPath);
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            if (!string.IsNullOrEmpty(_temporaryDirectory) &&
+                Directory.Exists(_temporaryDirectory) &&
+                !Directory.EnumerateFileSystemEntries(_temporaryDirectory).Any())
+            {
+                Directory.Delete(_temporaryDirectory);
+            }
+        }
+        catch
+        {
+        }
+    }
+
+    private string GetExecutableNotFoundError()
+    {
+        if (!string.IsNullOrWhiteSpace(_requestedPath))
+            return $"xdelta executable not found: {_requestedPath}";
+
+        return "xdelta executable not found";
     }
 }
 

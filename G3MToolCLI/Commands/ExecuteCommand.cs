@@ -8,7 +8,7 @@ public static class ExecuteCommand
 {
     public static Command Create()
     {
-        var command = new Command("execute", "Execute .csx scripts, external programs, or xdelta commands.\n  Usage: execute <target> [args] --data <data-file> --output <output-file>\n  Examples:\n    execute script.csx --data data.win --output patched.win\n    execute xdelta -d -s original.win patch.xdelta output.win");
+        var command = new Command("execute", "Execute .csx scripts, external programs, or xdelta commands.\n  Usage: execute <target> [args] --data <data-file> --output <output-file> [--xdelta-path <path>]\n  Examples:\n    execute script.csx --data data.win --output patched.win\n    execute xdelta -d -s original.win patch.xdelta output.win --xdelta-path ./xdelta");
 
         var targetArg = new Argument<string>("target", "Program, script (.csx), or 'xdelta' to execute");
         var argsArg = new Argument<string[]>("args", () => [], "Arguments to pass");
@@ -33,10 +33,8 @@ public static class ExecuteCommand
 
         command.SetHandler(async (target, args, data, output, input) =>
         {
-            // Determine what to execute
             if (target.Equals("xdelta", StringComparison.OrdinalIgnoreCase))
             {
-                // Passthrough to xdelta
                 var xdelta = new XDeltaService();
                 var result = await xdelta.ExecuteRawAsync(args);
 
@@ -48,12 +46,10 @@ public static class ExecuteCommand
             }
             else if (target.EndsWith(".csx", StringComparison.OrdinalIgnoreCase))
             {
-                // Execute .csx script (--data is optional)
                 var dataPath = data?.FullName;
                 var outputPath = output?.FullName
                     ?? (data != null ? Path.Combine(PlatformUtil.GetExecutableDirectory(), Path.GetFileName(data.FullName)) : string.Empty);
 
-                // If input directory is specified, prepend it to args (ExecuteScriptAsync uses args[0] as inputDir)
                 var finalArgs = input != null
                     ? [input.FullName, .. args]
                     : args;
@@ -72,7 +68,6 @@ public static class ExecuteCommand
             }
             else
             {
-                // Execute external program
                 var result = await ExecuteExternalProgramAsync(target, args);
                 Environment.ExitCode = result;
             }

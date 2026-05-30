@@ -47,6 +47,21 @@ void CloseLog()
         Log("=== Log Ended ===");
         _logWriter.Close();
         _logWriter = null;
+        if (!string.IsNullOrEmpty(_logPath))
+        {
+            try { File.Delete(_logPath); } catch { }
+            try
+            {
+                string logDir = Path.GetDirectoryName(_logPath);
+                if (!string.IsNullOrEmpty(logDir) &&
+                    Directory.Exists(logDir) &&
+                    !Directory.EnumerateFileSystemEntries(logDir).Any())
+                {
+                    Directory.Delete(logDir);
+                }
+            }
+            catch { }
+        }
     }
 }
 

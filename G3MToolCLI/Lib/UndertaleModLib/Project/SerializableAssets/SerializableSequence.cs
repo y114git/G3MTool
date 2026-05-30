@@ -153,6 +153,7 @@ internal sealed class SerializableSequence : ISerializableProjectAsset
     [JsonDerivedType(typeof(SpriteFramesKeyframes), "SpriteFramesKeyframes")]
     [JsonDerivedType(typeof(BoolKeyframes), "BoolKeyframes")]
     [JsonDerivedType(typeof(StringKeyframes), "StringKeyframes")]
+    [JsonDerivedType(typeof(IntKeyframes), "IntKeyframes")]
     [JsonDerivedType(typeof(RealKeyframes), "RealKeyframes")]
     [JsonDerivedType(typeof(TextKeyframes), "TextKeyframes")]
     [JsonDerivedType(typeof(ParticleKeyframes), "ParticleKeyframes")]
@@ -208,6 +209,20 @@ internal sealed class SerializableSequence : ISerializableProjectAsset
     public sealed class StringKeyframes : ITrackKeyframeStore
     {
         public List<Keyframe<string>> Keyframes { get; set; }
+    }
+
+    /// <inheritdoc cref="UndertaleSequence.IntKeyframes"/>
+    public sealed class IntKeyframes : ITrackKeyframeStore
+    {
+        public int Interpolation { get; set; }
+        public List<Keyframe<IntKeyframe>> Keyframes { get; set; }
+
+        public sealed class IntKeyframe
+        {
+            public SerializableAnimationCurve AnimCurveEmbedded { get; set; }
+            public string AnimCurveAsset { get; set; }
+            public int Value { get; set; }
+        }
     }
 
     /// <inheritdoc cref="UndertaleSequence.RealKeyframes"/>
@@ -394,6 +409,25 @@ internal sealed class SerializableSequence : ISerializableProjectAsset
                                 Value = kvp.Value.Value?.Content
                             })]
                         })]
+                    },
+                UndertaleSequence.IntKeyframes keyframeStore =>
+                    new IntKeyframes()
+                    {
+                        Keyframes = [.. keyframeStore.List.Select((keyframe) => new Keyframe<IntKeyframes.IntKeyframe>()
+                        {
+                            Key = keyframe.Key, Length = keyframe.Length, Stretch = keyframe.Stretch, Disabled = keyframe.Disabled,
+                            Channels = [.. keyframe.Channels.Select((kvp) => new KeyframeChannel<IntKeyframes.IntKeyframe>()
+                            {
+                                Channel = kvp.Channel,
+                                Value = new IntKeyframes.IntKeyframe()
+                                {
+                                    Value = kvp.Value.Value,
+                                    AnimCurveAsset = kvp.Value.AssetAnimCurve?.Resource?.Name?.Content,
+                                    AnimCurveEmbedded = (SerializableAnimationCurve)kvp.Value.EmbeddedAnimCurve?.GenerateSerializableProjectAsset(projectContext)
+                                }
+                            })]
+                        })],
+                        Interpolation = keyframeStore.Interpolation
                     },
                 UndertaleSequence.RealKeyframes keyframeStore =>
                     new RealKeyframes()
@@ -664,8 +698,28 @@ internal sealed class SerializableSequence : ISerializableProjectAsset
                                 {
                                     Value = projectContext.MakeString(channel.Value)
                                 }
-                            })]
+                        })]
                     })]
+                },
+                IntKeyframes keyframes => new UndertaleSequence.IntKeyframes()
+                {
+                    List = [.. keyframes.Keyframes.Select((keyframe) => new UndertaleSequence.Keyframe<UndertaleSequence.IntData>()
+                    {
+                        Key = keyframe.Key, Length = keyframe.Length, Stretch = keyframe.Stretch, Disabled = keyframe.Disabled,
+                        Channels = [..
+                            keyframe.Channels.Select((channel) => new UndertaleSequence.Keyframe<UndertaleSequence.IntData>.KeyframeChannel()
+                            {
+                                Channel = channel.Channel,
+                                Value = new UndertaleSequence.IntData()
+                                {
+                                    Value = channel.Value.Value,
+                                    IsCurveEmbedded = channel.Value.AnimCurveEmbedded is not null,
+                                    EmbeddedAnimCurve = channel.Value.AnimCurveEmbedded?.ImportSubResource(projectContext),
+                                    AssetAnimCurve = new(projectContext.FindAnimationCurve(channel.Value.AnimCurveAsset, this))
+                                }
+                            })]
+                    })],
+                    Interpolation = keyframes.Interpolation
                 },
                 RealKeyframes keyframes => new UndertaleSequence.RealKeyframes()
                 {

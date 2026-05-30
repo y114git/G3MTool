@@ -172,47 +172,38 @@ public static partial class ResourceImportService
                 if (FExists(pngPath))
                 {
                     using var img = new MagickImage(FReadBytes(pngPath));
-                    if (!isNew && font!.Texture?.TexturePage != null)
-                    {
-                        font.Texture.SourceWidth = (ushort)img.Width;
-                        font.Texture.SourceHeight = (ushort)img.Height;
-                        font.Texture.TargetWidth = (ushort)img.Width;
-                        font.Texture.TargetHeight = (ushort)img.Height;
-                    }
-                    else
-                    {
-                        int lastTP = data.EmbeddedTextures.Count - 1;
-                        int lastTPI = data.TexturePageItems.Count - 1;
-                        var newTex = new UndertaleEmbeddedTexture
-                        {
-                            Name = new UndertaleString($"Texture {++lastTP}")
-                        };
-                        newTex.TextureData.Image = GMImage.FromMagickImage(img).ConvertToPng();
-                        data.EmbeddedTextures.Add(newTex);
 
-                        ushort origTX = font!.Texture?.TargetX ?? 0;
-                        ushort origTY = font.Texture?.TargetY ?? 0;
-                        ushort origBW = font.Texture?.BoundingWidth ?? (ushort)img.Width;
-                        ushort origBH = font.Texture?.BoundingHeight ?? (ushort)img.Height;
+                    int lastTP = data.EmbeddedTextures.Count - 1;
+                    int lastTPI = data.TexturePageItems.Count - 1;
+                    var newTex = new UndertaleEmbeddedTexture
+                    {
+                        Name = new UndertaleString($"Texture {++lastTP}")
+                    };
+                    newTex.TextureData.Image = GMImage.FromMagickImage(img).ConvertToPng();
+                    data.EmbeddedTextures.Add(newTex);
 
-                        var newTPI = new UndertaleTexturePageItem
-                        {
-                            Name = new UndertaleString($"PageItem {++lastTPI}"),
-                            SourceX = 0,
-                            SourceY = 0,
-                            SourceWidth = (ushort)img.Width,
-                            SourceHeight = (ushort)img.Height,
-                            TargetX = origTX,
-                            TargetY = origTY,
-                            TargetWidth = (ushort)img.Width,
-                            TargetHeight = (ushort)img.Height,
-                            BoundingWidth = origBW,
-                            BoundingHeight = origBH,
-                            TexturePage = newTex
-                        };
-                        data.TexturePageItems.Add(newTPI);
-                        font.Texture = newTPI;
-                    }
+                    ushort origTX = font!.Texture?.TargetX ?? 0;
+                    ushort origTY = font.Texture?.TargetY ?? 0;
+                    ushort origBW = font.Texture?.BoundingWidth ?? (ushort)img.Width;
+                    ushort origBH = font.Texture?.BoundingHeight ?? (ushort)img.Height;
+
+                    var newTPI = new UndertaleTexturePageItem
+                    {
+                        Name = new UndertaleString($"PageItem {++lastTPI}"),
+                        SourceX = 0,
+                        SourceY = 0,
+                        SourceWidth = (ushort)img.Width,
+                        SourceHeight = (ushort)img.Height,
+                        TargetX = origTX,
+                        TargetY = origTY,
+                        TargetWidth = (ushort)img.Width,
+                        TargetHeight = (ushort)img.Height,
+                        BoundingWidth = origBW,
+                        BoundingHeight = origBH,
+                        TexturePage = newTex
+                    };
+                    data.TexturePageItems.Add(newTPI);
+                    font.Texture = newTPI;
                 }
 
                 if (root.TryGetProperty("displayName", out JsonElement dnElm))
@@ -305,8 +296,32 @@ public static partial class ResourceImportService
             if (audioFile == null && FExists(metaFile))
             {
                 var existing = data.Sounds.ByName(soundName);
-                if (existing == null) { skipped++; continue; }
-                try { ApplySoundMetadata(data, existing, metaFile); metadataApplied++; }
+                if (existing == null)
+                {
+                    var (metadataAudioId, metadataGroupId) = ReadSoundAudioPlacement(metaFile);
+                    if (metadataGroupId > 0 || metadataAudioId < 0)
+                    {
+                        skipped++;
+                        continue;
+                    }
+
+                    existing = new UndertaleSound
+                    {
+                        Name = data.Strings.MakeString(soundName),
+                        File = data.Strings.MakeString(soundName),
+                        Type = data.Strings.MakeString(".ogg"),
+                        Volume = 1.0f,
+                        Pitch = 1.0f,
+                        Preload = true,
+                        Flags = AudioEntryFlags.IsEmbedded | AudioEntryFlags.Regular,
+                        AudioID = metadataAudioId,
+                        AudioFile = EnsureEmbeddedAudioSlot(data, metadataAudioId)
+                    };
+                    data.Sounds.Add(existing);
+                    created++;
+                }
+
+                try { ApplySoundMetadata(data, existing, metaFile); metadataApplied++; imported++; }
                 catch (Exception ex) { Log($"[ImportSounds] Metadata error: {soundName}: {ex.Message}"); }
                 continue;
             }
@@ -315,6 +330,7 @@ public static partial class ResourceImportService
             {
                 byte[] audioData = FReadBytes(audioFile!);
                 if (audioData.Length == 0) { skipped++; continue; }
+                var (metadataAudioId, metadataGroupId) = ReadSoundAudioPlacement(metaFile);
 
                 var sound = data.Sounds.ByName(soundName);
                 bool isNew = sound == null;
@@ -328,12 +344,21 @@ public static partial class ResourceImportService
                         Volume = 1.0f,
                         Pitch = 1.0f,
                         Preload = true,
-                        Flags = AudioEntryFlags.IsEmbedded
+                        Flags = AudioEntryFlags.IsEmbedded | AudioEntryFlags.Regular
                     };
                     if (isOGG) sound.Flags |= AudioEntryFlags.IsCompressed;
-                    sound.AudioFile = new UndertaleEmbeddedAudio { Data = audioData };
-                    data.EmbeddedAudio.Add(sound.AudioFile);
-                    sound.AudioID = data.EmbeddedAudio.Count - 1;
+                    if (metadataGroupId <= 0 && metadataAudioId >= 0)
+                    {
+                        sound.AudioID = metadataAudioId;
+                        sound.AudioFile = EnsureEmbeddedAudioSlot(data, metadataAudioId);
+                    }
+                    else
+                    {
+                        sound.AudioFile = new UndertaleEmbeddedAudio();
+                        data.EmbeddedAudio.Add(sound.AudioFile);
+                        sound.AudioID = data.EmbeddedAudio.Count - 1;
+                    }
+                    sound.AudioFile.Data = audioData;
                     if (data.AudioGroups?.Count > 0)
                     {
                         sound.AudioGroup = data.AudioGroups[0];
@@ -343,14 +368,19 @@ public static partial class ResourceImportService
                 }
                 else
                 {
-                    if (sound!.AudioFile == null)
+                    if (metadataGroupId <= 0 && metadataAudioId >= 0)
+                    {
+                        sound!.AudioID = metadataAudioId;
+                        sound.AudioFile = EnsureEmbeddedAudioSlot(data, metadataAudioId);
+                    }
+                    else if (sound!.AudioFile == null)
                     {
                         sound.AudioFile = new UndertaleEmbeddedAudio();
                         data.EmbeddedAudio.Add(sound.AudioFile);
                         sound.AudioID = data.EmbeddedAudio.Count - 1;
                     }
                     sound.AudioFile.Data = audioData;
-                    sound.Flags |= AudioEntryFlags.IsEmbedded;
+                    sound.Flags |= AudioEntryFlags.IsEmbedded | AudioEntryFlags.Regular;
                     if (isOGG) sound.Flags |= AudioEntryFlags.IsCompressed;
                     else sound.Flags &= ~AudioEntryFlags.IsCompressed;
                 }
@@ -361,6 +391,12 @@ public static partial class ResourceImportService
                     catch { }
                 }
 
+                if (TryWriteExternalSoundAudio(data, sound!, audioData))
+                {
+                    sound!.AudioFile = null!;
+                    sound.Flags |= AudioEntryFlags.Regular;
+                }
+
                 if (isNew) data.Sounds.Add(sound!);
                 imported++;
             }
@@ -369,16 +405,90 @@ public static partial class ResourceImportService
         Log($"[ImportSounds] Done. {imported} imported ({created} new, {metadataApplied} with metadata), {skipped} skipped.");
     }
 
+    private static UndertaleEmbeddedAudio EnsureEmbeddedAudioSlot(UndertaleData data, int audioId)
+    {
+        while (data.EmbeddedAudio.Count <= audioId)
+            data.EmbeddedAudio.Add(new UndertaleEmbeddedAudio());
+        return data.EmbeddedAudio[audioId];
+    }
+
+    private static void ImportEmbeddedAudio(UndertaleData data, string inputDir)
+    {
+        var audioDirs = GetDirs(inputDir);
+        if (audioDirs.Length == 0) return;
+
+        int imported = 0;
+        foreach (string audioDir in audioDirs)
+        {
+            string folderName = Path.GetFileName(audioDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            string jsonPath = Path.Combine(audioDir, folderName + ".json");
+            string binPath = Path.Combine(audioDir, folderName + ".bin");
+            if (!FExists(jsonPath) || !FExists(binPath))
+                continue;
+
+            try
+            {
+                using var doc = JsonDocument.Parse(FReadText(jsonPath));
+                var root = doc.RootElement;
+                int index = root.TryGetProperty("index", out var idxElm) && idxElm.ValueKind == JsonValueKind.Number
+                    ? idxElm.GetInt32()
+                    : data.EmbeddedAudio.Count;
+
+                while (data.EmbeddedAudio.Count <= index)
+                    data.EmbeddedAudio.Add(new UndertaleEmbeddedAudio());
+
+                data.EmbeddedAudio[index].Data = FReadBytes(binPath);
+                imported++;
+            }
+            catch (Exception ex)
+            {
+                Log($"[ImportEmbeddedAudio] Failed: {folderName}: {ex.Message}");
+            }
+        }
+
+        Log($"[ImportEmbeddedAudio] Imported {imported} embedded audio slot(s).");
+    }
+
+    private static (int AudioId, int GroupId) ReadSoundAudioPlacement(string metaFile)
+    {
+        if (!FExists(metaFile))
+            return (-1, -1);
+
+        try
+        {
+            using var jsonDoc = JsonDocument.Parse(FReadText(metaFile));
+            var root = jsonDoc.RootElement;
+            int audioId = root.TryGetProperty("audioID", out var audioIdElm) ? audioIdElm.GetInt32() : -1;
+            int groupId = root.TryGetProperty("groupID", out var groupIdElm) ? groupIdElm.GetInt32() : -1;
+            return (audioId, groupId);
+        }
+        catch
+        {
+            return (-1, -1);
+        }
+    }
+
     private static void ApplySoundMetadata(UndertaleData data, UndertaleSound sound, string metaFile)
     {
         using var jsonDoc = JsonDocument.Parse(FReadText(metaFile));
         var root = jsonDoc.RootElement;
 
+        if (root.TryGetProperty("file", out JsonElement fileElm))
+            sound.File = data.Strings.MakeString(fileElm.GetString() ?? "");
+        if (root.TryGetProperty("type", out JsonElement typeElm))
+            sound.Type = data.Strings.MakeString(typeElm.GetString() ?? "");
         if (root.TryGetProperty("volume", out JsonElement vElm)) sound.Volume = (float)vElm.GetDouble();
         if (root.TryGetProperty("pitch", out JsonElement pElm)) sound.Pitch = (float)pElm.GetDouble();
         if (root.TryGetProperty("preload", out JsonElement prElm)) sound.Preload = prElm.GetBoolean();
         if (root.TryGetProperty("effects", out JsonElement eElm)) sound.Effects = (uint)eElm.GetInt32();
         if (root.TryGetProperty("flags", out JsonElement fElm)) sound.Flags = (AudioEntryFlags)(uint)fElm.GetInt32();
+        if (root.TryGetProperty("audioID", out JsonElement audioIdElm)) sound.AudioID = audioIdElm.GetInt32();
+        if (root.TryGetProperty("groupID", out JsonElement groupIdElm))
+        {
+            sound.GroupID = groupIdElm.GetInt32();
+            if (data.AudioGroups != null && sound.GroupID >= 0 && sound.GroupID < data.AudioGroups.Count)
+                sound.AudioGroup = data.AudioGroups[sound.GroupID];
+        }
         if (root.TryGetProperty("audioGroupName", out JsonElement agElm))
         {
             string agName = agElm.GetString() ?? "";
@@ -390,6 +500,103 @@ public static partial class ResourceImportService
         }
         if (root.TryGetProperty("audioLength", out JsonElement alElm) && data.IsVersionAtLeast(2024, 6))
             sound.AudioLength = (float)alElm.GetDouble();
+        if (sound.GroupID <= 0 && sound.AudioID >= 0)
+            sound.AudioFile = EnsureEmbeddedAudioSlot(data, sound.AudioID);
+        sound.Flags |= AudioEntryFlags.Regular;
+    }
+
+    private static bool TryWriteExternalSoundAudio(UndertaleData data, UndertaleSound sound, byte[] audioData)
+    {
+        if (sound.GroupID <= 0 ||
+            string.IsNullOrWhiteSpace(_loadedDataPath) ||
+            string.IsNullOrWhiteSpace(_savingDataPath))
+        {
+            return false;
+        }
+
+        string? loadPath = ResolveAudioGroupPath(data, _loadedDataPath, sound.GroupID);
+        string? savePath = ResolveAudioGroupPath(data, _savingDataPath, sound.GroupID);
+        if (loadPath == null || savePath == null)
+            return false;
+
+        string sourcePath = File.Exists(savePath) ? savePath : loadPath;
+        if (!File.Exists(sourcePath))
+            return false;
+
+        try
+        {
+            UndertaleData groupData;
+            using (var stream = new FileStream(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                groupData = UndertaleIO.Read(stream);
+
+            if (groupData.EmbeddedAudio == null)
+                return false;
+
+            int audioId = sound.AudioID;
+            if (audioId < 0 || audioId >= groupData.EmbeddedAudio.Count)
+            {
+                groupData.EmbeddedAudio.Add(new UndertaleEmbeddedAudio());
+                audioId = groupData.EmbeddedAudio.Count - 1;
+                sound.AudioID = audioId;
+            }
+
+            groupData.EmbeddedAudio[audioId].Data = audioData;
+
+            string? outDir = Path.GetDirectoryName(savePath);
+            if (!string.IsNullOrWhiteSpace(outDir))
+                Directory.CreateDirectory(outDir);
+
+            string tempPath = savePath + ".g3mtmp";
+            using (var outStream = new FileStream(tempPath, FileMode.Create, FileAccess.Write))
+                UndertaleIO.Write(outStream, groupData);
+
+            if (File.Exists(savePath))
+                File.Delete(savePath);
+            File.Move(tempPath, savePath);
+
+            if (sound.AudioFile != null && data.EmbeddedAudio?.Contains(sound.AudioFile) == true)
+                data.EmbeddedAudio.Remove(sound.AudioFile);
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log($"[ImportSounds] External audiogroup write skipped for {sound.Name?.Content}: {ex.Message}");
+            return false;
+        }
+    }
+
+    private static string? ResolveAudioGroupPath(UndertaleData data, string dataPath, int groupId)
+    {
+        string? baseDir = Path.GetDirectoryName(dataPath);
+        if (string.IsNullOrWhiteSpace(baseDir))
+            return null;
+
+        string relativePath = $"audiogroup{groupId}.dat";
+        if (data.AudioGroups != null &&
+            groupId >= 0 &&
+            groupId < data.AudioGroups.Count &&
+            !string.IsNullOrWhiteSpace(data.AudioGroups[groupId]?.Path?.Content))
+        {
+            relativePath = data.AudioGroups[groupId].Path.Content;
+        }
+
+        try
+        {
+            string fullBase = Path.GetFullPath(baseDir);
+            string fullPath = Path.GetFullPath(Path.Combine(fullBase, relativePath));
+            if (!fullPath.StartsWith(fullBase.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar,
+                    StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(fullPath, fullBase, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+            return fullPath;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     // =========================================================================
@@ -438,33 +645,45 @@ public static partial class ResourceImportService
                 if (FExists(pngPath))
                 {
                     using var img = new MagickImage(FReadBytes(pngPath));
-                    int lastTP = data.EmbeddedTextures.Count - 1;
-                    int lastTPI = data.TexturePageItems.Count - 1;
-
-                    var newTex = new UndertaleEmbeddedTexture
+                    if (!isNew && ts!.Texture != null)
                     {
-                        Name = new UndertaleString($"Texture {++lastTP}")
-                    };
-                    newTex.TextureData.Image = GMImage.FromMagickImage(img).ConvertToPng();
-                    data.EmbeddedTextures.Add(newTex);
-
-                    var newTPI = new UndertaleTexturePageItem
+                        ts.Texture.SourceWidth = (ushort)img.Width;
+                        ts.Texture.SourceHeight = (ushort)img.Height;
+                        ts.Texture.TargetWidth = (ushort)img.Width;
+                        ts.Texture.TargetHeight = (ushort)img.Height;
+                        ts.Texture.BoundingWidth = (ushort)img.Width;
+                        ts.Texture.BoundingHeight = (ushort)img.Height;
+                    }
+                    else
                     {
-                        Name = new UndertaleString($"PageItem {++lastTPI}"),
-                        SourceX = 0,
-                        SourceY = 0,
-                        SourceWidth = (ushort)img.Width,
-                        SourceHeight = (ushort)img.Height,
-                        TargetX = 0,
-                        TargetY = 0,
-                        TargetWidth = (ushort)img.Width,
-                        TargetHeight = (ushort)img.Height,
-                        BoundingWidth = (ushort)img.Width,
-                        BoundingHeight = (ushort)img.Height,
-                        TexturePage = newTex
-                    };
-                    data.TexturePageItems.Add(newTPI);
-                    ts!.Texture = newTPI;
+                        int lastTP = data.EmbeddedTextures.Count - 1;
+                        int lastTPI = data.TexturePageItems.Count - 1;
+
+                        var newTex = new UndertaleEmbeddedTexture
+                        {
+                            Name = new UndertaleString($"Texture {++lastTP}")
+                        };
+                        newTex.TextureData.Image = GMImage.FromMagickImage(img).ConvertToPng();
+                        data.EmbeddedTextures.Add(newTex);
+
+                        var newTPI = new UndertaleTexturePageItem
+                        {
+                            Name = new UndertaleString($"PageItem {++lastTPI}"),
+                            SourceX = 0,
+                            SourceY = 0,
+                            SourceWidth = (ushort)img.Width,
+                            SourceHeight = (ushort)img.Height,
+                            TargetX = 0,
+                            TargetY = 0,
+                            TargetWidth = (ushort)img.Width,
+                            TargetHeight = (ushort)img.Height,
+                            BoundingWidth = (ushort)img.Width,
+                            BoundingHeight = (ushort)img.Height,
+                            TexturePage = newTex
+                        };
+                        data.TexturePageItems.Add(newTPI);
+                        ts!.Texture = newTPI;
+                    }
                 }
 
                 if (FExists(jsonPath))

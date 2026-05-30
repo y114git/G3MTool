@@ -8,7 +8,7 @@ public static class DataFileExtensionUtil
     /// <summary>
     /// Valid GameMaker data file extensions for all platforms.
     /// </summary>
-    public static readonly string[] ValidExtensions = { ".win", ".ios", ".droid", ".unx" };
+    public static readonly string[] ValidExtensions = [".win", ".ios", ".droid", ".unx"];
 
     /// <summary>
     /// Checks if the given extension is a valid GameMaker data file extension.

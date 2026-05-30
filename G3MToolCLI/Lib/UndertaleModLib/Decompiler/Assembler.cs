@@ -521,7 +521,8 @@ public static partial class Assembler
     /// <param name="source">Assembly source to assemble.</param>
     /// <param name="data"><see cref="UndertaleData"/> instance to use for finding information, and updating code.</param>
     /// <param name="mainThreadAction">Main thread action to be called when updating data, if necessary. Must execute the supplied callback synchronously.</param>
-    public static List<UndertaleInstruction> Assemble(string source, UndertaleData data, Action<Action> mainThreadAction = null)
+    /// <param name="ownerCode">Owning code entry used to resolve child references before falling back to global lookup.</param>
+    public static List<UndertaleInstruction> Assemble(string source, UndertaleData data, Action<Action> mainThreadAction = null, UndertaleCode ownerCode = null)
     {
         // Use a passthrough main thread action if none was supplied
         mainThreadAction ??= passthroughMainThreadAction;
@@ -552,8 +553,20 @@ public static partial class Assembler
                 line = line[2..].Trim();
                 int space = line.IndexOf(' ', StringComparison.InvariantCulture);
                 string codeName = line[..space];
-                UndertaleCode code;
-                if (_codeCache != null)
+                UndertaleCode code = null;
+                if (ownerCode?.ChildEntries != null)
+                {
+                    foreach (var child in ownerCode.ChildEntries)
+                    {
+                        if (child?.Name?.Content == codeName)
+                        {
+                            code = child;
+                            break;
+                        }
+                    }
+                }
+
+                if (code == null && _codeCache != null)
                 {
                     if (!_codeCache.TryGetValue(codeName, out code))
                     {
@@ -564,7 +577,7 @@ public static partial class Assembler
                         }
                     }
                 }
-                else
+                else if (code == null)
                 {
                     code = data.Code.ByName(codeName);
                 }

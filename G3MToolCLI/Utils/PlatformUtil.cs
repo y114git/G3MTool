@@ -5,7 +5,12 @@ namespace G3MToolCLI.Utils;
 
 public static class PlatformUtil
 {
-    private static string? _cachedXDeltaPath;
+    public sealed class XDeltaPathInfo
+    {
+        public required string Path { get; init; }
+        public bool IsTemporary { get; init; }
+        public string? TempDirectory { get; init; }
+    }
 
     public static string GetPlatformName()
     {
@@ -19,18 +24,24 @@ public static class PlatformUtil
         return "unknown";
     }
 
-    public static string? GetXDeltaPath()
+    public static XDeltaPathInfo? GetXDeltaPath(string? overridePath = null)
     {
-        if (_cachedXDeltaPath != null && File.Exists(_cachedXDeltaPath))
-            return _cachedXDeltaPath;
-
         var platform = GetPlatformName();
         var exeName = platform == "win" ? "xdelta.exe" : "xdelta";
 
-        // First try to extract from embedded resource
-        _cachedXDeltaPath = ExtractXDeltaFromResource(platform, exeName);
-        if (_cachedXDeltaPath != null)
-            return _cachedXDeltaPath;
+        if (!string.IsNullOrWhiteSpace(overridePath) && File.Exists(overridePath))
+        {
+            SetExecutablePermission(overridePath, platform);
+            return new XDeltaPathInfo
+            {
+                Path = overridePath,
+                IsTemporary = false
+            };
+        }
+
+        var extracted = ExtractXDeltaFromResource(platform, exeName);
+        if (extracted != null)
+            return extracted;
 
         // Fallback: try file system locations (for development)
         var searchPaths = new[]
@@ -45,15 +56,18 @@ public static class PlatformUtil
             if (File.Exists(path))
             {
                 SetExecutablePermission(path, platform);
-                _cachedXDeltaPath = path;
-                return path;
+                return new XDeltaPathInfo
+                {
+                    Path = path,
+                    IsTemporary = false
+                };
             }
         }
 
         return null;
     }
 
-    private static string? ExtractXDeltaFromResource(string platform, string exeName)
+    private static XDeltaPathInfo? ExtractXDeltaFromResource(string platform, string exeName)
     {
         var assembly = Assembly.GetExecutingAssembly();
         var resourceName = $"G3MToolCLI.Assets.bin.{platform}.{exeName}";
@@ -62,20 +76,20 @@ public static class PlatformUtil
         if (stream == null)
             return null;
 
-        var tempDir = Path.Combine(Path.GetTempPath(), "G3MTool");
+        var tempDir = Path.Combine(Path.GetTempPath(), $"g3mtool_xdelta_{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempDir);
 
         var outputPath = Path.Combine(tempDir, exeName);
-
-        // Only extract if not exists or different size
-        if (!File.Exists(outputPath) || new FileInfo(outputPath).Length != stream.Length)
-        {
-            using var fileStream = File.Create(outputPath);
+        using (var fileStream = File.Create(outputPath))
             stream.CopyTo(fileStream);
-        }
 
         SetExecutablePermission(outputPath, platform);
-        return outputPath;
+        return new XDeltaPathInfo
+        {
+            Path = outputPath,
+            IsTemporary = true,
+            TempDirectory = tempDir
+        };
     }
 
     private static void SetExecutablePermission(string path, string platform)

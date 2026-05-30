@@ -1,22 +1,39 @@
 using System.Diagnostics;
 using System.IO.Compression;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using G3MToolCLI.Models;
 using G3MToolCLI.Utils;
 using UndertaleModLib;
 using UndertaleModLib.Models;
+using UndertaleModLib.Util;
 
 namespace G3MToolCLI.Services;
 
 public class DiffService
 {
+    private const int DataFileBufferSize = 1024 * 1024;
+
+    private static FileStream OpenDataReadStream(string path) =>
+        new(path, FileMode.Open, FileAccess.Read, FileShare.Read, DataFileBufferSize, FileOptions.SequentialScan);
 
     private static readonly string[] ResourceTypes = ResourceTypeRegistry.AllTypes;
 
     private static readonly string[] TextExtensions = [".gml", ".json", ".txt", ".xml"];
+    private static readonly HashSet<string> BinaryHeavyResourceTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Sprites",
+        "Fonts",
+        "Sounds",
+        "EmbeddedAudio",
+        "EmbeddedTextures",
+        "TexturePageItems",
+        "TextureGroupInfo"
+    };
 
-    public static async Task<DiffResult> CompareAsync(string file1Path, string file2Path, string outputPath)
+    public static async Task<DiffResult> CompareAsync(string file1Path, string file2Path, string outputPath, DiffReportMode reportMode = DiffReportMode.Standard, G3MCacheOptions? cacheOptions = null)
     {
         if (!File.Exists(file1Path))
             return new DiffResult { Success = false, Error = $"File not found: {file1Path}" };
@@ -33,31 +50,28 @@ public class DiffService
         sb.AppendLine($"> Generated: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
         sb.AppendLine();
 
-        int differenceCount = 0;
+        int differenceCount;
+        ResourceDiffSummary? resourceSummary = null;
 
         var isData1 = DataFileExtensionUtil.IsValidDataExtension(ext1);
         var isData2 = DataFileExtensionUtil.IsValidDataExtension(ext2);
 
-        // Determine comparison type
         if ((ext1 == ".g3mpatch" || ext1 == ".zip") && isData2)
         {
-            // g3mpatch vs data file
-            differenceCount = await ComparePatchWithDataAsync(file1Path, file2Path, sb);
+            differenceCount = await ComparePatchWithDataAsync(file1Path, file2Path, sb, reportMode);
         }
         else if (isData1 && (ext2 == ".g3mpatch" || ext2 == ".zip"))
         {
-            // data file vs g3mpatch (swap order)
-            differenceCount = await ComparePatchWithDataAsync(file2Path, file1Path, sb);
+            differenceCount = await ComparePatchWithDataAsync(file2Path, file1Path, sb, reportMode);
         }
         else if ((ext1 == ".g3mpatch" || ext1 == ".zip") && (ext2 == ".g3mpatch" || ext2 == ".zip"))
         {
-            // g3mpatch vs g3mpatch
-            differenceCount = await ComparePatchesAsync(file1Path, file2Path, sb);
+            differenceCount = await ComparePatchesAsync(file1Path, file2Path, sb, reportMode);
         }
         else if (isData1 && isData2)
         {
-            // data file vs data file
-            differenceCount = await CompareDataFilesAsync(file1Path, file2Path, sb);
+            resourceSummary = await CompareDataFilesAsync(file1Path, file2Path, sb, reportMode, cacheOptions);
+            differenceCount = resourceSummary.TotalChanged + resourceSummary.TotalNew + resourceSummary.TotalDeleted;
         }
         else
         {
@@ -65,31 +79,61 @@ public class DiffService
             sb.AppendLine();
             sb.AppendLine($"Cannot compare `{ext1}` with `{ext2}`.");
             sb.AppendLine($"Supported: {DataFileExtensionUtil.GetValidExtensionsDisplay()} vs same, `.g3mpatch` vs data file, `.g3mpatch` vs `.g3mpatch`");
+
+            await WriteOutputAsync(outputPath, sb.ToString());
+            return new DiffResult
+            {
+                Success = false,
+                Error = $"Unsupported file combination: '{ext1}' vs '{ext2}'",
+                OutputPath = outputPath
+            };
         }
 
-        // Write output
-        var outputDir = Path.GetDirectoryName(outputPath);
-        if (!string.IsNullOrEmpty(outputDir) && !Directory.Exists(outputDir))
-            Directory.CreateDirectory(outputDir);
-
-        await File.WriteAllTextAsync(outputPath, sb.ToString());
+        await WriteOutputAsync(outputPath, sb.ToString());
 
         return new DiffResult
         {
             Success = true,
             DifferenceCount = differenceCount,
-            OutputPath = outputPath
+            OutputPath = outputPath,
+            Mode = reportMode.ToString().ToLowerInvariant(),
+            TotalChanged = resourceSummary?.TotalChanged,
+            TotalNew = resourceSummary?.TotalNew,
+            TotalDeleted = resourceSummary?.TotalDeleted,
+            ByType = resourceSummary?.ByType
+                .Where(kvp => kvp.Value.Changed.Count > 0 || kvp.Value.New.Count > 0 || kvp.Value.Deleted.Count > 0)
+                .ToDictionary(
+                kvp => kvp.Key,
+                kvp => new DiffTypeSummary
+                {
+                    Changed = kvp.Value.Changed.Count,
+                    New = kvp.Value.New.Count,
+                    Deleted = kvp.Value.Deleted.Count
+                },
+                StringComparer.OrdinalIgnoreCase),
+            TextDiffCount = resourceSummary?.TextDiffs.Count
         };
     }
 
-    private static async Task<int> CompareDataFilesAsync(string file1Path, string file2Path, StringBuilder sb)
+    private static async Task WriteOutputAsync(string outputPath, string contents)
+    {
+        var outputDir = Path.GetDirectoryName(outputPath);
+        if (!string.IsNullOrEmpty(outputDir) && !Directory.Exists(outputDir))
+            Directory.CreateDirectory(outputDir);
+
+        await File.WriteAllTextAsync(outputPath, contents);
+    }
+
+    private static async Task<ResourceDiffSummary> CompareDataFilesAsync(string file1Path, string file2Path, StringBuilder sb, DiffReportMode reportMode, G3MCacheOptions? cacheOptions)
     {
         LogService.SetOperation("Comparing data files");
         LogService.Progress(0, 100);
 
-        var hash1 = await HashService.ComputeFileHashAsync(file1Path);
+        var hash1 = G3MCacheService.TryReadDataFileInfo(file1Path, cacheOptions)?.Md5
+            ?? await HashService.ComputeFileHashAsync(file1Path);
         LogService.Progress(3, 100);
-        var hash2 = await HashService.ComputeFileHashAsync(file2Path);
+        var hash2 = G3MCacheService.TryReadDataFileInfo(file2Path, cacheOptions)?.Md5
+            ?? await HashService.ComputeFileHashAsync(file2Path);
         LogService.Progress(6, 100);
 
         sb.AppendLine("## Files");
@@ -105,27 +149,27 @@ public class DiffService
         {
             sb.AppendLine("Files are **identical** (same MD5 hash).");
             LogService.ProgressComplete();
-            return 0;
+            return new ResourceDiffSummary();
         }
 
-        var resourceDiffs = await CompareWinFilesAsync(file1Path, file2Path);
-        var totalDiff = resourceDiffs.TotalChanged + resourceDiffs.TotalNew + resourceDiffs.TotalDeleted;
+        var resourceDiffs = await CompareWinFilesAsync(file1Path, file2Path, reportMode, cacheOptions);
+        _ = resourceDiffs.TotalChanged + resourceDiffs.TotalNew + resourceDiffs.TotalDeleted;
 
         LogService.Progress(92, 100);
         AppendSummaryTable(sb, resourceDiffs);
-        AppendResourceDetails(sb, resourceDiffs);
+        AppendResourceDetails(sb, resourceDiffs, reportMode);
 
         // Binary-level analysis: variables, functions, indices
         LogService.Log("[DiffService] Performing binary-level analysis...");
-        AppendBinaryAnalysis(sb, file1Path, file2Path);
+        AppendBinaryAnalysis(sb, file1Path, file2Path, reportMode);
 
         LogService.Progress(100, 100);
         LogService.ProgressComplete();
 
-        return totalDiff;
+        return resourceDiffs;
     }
 
-    private static async Task<int> ComparePatchWithDataAsync(string patchPath, string dataPath, StringBuilder sb)
+    private static async Task<int> ComparePatchWithDataAsync(string patchPath, string dataPath, StringBuilder sb, DiffReportMode reportMode)
     {
         LogService.SetOperation("Comparing patch with data");
         LogService.Progress(0, 100);
@@ -220,7 +264,7 @@ public class DiffService
                 sb.AppendLine();
             }
             // Export only the resource types present in the patch
-            using (var stream = new FileStream(dataPath, FileMode.Open, FileAccess.Read))
+            using (var stream = OpenDataReadStream(dataPath))
             {
                 var dataObj = UndertaleIO.Read(stream);
                 ResourceExportService.ExportTypes(dataObj, dataExportDir, dataPath, resourceTypesInPatch);
@@ -255,7 +299,7 @@ public class DiffService
                             {
                                 typeChanges.Changed.Add(changed.Name);
                                 // Collect text diffs
-                                await CollectTextDiffsAsync(patchResPath, dataResPath, changed.Name, resourceType, textDiffs);
+                                await CollectTextDiffsAsync(patchResPath, dataResPath, changed.Name, resourceType, textDiffs, reportMode);
                             }
                         }
                         else
@@ -297,7 +341,7 @@ public class DiffService
                         var dataResPath = Path.Combine(dataResDir, changedName);
                         if (Directory.Exists(patchResPath) && Directory.Exists(dataResPath))
                         {
-                            await CollectTextDiffsAsync(patchResPath, dataResPath, changedName, resourceType, textDiffs);
+                            await CollectTextDiffsAsync(patchResPath, dataResPath, changedName, resourceType, textDiffs, reportMode);
                         }
                     }
                 }
@@ -318,7 +362,7 @@ public class DiffService
         }
     }
 
-    private static async Task<int> ComparePatchesAsync(string patch1Path, string patch2Path, StringBuilder sb)
+    private static async Task<int> ComparePatchesAsync(string patch1Path, string patch2Path, StringBuilder sb, DiffReportMode reportMode)
     {
         LogService.SetOperation("Comparing patches");
         LogService.Progress(0, 100);
@@ -368,7 +412,7 @@ public class DiffService
                     var resDir2 = Path.Combine(dir2, changedName);
                     if (Directory.Exists(resDir1) && Directory.Exists(resDir2))
                     {
-                        await CollectTextDiffsAsync(resDir1, resDir2, changedName, resourceType, summary.TextDiffs);
+                        await CollectTextDiffsAsync(resDir1, resDir2, changedName, resourceType, summary.TextDiffs, reportMode);
                     }
                 }
 
@@ -448,15 +492,34 @@ public class DiffService
         }
     }
 
-    private static void AppendResourceDetails(StringBuilder sb, ResourceDiffSummary summary)
+    private static void AppendResourceDetails(StringBuilder sb, ResourceDiffSummary summary, DiffReportMode reportMode)
     {
         AppendResourceList(sb, summary);
 
-        // Text diffs are collected during comparison for .win vs .win
         if (summary.TextDiffs.Count > 0)
         {
-            AppendTextDiffs(sb, summary.TextDiffs);
+            if (reportMode == DiffReportMode.Full)
+                AppendTextDiffs(sb, summary.TextDiffs);
+            else
+                AppendTextDiffSummary(sb, summary.TextDiffs);
         }
+    }
+
+    private static void AppendTextDiffSummary(StringBuilder sb, List<TextFileDiff> textDiffs)
+    {
+        if (textDiffs.Count == 0) return;
+
+        sb.AppendLine("## Text Difference Summary");
+        sb.AppendLine();
+        sb.AppendLine("Standard mode lists changed text files without unified hunks. Use `--full` to include exact text/code/JSON diffs.");
+        sb.AppendLine();
+        sb.AppendLine("| Resource | Changed text files |");
+        sb.AppendLine("|:---------|-------------------:|");
+        foreach (var group in textDiffs.GroupBy(d => $"{d.ResourceType}/{d.ResourceName}").OrderBy(g => g.Key, StringComparer.Ordinal).Take(120))
+            sb.AppendLine($"| `{group.Key}` | {group.Count()} |");
+        if (textDiffs.Select(d => $"{d.ResourceType}/{d.ResourceName}").Distinct(StringComparer.Ordinal).Count() > 120)
+            sb.AppendLine("| *additional resources omitted from standard report* | |");
+        sb.AppendLine();
     }
 
     private static void AppendTextDiffs(StringBuilder sb, List<TextFileDiff> textDiffs)
@@ -477,12 +540,12 @@ public class DiffService
         }
     }
 
-    private static void AppendBinaryAnalysis(StringBuilder sb, string file1Path, string file2Path)
+    private static void AppendBinaryAnalysis(StringBuilder sb, string file1Path, string file2Path, DiffReportMode reportMode)
     {
         UndertaleData data1, data2;
-        using (var s = new FileStream(file1Path, FileMode.Open, FileAccess.Read))
+        using (var s = OpenDataReadStream(file1Path))
             data1 = UndertaleIO.Read(s);
-        using (var s = new FileStream(file2Path, FileMode.Open, FileAccess.Read))
+        using (var s = OpenDataReadStream(file2Path))
             data2 = UndertaleIO.Read(s);
 
         sb.AppendLine("## Binary Analysis");
@@ -520,6 +583,8 @@ public class DiffService
         Row("TexturePageItems", data1.TexturePageItems?.Count ?? 0, data2.TexturePageItems?.Count ?? 0);
         sb.AppendLine();
 
+        AppendSpriteFrameAnalysis(sb, data1, data2);
+
         // Helper to compare named lists and report mismatches
         void CompareNamedList<T>(
             string sectionName,
@@ -527,10 +592,17 @@ public class DiffService
             Func<T, string?> getName,
             int maxItems = 20)
         {
+            maxItems = reportMode == DiffReportMode.Full ? Math.Max(maxItems, 200) : maxItems;
             var names1 = (list1 ?? Array.Empty<T>()).Select(getName).Where(n => n != null).ToList();
             var names2 = (list2 ?? Array.Empty<T>()).Select(getName).Where(n => n != null).ToList();
-            var set1 = names1.ToHashSet();
-            var set2 = names2.ToHashSet();
+            var index1 = new Dictionary<string, int>(StringComparer.Ordinal);
+            var index2 = new Dictionary<string, int>(StringComparer.Ordinal);
+            for (int i = 0; i < names1.Count; i++)
+                index1.TryAdd(names1[i]!, i);
+            for (int i = 0; i < names2.Count; i++)
+                index2.TryAdd(names2[i]!, i);
+            var set1 = index1.Keys.ToHashSet(StringComparer.Ordinal);
+            var set2 = index2.Keys.ToHashSet(StringComparer.Ordinal);
 
             var missing = set1.Except(set2).ToList();
             var extra = set2.Except(set1).ToList();
@@ -540,8 +612,8 @@ public class DiffService
             List<(string name, int idx1, int idx2)> indexMismatches = [];
             foreach (var name in common)
             {
-                int i1 = names1.IndexOf(name);
-                int i2 = names2.IndexOf(name);
+                int i1 = index1[name!];
+                int i2 = index2[name!];
                 if (i1 != i2)
                     indexMismatches.Add((name!, i1, i2));
             }
@@ -594,16 +666,24 @@ public class DiffService
         CompareNamedList("Scripts", data1.Scripts, data2.Scripts, s => s?.Name?.Content);
         CompareNamedList("Sounds", data1.Sounds, data2.Sounds, s => s?.Name?.Content);
         CompareNamedList("Code Entries", data1.Code, data2.Code, c => c?.Name?.Content);
+        AppendTexturePageItemReferenceAnalysis(sb, data1, data2, reportMode == DiffReportMode.Full ? 200 : 40);
 
         // Room instance count diffs
         List<(string name, int c1, int c2)> roomDiffs = [];
         if (data1.Rooms != null && data2.Rooms != null)
         {
+            var rooms2ByName = new Dictionary<string, UndertaleRoom>(StringComparer.Ordinal);
+            foreach (var room in data2.Rooms)
+            {
+                var name = room?.Name?.Content;
+                if (!string.IsNullOrEmpty(name) && room != null)
+                    rooms2ByName.TryAdd(name, room);
+            }
+
             foreach (var r1 in data1.Rooms)
             {
                 if (r1?.Name?.Content == null) continue;
-                var r2 = data2.Rooms.FirstOrDefault(r => r?.Name?.Content == r1.Name.Content);
-                if (r2 == null) continue;
+                if (!rooms2ByName.TryGetValue(r1.Name.Content, out var r2)) continue;
 
                 int CountInstances(UndertaleRoom room)
                 {
@@ -634,8 +714,156 @@ public class DiffService
         }
     }
 
-    private static async Task CollectTextDiffsAsync(string dir1, string dir2, string resourceName, string resourceType, List<TextFileDiff> textDiffs)
+    private static void AppendTexturePageItemReferenceAnalysis(StringBuilder sb, UndertaleData data1, UndertaleData data2, int maxRows)
     {
+        var refs1 = BuildTexturePageItemReferenceMap(data1);
+        var refs2 = BuildTexturePageItemReferenceMap(data2);
+        var rows = new List<string>();
+        foreach (var key in refs1.Keys.Union(refs2.Keys).OrderBy(k => k))
+        {
+            refs1.TryGetValue(key, out var left);
+            refs2.TryGetValue(key, out var right);
+            if (!string.Equals(left, right, StringComparison.Ordinal))
+            {
+                rows.Add($"| {key} | `{left ?? "<missing>"}` | `{right ?? "<missing>"}` |");
+                if (rows.Count >= maxRows)
+                    break;
+            }
+        }
+
+        if (rows.Count == 0)
+            return;
+
+        sb.AppendLine("### TexturePageItem References");
+        sb.AppendLine();
+        sb.AppendLine("| TPI index | File 1 refs | File 2 refs |");
+        sb.AppendLine("|----------:|:------------|:------------|");
+        foreach (var row in rows)
+            sb.AppendLine(row);
+        if (refs1.Keys.Union(refs2.Keys).Count() > maxRows)
+            sb.AppendLine("| *additional changed TPI refs omitted* | | |");
+        sb.AppendLine();
+    }
+
+    private static Dictionary<int, string> BuildTexturePageItemReferenceMap(UndertaleData data)
+    {
+        var refs = new Dictionary<int, List<string>>();
+        void Add(UndertaleTexturePageItem? tpi, string owner)
+        {
+            if (tpi == null || data.TexturePageItems == null)
+                return;
+            int index = data.TexturePageItems.IndexOf(tpi);
+            if (index < 0)
+                return;
+            if (!refs.TryGetValue(index, out var owners))
+            {
+                owners = [];
+                refs[index] = owners;
+            }
+            owners.Add(owner);
+        }
+
+        foreach (var sprite in data.Sprites ?? [])
+        {
+            var name = sprite?.Name?.Content;
+            if (sprite?.Textures == null || string.IsNullOrWhiteSpace(name))
+                continue;
+            for (int i = 0; i < sprite.Textures.Count; i++)
+                Add(sprite.Textures[i]?.Texture, $"sprite:{name}[{i}]");
+        }
+
+        foreach (var bg in data.Backgrounds ?? [])
+            Add(bg?.Texture, $"background:{bg?.Name?.Content ?? "?"}");
+
+        foreach (var font in data.Fonts ?? [])
+            Add(font?.Texture, $"font:{font?.Name?.Content ?? "?"}");
+
+        return refs.ToDictionary(kvp => kvp.Key, kvp => string.Join(", ", kvp.Value.OrderBy(v => v, StringComparer.Ordinal).Take(8)));
+    }
+
+    private static void AppendSpriteFrameAnalysis(StringBuilder sb, UndertaleData data1, UndertaleData data2)
+    {
+        if (data1.Sprites == null || data2.Sprites == null)
+            return;
+
+        var sprites1 = data1.Sprites
+            .Where(s => s?.Name?.Content != null)
+            .ToDictionary(s => s!.Name!.Content, StringComparer.Ordinal);
+        var sprites2 = data2.Sprites
+            .Where(s => s?.Name?.Content != null)
+            .ToDictionary(s => s!.Name!.Content, StringComparer.Ordinal);
+
+        var rows = new List<string>();
+        using var worker = new TextureWorker();
+        foreach (var name in sprites1.Keys.Intersect(sprites2.Keys, StringComparer.Ordinal).OrderBy(n => n, StringComparer.Ordinal))
+        {
+            var left = sprites1[name];
+            var right = sprites2[name];
+            int minFrames = Math.Min(left.Textures.Count, right.Textures.Count);
+            int changedFrames = 0;
+            for (int i = 0; i < minFrames; i++)
+            {
+                if (SpriteFrameHash(worker, left, i) != SpriteFrameHash(worker, right, i))
+                    changedFrames++;
+            }
+
+            int addedFrames = Math.Max(0, right.Textures.Count - left.Textures.Count);
+            int removedFrames = Math.Max(0, left.Textures.Count - right.Textures.Count);
+            bool metadataChanged =
+                left.Width != right.Width ||
+                left.Height != right.Height ||
+                left.OriginX != right.OriginX ||
+                left.OriginY != right.OriginY ||
+                left.MarginLeft != right.MarginLeft ||
+                left.MarginTop != right.MarginTop ||
+                left.MarginRight != right.MarginRight ||
+                left.MarginBottom != right.MarginBottom ||
+                left.BBoxMode != right.BBoxMode ||
+                left.Transparent != right.Transparent ||
+                left.Smooth != right.Smooth ||
+                left.Preload != right.Preload;
+
+            if (changedFrames == 0 && addedFrames == 0 && removedFrames == 0 && !metadataChanged)
+                continue;
+
+            rows.Add($"| `{name}` | {left.Textures.Count} -> {right.Textures.Count} | {changedFrames} | {addedFrames} | {removedFrames} | {metadataChanged} |");
+            if (rows.Count >= 80)
+                break;
+        }
+
+        if (rows.Count == 0)
+            return;
+
+        sb.AppendLine("### Sprite Frame Differences");
+        sb.AppendLine();
+        sb.AppendLine("| Sprite | Frames | Changed Frames | Added Frames | Removed Frames | Metadata Changed |");
+        sb.AppendLine("|:-------|:-------|---------------:|-------------:|---------------:|:-----------------|");
+        foreach (var row in rows)
+            sb.AppendLine(row);
+        sb.AppendLine();
+    }
+
+    private static string SpriteFrameHash(TextureWorker worker, UndertaleSprite sprite, int frameIndex)
+    {
+        var tpi = sprite.Textures.ElementAtOrDefault(frameIndex)?.Texture;
+        if (tpi == null)
+            return "<null>";
+        try
+        {
+            using var image = worker.GetTextureFor(tpi, $"{sprite.Name?.Content ?? "sprite"}_{frameIndex}", includePadding: false);
+            return Convert.ToHexString(SHA256.HashData(image.ToByteArray(ImageMagick.MagickFormat.Png))).ToLowerInvariant();
+        }
+        catch
+        {
+            return "<decode-error>";
+        }
+    }
+
+    private static async Task CollectTextDiffsAsync(string dir1, string dir2, string resourceName, string resourceType, List<TextFileDiff> textDiffs, DiffReportMode reportMode)
+    {
+        if (reportMode == DiffReportMode.Standard && BinaryHeavyResourceTypes.Contains(resourceType))
+            return;
+
         var files1 = Directory.GetFiles(dir1, "*", SearchOption.AllDirectories);
 
         foreach (var file1 in files1)
@@ -653,13 +881,14 @@ public class DiffService
 
             if (content1 != content2)
             {
-                var unifiedDiff = GenerateUnifiedDiff(content1, content2, relPath);
                 textDiffs.Add(new TextFileDiff
                 {
                     ResourceType = resourceType,
                     ResourceName = resourceName,
                     FileName = relPath,
-                    UnifiedDiff = unifiedDiff
+                    UnifiedDiff = reportMode == DiffReportMode.Full
+                        ? GenerateUnifiedDiff(content1, content2, relPath)
+                        : ""
                 });
             }
         }
@@ -764,7 +993,7 @@ public class DiffService
         return sb.ToString().TrimEnd();
     }
 
-    private static async Task<ResourceDiffSummary> CompareWinFilesAsync(string file1Path, string file2Path)
+    private static async Task<ResourceDiffSummary> CompareWinFilesAsync(string file1Path, string file2Path, DiffReportMode reportMode, G3MCacheOptions? cacheOptions)
     {
         var summary = new ResourceDiffSummary();
         var tempDir = Path.Combine(Path.GetTempPath(), $"g3mtool_diff_{Guid.NewGuid():N}");
@@ -782,12 +1011,29 @@ public class DiffService
 
             diffPhaseSw.Restart();
             Dictionary<string, Dictionary<string, string>> hashes1;
-            using (var stream = new FileStream(file1Path, FileMode.Open, FileAccess.Read))
+            var cached1 = G3MCacheService.TryReadDataCache(file1Path, cacheOptions);
+            if (cached1 != null)
             {
+                hashes1 = cached1.ResourceHashes;
+                LogService.Log($"[Timing] File1 cache: {diffPhaseSw.Elapsed.TotalSeconds:F1}s, RAM: {Process.GetCurrentProcess().WorkingSet64 / 1024 / 1024}MB");
+            }
+            else
+            {
+                using var stream = OpenDataReadStream(file1Path);
                 var data1 = UndertaleIO.Read(stream);
                 var loadTime = diffPhaseSw.Elapsed;
                 diffPhaseSw.Restart();
                 hashes1 = ResourceHashService.HashAll(data1);
+                var info = new DataFileInfo
+                {
+                    Filename = Path.GetFileName(file1Path),
+                    Size = new FileInfo(file1Path).Length,
+                    Md5 = await HashService.ComputeFileHashAsync(file1Path),
+                    BytecodeVersion = data1.GeneralInfo?.BytecodeVersion ?? 0,
+                    GmsVersion = GeneralInfoUtil.GetVersionDisplay(data1.GeneralInfo),
+                    GeneralInfo = GeneralInfoUtil.ExtractGeneralInfo(data1)
+                };
+                await G3MCacheService.WriteDataCacheAsync(file1Path, info, hashes1, PatchService.GetResourceNameCountsForReuse(data1), PatchService.GetOrderSensitiveResourceNamesForReuse(data1), cacheOptions);
                 LogService.Log($"[Timing] File1 load: {loadTime.TotalSeconds:F1}s, hash: {diffPhaseSw.Elapsed.TotalSeconds:F1}s, RAM: {Process.GetCurrentProcess().WorkingSet64 / 1024 / 1024}MB");
             }
             GC.Collect();
@@ -795,12 +1041,29 @@ public class DiffService
 
             diffPhaseSw.Restart();
             Dictionary<string, Dictionary<string, string>> hashes2;
-            using (var stream = new FileStream(file2Path, FileMode.Open, FileAccess.Read))
+            var cached2 = G3MCacheService.TryReadDataCache(file2Path, cacheOptions);
+            if (cached2 != null)
             {
+                hashes2 = cached2.ResourceHashes;
+                LogService.Log($"[Timing] File2 cache: {diffPhaseSw.Elapsed.TotalSeconds:F1}s, RAM: {Process.GetCurrentProcess().WorkingSet64 / 1024 / 1024}MB");
+            }
+            else
+            {
+                using var stream = OpenDataReadStream(file2Path);
                 var data2 = UndertaleIO.Read(stream);
                 var loadTime = diffPhaseSw.Elapsed;
                 diffPhaseSw.Restart();
                 hashes2 = ResourceHashService.HashAll(data2);
+                var info = new DataFileInfo
+                {
+                    Filename = Path.GetFileName(file2Path),
+                    Size = new FileInfo(file2Path).Length,
+                    Md5 = await HashService.ComputeFileHashAsync(file2Path),
+                    BytecodeVersion = data2.GeneralInfo?.BytecodeVersion ?? 0,
+                    GmsVersion = GeneralInfoUtil.GetVersionDisplay(data2.GeneralInfo),
+                    GeneralInfo = GeneralInfoUtil.ExtractGeneralInfo(data2)
+                };
+                await G3MCacheService.WriteDataCacheAsync(file2Path, info, hashes2, PatchService.GetResourceNameCountsForReuse(data2), PatchService.GetOrderSensitiveResourceNamesForReuse(data2), cacheOptions);
                 LogService.Log($"[Timing] File2 load: {loadTime.TotalSeconds:F1}s, hash: {diffPhaseSw.Elapsed.TotalSeconds:F1}s, RAM: {Process.GetCurrentProcess().WorkingSet64 / 1024 / 1024}MB");
             }
             GC.Collect();
@@ -837,36 +1100,43 @@ public class DiffService
             LogService.Log($"[Timing] Hash comparison: {diffPhaseSw.Elapsed.TotalSeconds:F1}s, changed types: {changedTypes.Count}/{ResourceTypes.Length}");
             LogService.Progress(50, 100);
 
-            // Phase 3: Export only changed types for text diff generation
-            if (changedTypes.Count > 0)
+            // Phase 3: Export text-oriented changed types for text diff generation.
+            // Binary-heavy types are already compared by resource hashes above; exporting thousands of
+            // sprite/texture/audio payloads only to search for small JSON diffs makes large reports unusably slow.
+            var textDiffTypes = reportMode == DiffReportMode.Full
+                ? [.. changedTypes]
+                : changedTypes
+                    .Where(type => !BinaryHeavyResourceTypes.Contains(type))
+                    .ToList();
+            if (textDiffTypes.Count > 0)
             {
                 Directory.CreateDirectory(export1Dir);
                 Directory.CreateDirectory(export2Dir);
 
                 diffPhaseSw.Restart();
-                LogService.Log($"[DiffService] Exporting {changedTypes.Count} changed type(s) for text diffs...");
+                LogService.Log($"[DiffService] Exporting {textDiffTypes.Count}/{changedTypes.Count} changed type(s) for text diffs...");
 
-                using (var stream = new FileStream(file1Path, FileMode.Open, FileAccess.Read))
+                using (var stream = OpenDataReadStream(file1Path))
                 {
                     var data1 = UndertaleIO.Read(stream);
-                    ResourceExportService.ExportTypes(data1, export1Dir, file1Path, changedTypes);
+                    ResourceExportService.ExportTypes(data1, export1Dir, file1Path, textDiffTypes);
                 }
                 GC.Collect();
 
-                using (var stream = new FileStream(file2Path, FileMode.Open, FileAccess.Read))
+                using (var stream = OpenDataReadStream(file2Path))
                 {
                     var data2 = UndertaleIO.Read(stream);
-                    ResourceExportService.ExportTypes(data2, export2Dir, file2Path, changedTypes);
+                    ResourceExportService.ExportTypes(data2, export2Dir, file2Path, textDiffTypes);
                 }
                 GC.Collect();
-                LogService.Log($"[Timing] Selective export ({changedTypes.Count} types): {diffPhaseSw.Elapsed.TotalSeconds:F1}s");
+                LogService.Log($"[Timing] Selective export ({textDiffTypes.Count} text types): {diffPhaseSw.Elapsed.TotalSeconds:F1}s");
                 LogService.Progress(80, 100);
 
                 // Collect text diffs for changed resources
                 diffPhaseSw.Restart();
                 int typeIndex = 0;
-                int totalTypes = changedTypes.Count;
-                foreach (var resourceType in changedTypes)
+                int totalTypes = textDiffTypes.Count;
+                foreach (var resourceType in textDiffTypes)
                 {
                     var dir1 = Path.Combine(export1Dir, resourceType);
                     var dir2 = Path.Combine(export2Dir, resourceType);
@@ -876,12 +1146,16 @@ public class DiffService
                         var resDir1 = Path.Combine(dir1, changedName);
                         var resDir2 = Path.Combine(dir2, changedName);
                         if (Directory.Exists(resDir1) && Directory.Exists(resDir2))
-                            await CollectTextDiffsAsync(resDir1, resDir2, changedName, resourceType, summary.TextDiffs);
+                            await CollectTextDiffsAsync(resDir1, resDir2, changedName, resourceType, summary.TextDiffs, reportMode);
                     }
                     typeIndex++;
                     LogService.Progress(80 + (typeIndex * 15 / totalTypes), 100);
                 }
                 LogService.Log($"[Timing] Text diff collection: {diffPhaseSw.Elapsed.TotalSeconds:F1}s");
+            }
+            else if (changedTypes.Count > 0)
+            {
+                LogService.Log($"[DiffService] Text diff export skipped; changed types are binary-heavy ({string.Join(", ", changedTypes)})");
             }
 
             diffSw.Stop();
@@ -981,6 +1255,12 @@ public class DiffResourceTypeChanges
     public List<string> Deleted { get; } = [];
 }
 
+public enum DiffReportMode
+{
+    Standard,
+    Full
+}
+
 public class TextFileDiff
 {
     public string ResourceType { get; set; } = "";
@@ -995,4 +1275,22 @@ public class DiffResult
     public string? Error { get; set; }
     public int DifferenceCount { get; set; }
     public string? OutputPath { get; set; }
+    public string? Mode { get; set; }
+    public int? TotalChanged { get; set; }
+    public int? TotalNew { get; set; }
+    public int? TotalDeleted { get; set; }
+    public int? TextDiffCount { get; set; }
+    public Dictionary<string, DiffTypeSummary>? ByType { get; set; }
+}
+
+public class DiffTypeSummary
+{
+    [JsonPropertyName("changed")]
+    public int Changed { get; set; }
+
+    [JsonPropertyName("new")]
+    public int New { get; set; }
+
+    [JsonPropertyName("deleted")]
+    public int Deleted { get; set; }
 }

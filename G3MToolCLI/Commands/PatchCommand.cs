@@ -1,4 +1,6 @@
 using System.CommandLine;
+using System.Text.Json;
+using G3MToolCLI.Models;
 using G3MToolCLI.Services;
 using G3MToolCLI.Utils;
 
@@ -8,23 +10,26 @@ public static class PatchCommand
 {
     public static Command Create()
     {
-        var command = new Command("patch", "Create, apply, validate, or merge G3M resource patches. Subcommands: create, apply, validate, merge");
+        var command = new Command("patch", "Create, apply, validate, or merge .g3mpatch files.");
 
-        // patch create
-        var createCommand = new Command("create", "Create a G3M patch by comparing original and modified data files.\n  Usage: patch create <original> <modified> [output] [--xdelta-fallback]");
+        var createCommand = new Command("create", "Create a .g3mpatch from an original data file and a modified data file or .xdelta patch.\n  Usage: patch create <original> <modified> [output] [--xdelta-fallback] [--cache <dir>] [--xdelta-path <path>]");
         var originalArg = new Argument<FileInfo>("original", "Path to original data file (.win/.ios/.droid/.unx)");
-        var modifiedArg = new Argument<FileInfo>("modified", "Path to modified data file (.win/.ios/.droid/.unx)");
+        var modifiedArg = new Argument<FileInfo>("modified", "Path to modified data file or .xdelta patch");
         var outputArg = new Argument<FileInfo?>("output", () => null, "Output patch file (optional). Default: next to G3MTool executable");
         var xdeltaFallbackOption = new Option<bool>(
             name: "--xdelta-fallback",
-            description: "Embed an optional xdelta fallback in Xdelta/. Disabled by default to keep g3mpatch semantic and merge-friendly.");
+            description: "Store an xdelta fallback. Disabled by default to keep .g3mpatch smaller.");
+        var createCacheOption = new Option<DirectoryInfo?>(
+            name: "--cache",
+            description: "Read and write reusable .g3mcache analysis files in this directory.");
 
         createCommand.AddArgument(originalArg);
         createCommand.AddArgument(modifiedArg);
         createCommand.AddArgument(outputArg);
         createCommand.AddOption(xdeltaFallbackOption);
+        createCommand.AddOption(createCacheOption);
 
-        createCommand.SetHandler(async (original, modified, output, xdeltaFallback) =>
+        createCommand.SetHandler(async (original, modified, output, xdeltaFallback, cacheDir) =>
         {
             var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
             var defaultOutput = Path.Combine(PlatformUtil.GetExecutableDirectory(), $"patch_{timestamp}.g3mpatch");
@@ -35,46 +40,73 @@ public static class PatchCommand
             LogService.Log($"  Modified: {modified.FullName}");
             LogService.Log($"  Output:   {outputPath}");
             LogService.Log($"  Xdelta fallback: {(xdeltaFallback ? "enabled" : "disabled")}");
+            if (cacheDir != null)
+                LogService.Log($"  Cache:    {cacheDir.FullName}");
 
             var result = await PatchService.CreatePatchAsync(
                 original.FullName,
                 modified.FullName,
                 outputPath,
-                includeXdeltaFallback: xdeltaFallback);
+                includeXdeltaFallback: xdeltaFallback,
+                cacheOptions: G3MCacheOptions.FromDirectory(cacheDir?.FullName));
 
             if (result.Success)
             {
-                Console.WriteLine($"Patch created successfully: {outputPath}");
                 var s = result.Statistics;
-                if (s != null)
+                if (Program.JsonOutput)
                 {
-                    Console.WriteLine(s.TotalChangedFiles > 0
-                        ? $"  Changed: {s.TotalChanged} ({s.TotalChangedFiles} files)"
-                        : $"  Changed: {s.TotalChanged}");
-                    Console.WriteLine(s.TotalNewFiles > 0
-                        ? $"  New:     {s.TotalNew} ({s.TotalNewFiles} files)"
-                        : $"  New:     {s.TotalNew}");
-                    Console.WriteLine($"  Deleted: {s.TotalDeleted}");
+                    WriteJson(new
+                    {
+                        success = true,
+                        command = "patch create",
+                        original = original.FullName,
+                        modified = modified.FullName,
+                        output = outputPath,
+                        xdeltaFallback,
+                        statistics = s,
+                        warnings = Array.Empty<string>()
+                    });
+                }
+                else
+                {
+                    Console.WriteLine($"Patch created successfully: {outputPath}");
+                    if (s != null)
+                    {
+                        Console.WriteLine(s.TotalChangedFiles > 0
+                            ? $"  Changed: {s.TotalChanged} ({s.TotalChangedFiles} files)"
+                            : $"  Changed: {s.TotalChanged}");
+                        Console.WriteLine(s.TotalNewFiles > 0
+                            ? $"  New:     {s.TotalNew} ({s.TotalNewFiles} files)"
+                            : $"  New:     {s.TotalNew}");
+                        Console.WriteLine($"  Deleted: {s.TotalDeleted}");
+                    }
                 }
             }
             else
             {
-                Console.Error.WriteLine($"Error: {result.Error}");
+                WriteErrorJsonOrText("patch create", result.Error);
                 Environment.ExitCode = 1;
             }
-        }, originalArg, modifiedArg, outputArg, xdeltaFallbackOption);
+        }, originalArg, modifiedArg, outputArg, xdeltaFallbackOption, createCacheOption);
 
-        // patch apply
-        var applyCommand = new Command("apply", "Apply a G3M patch to a data file.\n  Input can be .g3mpatch, .xdelta, or data file (.win/.ios/.droid/.unx).\n  Non-g3mpatch inputs are auto-converted using the original data file as reference.\n  Usage: patch apply <data> <patch> [output]");
+        var applyCommand = new Command("apply", "Apply a .g3mpatch to a data file. .xdelta input is applied directly; data-file input is converted first.\n  Usage: patch apply <data> <patch> [output] [--xdelta-fallback] [--cache <dir>] [--xdelta-path <path>]");
         var dataArg = new Argument<FileInfo>("data", "Path to original data file (.win/.ios/.droid/.unx)");
         var patchArg = new Argument<FileInfo>("patch", "Path to patch file (.g3mpatch, .xdelta, or data file)");
         var applyOutputArg = new Argument<FileInfo?>("output", () => null, "Output file (optional). Default: next to G3MTool executable");
+        var applyXdeltaFallbackOption = new Option<bool>(
+            name: "--xdelta-fallback",
+            description: "Try the embedded xdelta copy first. If it fails, continue with normal .g3mpatch apply.");
+        var applyCacheOption = new Option<DirectoryInfo?>(
+            name: "--cache",
+            description: "Read and write reusable .g3mcache analysis files when converting data-file or xdelta input.");
 
         applyCommand.AddArgument(dataArg);
         applyCommand.AddArgument(patchArg);
         applyCommand.AddArgument(applyOutputArg);
+        applyCommand.AddOption(applyXdeltaFallbackOption);
+        applyCommand.AddOption(applyCacheOption);
 
-        applyCommand.SetHandler(async (data, patch, output) =>
+        applyCommand.SetHandler(async (data, patch, output, xdeltaFallback, cacheDir) =>
         {
             var defaultOutput = Path.Combine(PlatformUtil.GetExecutableDirectory(), Path.GetFileName(data.FullName));
             var outputPath = output?.FullName ?? defaultOutput;
@@ -89,11 +121,16 @@ public static class PatchCommand
 
                 if (xdeltaResult.Success)
                 {
-                    Console.WriteLine($"Patch applied successfully: {outputPath}");
+                    WriteSuccessJsonOrText("patch apply", outputPath, new
+                    {
+                        inputKind = "xdelta",
+                        data = data.FullName,
+                        patch = patch.FullName
+                    });
                 }
                 else
                 {
-                    Console.Error.WriteLine($"Error: {xdeltaResult.Error}");
+                    WriteErrorJsonOrText("patch apply", xdeltaResult.Error);
                     Environment.ExitCode = 1;
                 }
                 return;
@@ -102,12 +139,14 @@ public static class PatchCommand
             string patchPath;
             try
             {
-                // Auto-convert non-g3mpatch inputs
-                patchPath = await PatchService.EnsureG3MPatchAsync(data.FullName, patch.FullName);
+                patchPath = await PatchService.EnsureG3MPatchAsync(
+                    data.FullName,
+                    patch.FullName,
+                    cacheOptions: G3MCacheOptions.FromDirectory(cacheDir?.FullName));
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"Error: {ex.Message}");
+                WriteErrorJsonOrText("patch apply", ex.Message);
                 Environment.ExitCode = 1;
                 return;
             }
@@ -116,60 +155,114 @@ public static class PatchCommand
             LogService.Log($"  Data:   {data.FullName}");
             LogService.Log($"  Patch:  {patchPath}");
             LogService.Log($"  Output: {outputPath}");
+            LogService.Log($"  Xdelta fallback: {(xdeltaFallback ? "enabled" : "disabled")}");
+            if (cacheDir != null)
+                LogService.Log($"  Cache:  {cacheDir.FullName}");
 
-            var result = await PatchService.ApplyPatchAsync(data.FullName, patchPath, outputPath);
+            var result = await PatchService.ApplyPatchAsync(
+                data.FullName,
+                patchPath,
+                outputPath,
+                allowXdeltaFallback: xdeltaFallback);
 
             if (result.Success)
             {
-                Console.WriteLine($"Patch applied successfully: {outputPath}");
+                WriteSuccessJsonOrText("patch apply", outputPath, new
+                {
+                    inputKind = "g3mpatch",
+                    data = data.FullName,
+                    patch = patchPath,
+                    xdeltaFallback
+                });
             }
             else
             {
-                Console.Error.WriteLine($"Error: {result.Error}");
+                WriteErrorJsonOrText("patch apply", result.Error);
                 Environment.ExitCode = 1;
             }
-        }, dataArg, patchArg, applyOutputArg);
+        }, dataArg, patchArg, applyOutputArg, applyXdeltaFallbackOption, applyCacheOption);
 
-        // patch validate
-        var validateCommand = new Command("validate", "Validate a G3M patch file and optionally check compatibility with a data file.\n  Usage: patch validate <patch> [--data <data-file>]");
+        var validateCommand = new Command("validate", "Validate a G3M patch file and optionally check compatibility with a data file.\n  Usage: patch validate <patch> [--data <data-file>] [--cache <dir>]");
         var validatePatchArg = new Argument<FileInfo>("patch", "Path to G3M patch file (.g3mpatch)");
         var validateDataOption = new Option<FileInfo?>(
             aliases: ["--data", "-d"],
             description: "Optional data file (.win/.ios/.droid/.unx) to check compatibility");
+        var validateCacheOption = new Option<DirectoryInfo?>(
+            name: "--cache",
+            description: "Read reusable .g3mcache analysis when checking --data.");
 
         validateCommand.AddArgument(validatePatchArg);
         validateCommand.AddOption(validateDataOption);
+        validateCommand.AddOption(validateCacheOption);
 
-        validateCommand.SetHandler(async (patch, data) =>
+        validateCommand.SetHandler(async (patch, data, cacheDir) =>
         {
-            Console.WriteLine($"Validating G3M patch: {patch.FullName}");
+            if (!Program.JsonOutput)
+                Console.WriteLine($"Validating G3M patch: {patch.FullName}");
 
-            var result = await PatchService.ValidatePatchAsync(patch.FullName, data?.FullName);
+            var result = await PatchService.ValidatePatchAsync(
+                patch.FullName,
+                data?.FullName,
+                G3MCacheOptions.FromDirectory(cacheDir?.FullName));
 
             if (result.Success)
             {
-                Console.WriteLine("Patch is valid.");
-                if (result.Manifest != null)
+                if (Program.JsonOutput)
                 {
-                    Console.WriteLine($"  Tool: {result.Manifest.Tool?.Name} v{result.Manifest.Tool?.Version}");
-                    Console.WriteLine($"  Created: {result.Manifest.CreatedAt}");
-                    Console.WriteLine($"  Resources: {result.Manifest.Statistics?.TotalChanged ?? 0} changed, {result.Manifest.Statistics?.TotalNew ?? 0} new, {result.Manifest.Statistics?.TotalDeleted ?? 0} deleted");
+                    var manifest = result.Manifest;
+                    WriteJson(new
+                    {
+                        success = true,
+                        command = "patch validate",
+                        patch = patch.FullName,
+                        data = data?.FullName,
+                        tool = manifest?.Tool,
+                        createdAt = manifest?.CreatedAt,
+                        original = manifest?.Original,
+                        modified = manifest?.Modified,
+                        statistics = manifest?.Statistics,
+                        applyPlan = manifest?.ApplyPlan,
+                        resourceTypes = manifest?.Resources?
+                            .Where(kvp =>
+                                (kvp.Value.Changed?.Count ?? 0) > 0 ||
+                                (kvp.Value.New?.Count ?? 0) > 0 ||
+                                (kvp.Value.Deleted?.Count ?? 0) > 0)
+                            .ToDictionary(
+                                kvp => kvp.Key,
+                                kvp => new
+                                {
+                                    changed = kvp.Value.Changed?.Count ?? 0,
+                                    @new = kvp.Value.New?.Count ?? 0,
+                                    deleted = kvp.Value.Deleted?.Count ?? 0
+                                },
+                                StringComparer.OrdinalIgnoreCase),
+                        warnings = Array.Empty<string>()
+                    });
+                }
+                else
+                {
+                    Console.WriteLine("Patch is valid.");
+                    if (result.Manifest != null)
+                    {
+                        Console.WriteLine($"  Tool: {result.Manifest.Tool?.Name} v{result.Manifest.Tool?.Version}");
+                        Console.WriteLine($"  Created: {result.Manifest.CreatedAt}");
+                        Console.WriteLine($"  Resources: {result.Manifest.Statistics?.TotalChanged ?? 0} changed, {result.Manifest.Statistics?.TotalNew ?? 0} new, {result.Manifest.Statistics?.TotalDeleted ?? 0} deleted");
+                    }
                 }
             }
             else
             {
-                Console.Error.WriteLine($"Validation failed: {result.Error}");
+                WriteErrorJsonOrText("patch validate", result.Error);
                 Environment.ExitCode = 1;
             }
-        }, validatePatchArg, validateDataOption);
+        }, validatePatchArg, validateDataOption, validateCacheOption);
 
-        // patch merge
         var mergeCommand = new Command("merge",
-            "Merge multiple G3M patches into a single coherent patch.\n" +
+            "Merge multiple patches into one .g3mpatch.\n" +
             "  The first argument is the original data file (required as context).\n" +
             "  Subsequent arguments are patches (from lowest to highest priority).\n" +
             "  Input can be .g3mpatch, .xdelta, or data file (.win/.ios/.droid/.unx).\n" +
-            "  Usage: patch merge <original> <patch1> <patch2> [patch3...] [flags]");
+            "  Usage: patch merge <original> <patch1> <patch2> [patch3...] [flags] [--cache <dir>] [--xdelta-path <path>]");
 
         var mergeOriginalArg = new Argument<FileInfo>("original", "Path to original data file (.win/.ios/.droid/.unx)");
         var mergePatchesArg = new Argument<FileInfo[]>("patches", "Patch files (low → high priority)")
@@ -196,6 +289,9 @@ public static class PatchCommand
         var mergeReportOption = new Option<string?>(
             aliases: ["--report", "-r"],
             description: "Path for the merge report (Markdown)");
+        var mergeCacheOption = new Option<DirectoryInfo?>(
+            name: "--cache",
+            description: "Read and write reusable .g3mcache analysis files in this directory.");
 
         mergeCommand.AddArgument(mergeOriginalArg);
         mergeCommand.AddArgument(mergePatchesArg);
@@ -204,8 +300,9 @@ public static class PatchCommand
         mergeCommand.AddOption(mergeCodeOption);
         mergeCommand.AddOption(mergePropertiesOption);
         mergeCommand.AddOption(mergeReportOption);
+        mergeCommand.AddOption(mergeCacheOption);
 
-        mergeCommand.SetHandler(async (original, patches, outPath, applyPath, code, properties, conflictsLog) =>
+        mergeCommand.SetHandler(async (original, patches, outPath, applyPath, code, properties, conflictsLog, cacheDir) =>
         {
             var patchPaths = patches.Select(p => p.FullName).ToList();
 
@@ -215,18 +312,36 @@ public static class PatchCommand
                 ApplyPath = applyPath,
                 UseCodeMerge = code,
                 UsePropertyMerge = properties,
-                ReportPath = conflictsLog
+                ReportPath = conflictsLog,
+                CacheOptions = G3MCacheOptions.FromDirectory(cacheDir?.FullName)
             };
 
             var result = await MergeService.MergePatchesAsync(original.FullName, patchPaths, options);
 
             if (!result.Success)
             {
-                Console.Error.WriteLine($"Error: {result.Error}");
+                WriteErrorJsonOrText("patch merge", result.Error);
                 Environment.ExitCode = 1;
             }
+            else if (Program.JsonOutput)
+            {
+                WriteJson(new
+                {
+                    success = true,
+                    command = "patch merge",
+                    original = original.FullName,
+                    patches = patchPaths,
+                    output = result.OutputPath,
+                    applied = applyPath,
+                    conflicts = result.TotalConflicts,
+                    autoMerged = result.AutoMerged,
+                    warnings = result.TotalConflicts > 0
+                        ? new[] { "merge completed with conflicts; inspect the merge report if one was requested" }
+                        : []
+                });
+            }
         }, mergeOriginalArg, mergePatchesArg, mergeOutOption, mergeApplyOption,
-           mergeCodeOption, mergePropertiesOption, mergeReportOption);
+           mergeCodeOption, mergePropertiesOption, mergeReportOption, mergeCacheOption);
 
         command.AddCommand(createCommand);
         command.AddCommand(applyCommand);
@@ -236,4 +351,22 @@ public static class PatchCommand
         return command;
     }
 
+    private static void WriteSuccessJsonOrText<T>(string command, string outputPath, T details)
+    {
+        if (Program.JsonOutput)
+            WriteJson(new { success = true, command, output = outputPath, details, warnings = Array.Empty<string>() });
+        else
+            Console.WriteLine($"Patch applied successfully: {outputPath}");
+    }
+
+    private static void WriteErrorJsonOrText(string command, string? error)
+    {
+        if (Program.JsonOutput)
+            WriteJson(new { success = false, command, error });
+        else
+            Console.Error.WriteLine($"Error: {error}");
+    }
+
+    private static void WriteJson<T>(T value) =>
+        Console.WriteLine(JsonSerializer.Serialize(value, new JsonSerializerOptions { WriteIndented = false }));
 }

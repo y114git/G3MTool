@@ -13,7 +13,7 @@ public ref struct LogInterpolatedStringHandler
 
     public LogInterpolatedStringHandler(int literalLength, int formattedCount, out bool shouldAppend)
     {
-        _enabled = LogService.Verbose && !LogService.Suppress;
+        _enabled = (LogService.Verbose && !LogService.Suppress) || LogService.FileLoggingEnabled;
         shouldAppend = _enabled;
         _inner = _enabled ? new DefaultInterpolatedStringHandler(literalLength, formattedCount) : default;
     }
@@ -56,8 +56,10 @@ public static class LogService
     private static bool _verbose = false;
     private static bool _suppress = false;
     private static readonly Lock _lock = new();
+    private static readonly Lock _fileLock = new();
     private static int _lastProgressPercent = -1;
     private static string _currentOperation = "";
+    private static FileLogWriter? _fileWriter;
 
     public static bool Verbose
     {
@@ -71,14 +73,40 @@ public static class LogService
         set => _suppress = value;
     }
 
+    public static bool FileLoggingEnabled => _fileWriter != null;
+
     public static void SetOperation(string operation)
     {
         _currentOperation = operation;
         _lastProgressPercent = -1;
     }
 
+    public static void SetFileLogging(string? path)
+    {
+        lock (_fileLock)
+        {
+            _fileWriter?.Dispose();
+            _fileWriter = null;
+
+            if (string.IsNullOrWhiteSpace(path))
+                return;
+
+            _fileWriter = new FileLogWriter(path);
+        }
+    }
+
+    public static void Shutdown()
+    {
+        lock (_fileLock)
+        {
+            _fileWriter?.Dispose();
+            _fileWriter = null;
+        }
+    }
+
     public static void Log(string message)
     {
+        WriteToFile(message);
         if (_verbose)
         {
             Console.WriteLine(message);
@@ -87,24 +115,30 @@ public static class LogService
 
     public static void Log(ref LogInterpolatedStringHandler handler)
     {
+        var message = handler.ToString();
+        if (string.IsNullOrEmpty(message))
+            return;
+
+        WriteToFile(message);
         if (_verbose && !_suppress)
-        {
-            Console.WriteLine(handler.ToString());
-        }
+            Console.WriteLine(message);
     }
 
     public static void Info(string message)
     {
+        WriteToFile(message);
         Console.WriteLine(message);
     }
 
     public static void Error(string message)
     {
+        WriteToFile($"Error: {message}");
         Console.Error.WriteLine($"Error: {message}");
     }
 
     public static void Warning(string message)
     {
+        WriteToFile($"[Warning] {message}");
         if (_suppress) return;
         Console.ForegroundColor = ConsoleColor.Yellow;
         Console.WriteLine($"[Warning] {message}");
@@ -123,6 +157,7 @@ public static class LogService
             if (percent <= _lastProgressPercent) return;
             _lastProgressPercent = percent;
             Console.Write($"\r{_currentOperation}: {percent}%          ");
+            Console.Out.Flush();
         }
     }
 
@@ -145,8 +180,17 @@ public static class LogService
             {
                 // Move to next line after progress, no "Done" text
                 Console.WriteLine();
+                Console.Out.Flush();
             }
             _lastProgressPercent = -1;
+        }
+    }
+
+    private static void WriteToFile(string message)
+    {
+        lock (_fileLock)
+        {
+            _fileWriter?.WriteLine(message);
         }
     }
 }

@@ -152,9 +152,23 @@ Console.WriteLine($"[ExportAssetOrder] Exported {varList.Count} variables and {f
 // Export object event mapping - used by ImportCodeEntries to validate events after compilation
 string objectEventsPath = Path.Combine(outputDir, "object_events.json");
 var objectEventsMap = new Dictionary<string, List<Dictionary<string, object>>>();
+var objectNameCounts = new Dictionary<string, int>();
 foreach (var obj in Data.GameObjects)
 {
     if (obj?.Name?.Content == null) continue;
+    objectNameCounts[obj.Name.Content] = objectNameCounts.GetValueOrDefault(obj.Name.Content) + 1;
+}
+var objectSeenCounts = new Dictionary<string, int>();
+for (int objIndex = 0; objIndex < Data.GameObjects.Count; objIndex++)
+{
+    var obj = Data.GameObjects[objIndex];
+    if (obj?.Name?.Content == null) continue;
+    int occurrence = objectSeenCounts.GetValueOrDefault(obj.Name.Content);
+    objectSeenCounts[obj.Name.Content] = occurrence + 1;
+    string objectKey = objectNameCounts.GetValueOrDefault(obj.Name.Content) > 1
+        ? $"{obj.Name.Content}__idx{objIndex:D4}"
+        : obj.Name.Content;
+
     var events = new List<Dictionary<string, object>>();
     for (int evtType = 0; evtType < obj.Events.Count; evtType++)
     {
@@ -170,11 +184,43 @@ foreach (var obj in Data.GameObjects)
             {
                 var collObj = Data.GameObjects[(int)evt.EventSubtype];
                 evtData["cn"] = collObj?.Name?.Content ?? "";
+                if (collObj?.Name?.Content != null)
+                {
+                    int collOccurrence = 0;
+                    for (int i = 0; i < evt.EventSubtype; i++)
+                    {
+                        if (string.Equals(Data.GameObjects[i]?.Name?.Content, collObj.Name.Content, StringComparison.Ordinal))
+                            collOccurrence++;
+                    }
+                    evtData["co"] = collOccurrence;
+                }
             }
+
+            var actionList = new List<Dictionary<string, object>>();
+            foreach (var action in evt.Actions)
+            {
+                actionList.Add(new Dictionary<string, object>
+                {
+                    {"libId", action.LibID},
+                    {"id", action.ID},
+                    {"kind", action.Kind},
+                    {"useRelative", action.UseRelative},
+                    {"isQuestion", action.IsQuestion},
+                    {"useApplyTo", action.UseApplyTo},
+                    {"exeType", action.ExeType},
+                    {"actionName", action.ActionName?.Content ?? ""},
+                    {"codeId", action.CodeId?.Name?.Content ?? ""},
+                    {"argumentCount", action.ArgumentCount},
+                    {"who", action.Who},
+                    {"relative", action.Relative},
+                    {"isNot", action.IsNot}
+                });
+            }
+            evtData["actions"] = actionList;
             events.Add(evtData);
         }
     }
-    objectEventsMap[obj.Name.Content] = events;
+    objectEventsMap[objectKey] = events;
 }
 File.WriteAllText(objectEventsPath, JsonSerializer.Serialize(objectEventsMap));
 Console.WriteLine($"[ExportAssetOrder] Exported event mapping for {objectEventsMap.Count} objects to: {objectEventsPath}");

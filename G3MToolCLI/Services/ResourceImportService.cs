@@ -1,5 +1,3 @@
-using System.Collections;
-using System.Collections.ObjectModel;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -7,6 +5,7 @@ using G3MToolCLI.Models;
 using ImageMagick;
 using UndertaleModLib;
 using UndertaleModLib.Models;
+using UndertaleModLib.Project;
 using UndertaleModLib.Util;
 using static UndertaleModLib.Models.UndertaleSound;
 
@@ -14,7 +13,7 @@ namespace G3MToolCLI.Services;
 
 /// <summary>
 /// Native C# resource importers for the patch apply pipeline.
-/// Uses PatchFileSystem for in-memory ZIP access (no disk extraction).
+/// Uses PatchFileSystem for in-memory patch access.
 /// Falls back to disk File/Directory when PFS is not set.
 /// </summary>
 public static partial class ResourceImportService
@@ -25,9 +24,19 @@ public static partial class ResourceImportService
     private static PatchFileSystem? _pfs;
     [ThreadStatic]
     private static (int Start, int End)? _progressRange;
+    [ThreadStatic]
+    private static string? _loadedDataPath;
+    [ThreadStatic]
+    private static string? _savingDataPath;
 
     /// <summary>Set in-memory file system for imports. Pass null to revert to disk.</summary>
     public static void SetPatchFileSystem(PatchFileSystem? pfs) => _pfs = pfs;
+
+    public static void SetDataPaths(string? loadedDataPath, string? savingDataPath)
+    {
+        _loadedDataPath = loadedDataPath;
+        _savingDataPath = savingDataPath;
+    }
 
     /// <summary>Get current PatchFileSystem (may be null if using disk).</summary>
     public static PatchFileSystem? GetPatchFileSystem() => _pfs;
@@ -61,6 +70,18 @@ public static partial class ResourceImportService
     private static bool DirExists(string path) =>
         _pfs != null ? _pfs.DirectoryExists(path) : Directory.Exists(path);
 
+    private static string SafeName(string name)
+    {
+        if (string.IsNullOrEmpty(name))
+            return "_";
+
+        var invalid = Path.GetInvalidFileNameChars();
+        var sb = new StringBuilder(name.Length);
+        foreach (var ch in name)
+            sb.Append(invalid.Contains(ch) ? '_' : ch);
+        return sb.ToString();
+    }
+
     /// <summary>
     /// Import a resource type using native C# code.
     /// Returns true if the resource type was handled natively.
@@ -69,19 +90,33 @@ public static partial class ResourceImportService
     {
         switch (resourceType)
         {
+            case "Language": ImportLanguage(data, inputDir); return true;
+            case "Options": ImportOptions(data, inputDir); return true;
+            case "GlobalScripts": ImportGlobalScripts(data, inputDir); return true;
+            case "Scripts": ImportScripts(data, inputDir); return true;
+            case "FeatureFlags": ImportFeatureFlags(data, inputDir); return true;
+            case "Tags": ImportTags(data, inputDir); return true;
+            case "FilterEffects": ImportFilterEffects(data, inputDir); return true;
             case "AudioGroups": ImportAudioGroups(data, inputDir); return true;
+            case "EmbeddedAudio": ImportEmbeddedAudio(data, inputDir); return true;
             case "TextureGroupInfo": ImportTextureGroupInfo(data, inputDir); return true;
+            case "EmbeddedTextures": ImportEmbeddedTexturesForAssetOrder(data, inputDir); return true;
             case "Sprites": ImportSprites(data, inputDir); return true;
+            case "EmbeddedImages": ImportEmbeddedImages(data, inputDir); return true;
             case "Fonts": ImportFonts(data, inputDir); return true;
             case "Sounds": ImportSounds(data, inputDir); return true;
             case "Paths": ImportPaths(data, inputDir); return true;
             case "Shaders": ImportShaders(data, inputDir); return true;
             case "GameObjects": ImportGameObjects(data, inputDir); return true;
             case "Rooms": ImportRooms(data, inputDir); return true;
+            case "Sequences": ImportSequences(data, inputDir); return true;
             case "Tilesets": ImportTilesets(data, inputDir); return true;
             case "Backgrounds": ImportBackgrounds(data, inputDir); return true;
             case "Extensions": ImportExtensions(data, inputDir); return true;
             case "Timelines": ImportTimelines(data, inputDir); return true;
+            case "AnimationCurves": ImportAnimationCurves(data, inputDir); return true;
+            case "ParticleSystemEmitters": ImportParticleSystemEmitters(data, inputDir); return true;
+            case "ParticleSystems": ImportParticleSystems(data, inputDir); return true;
             case "GeneralInfo": ImportGeneralInfo(data, inputDir); return true;
             case "TexturePageItems": ImportTexturePageItems(data, inputDir); return true;
             default: return false;
@@ -97,6 +132,519 @@ public static partial class ResourceImportService
     }
 
     private static void Log(string msg) => LogService.Log(msg);
+
+    private static void ImportOptions(UndertaleData data, string inputDir)
+    {
+        if (data.Options == null) return;
+
+        string jsonPath = Path.Combine(inputDir, "options.json");
+        if (!FExists(jsonPath)) return;
+
+        using var jsonDoc = JsonDocument.Parse(FReadText(jsonPath));
+        var root = jsonDoc.RootElement;
+        var options = data.Options;
+
+        if (root.TryGetProperty("newFormat", out var nf)) options.NewFormat = nf.GetBoolean();
+        if (root.TryGetProperty("shaderExtensionFlag", out var sef)) options.ShaderExtensionFlag = sef.GetInt32();
+        if (root.TryGetProperty("shaderExtensionVersion", out var sev)) options.ShaderExtensionVersion = sev.GetInt32();
+        if (root.TryGetProperty("info", out var info)) options.Info = (UndertaleOptions.OptionsFlags)info.GetUInt64();
+        if (root.TryGetProperty("scale", out var scale)) options.Scale = scale.GetInt32();
+        if (root.TryGetProperty("windowColor", out var wc)) options.WindowColor = wc.GetUInt32();
+        if (root.TryGetProperty("colorDepth", out var cd)) options.ColorDepth = cd.GetUInt32();
+        if (root.TryGetProperty("resolution", out var res)) options.Resolution = res.GetUInt32();
+        if (root.TryGetProperty("frequency", out var freq)) options.Frequency = freq.GetUInt32();
+        if (root.TryGetProperty("vertexSync", out var vs)) options.VertexSync = vs.GetUInt32();
+        if (root.TryGetProperty("priority", out var prio)) options.Priority = prio.GetUInt32();
+        if (root.TryGetProperty("loadAlpha", out var la)) options.LoadAlpha = la.GetUInt32();
+
+        if (root.TryGetProperty("constants", out var constants) && constants.ValueKind == JsonValueKind.Array)
+        {
+            options.Constants.Clear();
+            foreach (var constantJson in constants.EnumerateArray())
+            {
+                var name = constantJson.TryGetProperty("name", out var nameEl) ? nameEl.GetString() ?? "" : "";
+                var value = constantJson.TryGetProperty("value", out var valueEl) ? valueEl.GetString() ?? "" : "";
+                options.Constants.Add(new UndertaleOptions.Constant
+                {
+                    Name = data.Strings.MakeString(name),
+                    Value = data.Strings.MakeString(value)
+                });
+            }
+        }
+    }
+
+    private static void ImportGlobalScripts(UndertaleData data, string inputDir)
+    {
+        string jsonPath = Path.Combine(inputDir, "global_scripts.json");
+        if (!FExists(jsonPath)) return;
+
+        using var jsonDoc = JsonDocument.Parse(FReadText(jsonPath));
+        var root = jsonDoc.RootElement;
+        if (data.GlobalInitScripts != null && root.TryGetProperty("globalInitScripts", out var globalInit))
+            ImportCodeRefList(data, data.GlobalInitScripts, globalInit);
+        if (data.GameEndScripts != null && root.TryGetProperty("gameEndScripts", out var gameEnd))
+            ImportCodeRefList(data, data.GameEndScripts, gameEnd);
+    }
+
+    private static void ImportCodeRefList(UndertaleData data, IList<UndertaleGlobalInit> target, JsonElement array)
+    {
+        if (array.ValueKind != JsonValueKind.Array) return;
+
+        target.Clear();
+        foreach (var item in array.EnumerateArray())
+        {
+            string? codeName = item.GetString();
+            if (string.IsNullOrWhiteSpace(codeName)) continue;
+
+            var code = data.Code?.ByName(codeName);
+            if (code == null)
+            {
+                Log($"[ImportGlobalScripts] Missing code ref '{codeName}', skipped.");
+                continue;
+            }
+
+            target.Add(new UndertaleGlobalInit { Code = code });
+        }
+    }
+
+    private static void ImportScripts(UndertaleData data, string inputDir)
+    {
+        if (data.Scripts == null) return;
+
+        var scriptByExportFolder = BuildScriptExportFolderMap(data);
+        var usedScripts = new HashSet<UndertaleScript>();
+        int imported = 0, created = 0;
+        foreach (var dir in GetDirs(inputDir))
+        {
+            string folderName = Path.GetFileName(dir);
+            if (string.IsNullOrWhiteSpace(folderName)) continue;
+
+            string jsonPath = Path.Combine(dir, folderName + ".json");
+            if (!FExists(jsonPath)) continue;
+
+            using var jsonDoc = JsonDocument.Parse(FReadText(jsonPath));
+            var root = jsonDoc.RootElement;
+            string name = root.TryGetProperty("name", out var nameEl) ? nameEl.GetString() ?? folderName : folderName;
+            string codeName = root.TryGetProperty("code", out var codeEl) ? codeEl.GetString() ?? "" : "";
+            bool isConstructor = root.TryGetProperty("isConstructor", out var ctorEl) && ctorEl.GetBoolean();
+            var resolvedCode = PatchService.ScriptCodeResolver.Resolve(data, name, codeName);
+
+            var script = FindUnusedScriptByCode(data, resolvedCode, usedScripts);
+            if (script == null)
+                scriptByExportFolder.TryGetValue(folderName, out script);
+            if (script != null && usedScripts.Contains(script))
+                script = null;
+            script ??= FindUnusedScriptByName(data, name, usedScripts);
+            if (script == null)
+            {
+                script = new UndertaleScript { Name = data.Strings.MakeString(name) };
+                data.Scripts.Add(script);
+                scriptByExportFolder[folderName] = script;
+                created++;
+            }
+            usedScripts.Add(script);
+
+            script.IsConstructor = isConstructor;
+            script.Code = resolvedCode;
+            if (script.Code == null && !string.IsNullOrWhiteSpace(codeName))
+                Log($"[ImportScripts] Missing code ref '{codeName}' for script '{name}'.");
+            imported++;
+        }
+
+        Log($"[ImportScripts] Done. {imported} imported ({created} new).");
+    }
+
+    private static UndertaleScript? FindUnusedScriptByCode(
+        UndertaleData data,
+        UndertaleCode? code,
+        HashSet<UndertaleScript> usedScripts)
+    {
+        if (code == null)
+            return null;
+
+        foreach (var script in data.Scripts)
+        {
+            if (script != null && !usedScripts.Contains(script) && ReferenceEquals(script.Code, code))
+                return script;
+        }
+
+        return null;
+    }
+
+    private static UndertaleScript? FindUnusedScriptByName(
+        UndertaleData data,
+        string name,
+        HashSet<UndertaleScript> usedScripts)
+    {
+        foreach (var script in data.Scripts)
+        {
+            if (script?.Name?.Content == name && !usedScripts.Contains(script))
+                return script;
+        }
+
+        return null;
+    }
+
+    private static Dictionary<string, UndertaleScript> BuildScriptExportFolderMap(UndertaleData data)
+    {
+        var result = new Dictionary<string, UndertaleScript>(StringComparer.OrdinalIgnoreCase);
+        if (data.Scripts == null || data.Scripts.Count == 0)
+            return result;
+
+        var used = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var script in data.Scripts)
+        {
+            var originalName = script?.Name?.Content;
+            if (string.IsNullOrWhiteSpace(originalName) || script == null)
+                continue;
+
+            var safeName = SafeName(originalName);
+            if (string.IsNullOrWhiteSpace(safeName))
+                safeName = "_";
+
+            string exportName;
+            if (!used.TryGetValue(safeName, out var count))
+            {
+                used[safeName] = 1;
+                exportName = safeName;
+            }
+            else
+            {
+                do
+                {
+                    count++;
+                    exportName = $"{safeName}__{count}";
+                }
+                while (used.ContainsKey(exportName));
+
+                used[safeName] = count;
+                used[exportName] = 1;
+            }
+
+            result[exportName] = script;
+        }
+
+        return result;
+    }
+
+    private static void ImportEmbeddedImages(UndertaleData data, string inputDir)
+    {
+        if (data.EmbeddedImages == null) return;
+
+        int imported = 0, created = 0;
+        foreach (var dir in GetDirs(inputDir))
+        {
+            string folderName = Path.GetFileName(dir);
+            if (string.IsNullOrWhiteSpace(folderName)) continue;
+
+            string jsonPath = Path.Combine(dir, folderName + ".json");
+            if (!FExists(jsonPath)) continue;
+
+            using var jsonDoc = JsonDocument.Parse(FReadText(jsonPath));
+            var root = jsonDoc.RootElement;
+            string name = root.TryGetProperty("name", out var nameEl) ? nameEl.GetString() ?? folderName : folderName;
+            int tpiIndex = root.TryGetProperty("texturePageItemIndex", out var indexEl) ? indexEl.GetInt32() : -1;
+            string tpiName = root.TryGetProperty("texturePageItemName", out var tpiNameEl) ? tpiNameEl.GetString() ?? "" : "";
+
+            var image = data.EmbeddedImages.ByName(name);
+            if (image == null)
+            {
+                image = new UndertaleEmbeddedImage { Name = data.Strings.MakeString(name) };
+                data.EmbeddedImages.Add(image);
+                created++;
+            }
+
+            image.TextureEntry = ResolveTexturePageItem(data, tpiIndex, tpiName);
+            imported++;
+        }
+
+        Log($"[ImportEmbeddedImages] Done. {imported} imported ({created} new).");
+    }
+
+    private static UndertaleTexturePageItem? ResolveTexturePageItem(UndertaleData data, int index, string name)
+    {
+        if (data.TexturePageItems == null) return null;
+        if (!string.IsNullOrWhiteSpace(name))
+        {
+            var byName = data.TexturePageItems.ByName(name);
+            if (byName != null)
+                return byName;
+        }
+        if (index >= 0 && index < data.TexturePageItems.Count)
+            return data.TexturePageItems[index];
+        return null;
+    }
+
+    private static void ImportFeatureFlags(UndertaleData data, string inputDir)
+    {
+        string jsonPath = Path.Combine(inputDir, "feature_flags.json");
+        if (!FExists(jsonPath)) return;
+
+        if (data.FeatureFlags?.List == null)
+        {
+            Log("[ImportFeatureFlags] Skipped: target data has no FEAT chunk.");
+            return;
+        }
+
+        using var jsonDoc = JsonDocument.Parse(FReadText(jsonPath));
+        if (jsonDoc.RootElement.ValueKind != JsonValueKind.Array) return;
+
+        data.FeatureFlags.List.Clear();
+        foreach (var flagElm in jsonDoc.RootElement.EnumerateArray())
+        {
+            var flag = flagElm.GetString();
+            if (!string.IsNullOrEmpty(flag))
+                data.FeatureFlags.List.Add(data.Strings.MakeString(flag));
+        }
+
+        Log($"[ImportFeatureFlags] Done. {data.FeatureFlags.List.Count} flags.");
+    }
+
+    private static void ImportLanguage(UndertaleData data, string inputDir)
+    {
+        string jsonPath = Path.Combine(inputDir, "language.json");
+        if (!FExists(jsonPath)) return;
+
+        if (data.Language == null)
+        {
+            Log("[ImportLanguage] Skipped: target data has no LANG chunk.");
+            return;
+        }
+
+        using var jsonDoc = JsonDocument.Parse(FReadText(jsonPath));
+        var root = jsonDoc.RootElement;
+        if (root.ValueKind != JsonValueKind.Object) return;
+
+        data.Language.Unknown1 = GetJsonValue(root, "unknown1", data.Language.Unknown1);
+        data.Language.EntryIDs = [];
+        if (root.TryGetProperty("entryIds", out var entryIdsElm) && entryIdsElm.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var entryElm in entryIdsElm.EnumerateArray())
+                data.Language.EntryIDs.Add(data.Strings.MakeString(entryElm.GetString() ?? ""));
+        }
+
+        data.Language.Languages = [];
+        if (root.TryGetProperty("languages", out var languagesElm) && languagesElm.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var languageElm in languagesElm.EnumerateArray())
+            {
+                if (languageElm.ValueKind != JsonValueKind.Object) continue;
+                var language = new UndertaleLanguage.LanguageData
+                {
+                    Name = data.Strings.MakeString(languageElm.TryGetProperty("name", out var nameElm) ? nameElm.GetString() ?? "" : ""),
+                    Region = data.Strings.MakeString(languageElm.TryGetProperty("region", out var regionElm) ? regionElm.GetString() ?? "" : ""),
+                    Entries = []
+                };
+
+                if (languageElm.TryGetProperty("entries", out var entriesElm) && entriesElm.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var entryElm in entriesElm.EnumerateArray())
+                        language.Entries.Add(data.Strings.MakeString(entryElm.GetString() ?? ""));
+                }
+
+                while (language.Entries.Count < data.Language.EntryIDs.Count)
+                    language.Entries.Add(data.Strings.MakeString(""));
+                if (language.Entries.Count > data.Language.EntryIDs.Count)
+                    language.Entries = [.. language.Entries.Take(data.Language.EntryIDs.Count)];
+
+                data.Language.Languages.Add(language);
+            }
+        }
+
+        data.Language.EntryCount = (uint)data.Language.EntryIDs.Count;
+        data.Language.LanguageCount = (uint)data.Language.Languages.Count;
+        Log($"[ImportLanguage] Done. {data.Language.LanguageCount} languages, {data.Language.EntryCount} entries.");
+    }
+
+    private static void ImportTags(UndertaleData data, string inputDir)
+    {
+        string jsonPath = Path.Combine(inputDir, "tags.json");
+        if (!FExists(jsonPath)) return;
+
+        if (data.Tags == null)
+        {
+            Log("[ImportTags] Skipped: target data has no TAGS chunk.");
+            return;
+        }
+
+        using var jsonDoc = JsonDocument.Parse(FReadText(jsonPath));
+        var root = jsonDoc.RootElement;
+        if (root.ValueKind != JsonValueKind.Object) return;
+
+        data.Tags.Tags ??= [];
+        data.Tags.Tags.Clear();
+        if (root.TryGetProperty("tags", out var tagsElm) && tagsElm.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var tagElm in tagsElm.EnumerateArray())
+            {
+                var tag = tagElm.GetString();
+                if (!string.IsNullOrEmpty(tag))
+                    data.Tags.Tags.Add(data.Strings.MakeString(tag));
+            }
+        }
+
+        data.Tags.AssetTags ??= [];
+        data.Tags.AssetTags.Clear();
+        if (root.TryGetProperty("assetTags", out var assetTagsElm) && assetTagsElm.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var assetTagElm in assetTagsElm.EnumerateArray())
+            {
+                if (!TryResolveAssetTagId(data, assetTagElm, out int assetId))
+                {
+                    Log("[ImportTags] Skipped asset tag entry: unresolved asset identity.");
+                    continue;
+                }
+
+                var list = new UndertaleSimpleListString();
+                if (assetTagElm.TryGetProperty("tags", out var itemTagsElm) && itemTagsElm.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var tagElm in itemTagsElm.EnumerateArray())
+                    {
+                        var tag = tagElm.GetString();
+                        if (!string.IsNullOrEmpty(tag))
+                            list.Add(data.Strings.MakeString(tag));
+                    }
+                }
+                data.Tags.AssetTags[assetId] = list;
+            }
+        }
+
+        Log($"[ImportTags] Done. {data.Tags.Tags.Count} global tags, {data.Tags.AssetTags.Count} asset tag entries.");
+    }
+
+    private static void ImportFilterEffects(UndertaleData data, string inputDir)
+    {
+        if (data.FilterEffects == null)
+        {
+            Log("[ImportFilterEffects] Skipped: target data has no FEDS chunk.");
+            return;
+        }
+
+        var dirs = GetDirs(inputDir);
+        if (dirs.Length == 0) return;
+
+        int created = 0, updated = 0;
+        foreach (string dir in dirs)
+        {
+            string name = Path.GetFileName(dir);
+            string jsonFile = Path.Combine(dir, name + ".json");
+            if (!FExists(jsonFile)) continue;
+
+            try
+            {
+                using var jsonDoc = JsonDocument.Parse(FReadText(jsonFile));
+                var root = jsonDoc.RootElement;
+                if (root.TryGetProperty("name", out JsonElement nameElm))
+                    name = nameElm.GetString() ?? name;
+
+                var effect = data.FilterEffects.ByName(name);
+                bool isNew = effect == null;
+                if (isNew)
+                {
+                    effect = new UndertaleFilterEffect
+                    {
+                        Name = data.Strings.MakeString(name)
+                    };
+                    data.FilterEffects.Add(effect);
+                    created++;
+                }
+                else updated++;
+
+                effect!.Value = data.Strings.MakeString(root.TryGetProperty("value", out var valueElm) ? valueElm.GetString() ?? "" : "");
+            }
+            catch (Exception ex) { Log($"[ImportFilterEffects] Error: {name}: {ex.Message}"); }
+        }
+        Log($"[ImportFilterEffects] Done. Created: {created}, Updated: {updated}");
+    }
+
+    private static bool TryResolveAssetTagId(UndertaleData data, JsonElement assetTagElm, out int assetId)
+    {
+        assetId = 0;
+
+        string assetType = assetTagElm.TryGetProperty("assetType", out var typeElm) ? typeElm.GetString() ?? "" : "";
+        string assetName = assetTagElm.TryGetProperty("assetName", out var nameElm) ? nameElm.GetString() ?? "" : "";
+        if (!string.IsNullOrEmpty(assetType) && !string.IsNullOrEmpty(assetName) &&
+            TryEncodeAssetTagId(data, assetType, assetName, out assetId))
+        {
+            return true;
+        }
+
+        if (assetTagElm.TryGetProperty("assetId", out var assetIdElm))
+        {
+            int rawAssetId = assetIdElm.GetInt32();
+            if (IsAssetTagIdValid(data, rawAssetId))
+            {
+                assetId = rawAssetId;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryEncodeAssetTagId(UndertaleData data, string assetType, string assetName, out int assetId)
+    {
+        assetId = 0;
+        if (!Enum.TryParse<ResourceType>(assetType, ignoreCase: true, out var type))
+            return false;
+
+        int index = GetAssetIndexByTagType(data, type, assetName);
+        if (index < 0) return false;
+
+        int storedIndex = type == ResourceType.Script ? index + 100000 : index;
+        assetId = ((int)type << 24) | (storedIndex & 0xFFFFFF);
+        return true;
+    }
+
+    private static bool IsAssetTagIdValid(UndertaleData data, int assetId)
+    {
+        var type = (ResourceType)(assetId >> 24);
+        int rawIndex = assetId & 0xFFFFFF;
+        int index = type == ResourceType.Script ? rawIndex - 100000 : rawIndex;
+        return GetAssetNameByTagType(data, type, index) != null;
+    }
+
+    private static int GetAssetIndexByTagType(UndertaleData data, ResourceType type, string assetName)
+    {
+        return type switch
+        {
+            ResourceType.Object => data.GameObjects.IndexOfName(assetName),
+            ResourceType.Sprite => data.Sprites.IndexOfName(assetName),
+            ResourceType.Sound => data.Sounds.IndexOfName(assetName),
+            ResourceType.Room => data.Rooms.IndexOfName(assetName),
+            ResourceType.Path => data.Paths.IndexOfName(assetName),
+            ResourceType.Script => data.Scripts.IndexOfName(assetName),
+            ResourceType.Font => data.Fonts.IndexOfName(assetName),
+            ResourceType.Timeline => data.Timelines.IndexOfName(assetName),
+            ResourceType.Background => data.Backgrounds.IndexOfName(assetName),
+            ResourceType.Shader => data.Shaders.IndexOfName(assetName),
+            ResourceType.Sequence when data.Sequences != null => data.Sequences.IndexOfName(assetName),
+            ResourceType.AnimCurve when data.AnimationCurves != null => data.AnimationCurves.IndexOfName(assetName),
+            ResourceType.ParticleSystem when data.ParticleSystems != null => data.ParticleSystems.IndexOfName(assetName),
+            _ => -1
+        };
+    }
+
+    private static string? GetAssetNameByTagType(UndertaleData data, ResourceType type, int index)
+    {
+        return type switch
+        {
+            ResourceType.Object when index >= 0 && index < data.GameObjects.Count => data.GameObjects[index]?.Name?.Content,
+            ResourceType.Sprite when index >= 0 && index < data.Sprites.Count => data.Sprites[index]?.Name?.Content,
+            ResourceType.Sound when index >= 0 && index < data.Sounds.Count => data.Sounds[index]?.Name?.Content,
+            ResourceType.Room when index >= 0 && index < data.Rooms.Count => data.Rooms[index]?.Name?.Content,
+            ResourceType.Path when index >= 0 && index < data.Paths.Count => data.Paths[index]?.Name?.Content,
+            ResourceType.Script when index >= 0 && index < data.Scripts.Count => data.Scripts[index]?.Name?.Content,
+            ResourceType.Font when index >= 0 && index < data.Fonts.Count => data.Fonts[index]?.Name?.Content,
+            ResourceType.Timeline when index >= 0 && index < data.Timelines.Count => data.Timelines[index]?.Name?.Content,
+            ResourceType.Background when index >= 0 && index < data.Backgrounds.Count => data.Backgrounds[index]?.Name?.Content,
+            ResourceType.Shader when index >= 0 && index < data.Shaders.Count => data.Shaders[index]?.Name?.Content,
+            ResourceType.Sequence when data.Sequences != null && index >= 0 && index < data.Sequences.Count => data.Sequences[index]?.Name?.Content,
+            ResourceType.AnimCurve when data.AnimationCurves != null && index >= 0 && index < data.AnimationCurves.Count => data.AnimationCurves[index]?.Name?.Content,
+            ResourceType.ParticleSystem when data.ParticleSystems != null && index >= 0 && index < data.ParticleSystems.Count => data.ParticleSystems[index]?.Name?.Content,
+            _ => null
+        };
+    }
 
     private static T GetJsonValue<T>(JsonElement root, string propertyName, T defaultValue)
     {
@@ -247,6 +795,9 @@ public static partial class ResourceImportService
         {
             try
             {
+                if (itemElm.TryGetProperty("isNull", out var nullElm) && nullElm.GetBoolean())
+                    continue;
+
                 int index = itemElm.TryGetProperty("index", out var idxElm) ? idxElm.GetInt32() : -1;
                 string name = itemElm.TryGetProperty("name", out var nameElm) ? nameElm.GetString() ?? "" : "";
                 ushort sourceX = itemElm.TryGetProperty("sourceX", out var sxElm) ? (ushort)sxElm.GetInt32() : (ushort)0;
@@ -288,6 +839,8 @@ public static partial class ResourceImportService
             }
             catch (Exception ex) { Log($"[ImportTexturePageItems] Error: {ex.Message}"); }
         }
+        for (int i = data.TexturePageItems.Count - 1; i >= items.Count; i--)
+            data.TexturePageItems.RemoveAt(i);
         Log($"[ImportTexturePageItems] Done. {updated} updated, {created} created.");
     }
 
@@ -448,14 +1001,277 @@ public static partial class ResourceImportService
                                 else { action = new UndertaleGameObject.EventAction(); moment.Event.Add(action); }
                                 ApplyEventAction(data, action, aElm);
                             }
+                            for (int ai = moment.Event.Count - 1; ai >= actArr.Length; ai--)
+                                moment.Event.RemoveAt(ai);
                         }
                     }
+                    for (int mi = tl!.Moments.Count - 1; mi >= arr.Length; mi--)
+                        tl.Moments.RemoveAt(mi);
                 }
                 if (isNew) data.Timelines!.Add(tl!);
             }
             catch (Exception ex) { Log($"[ImportTimelines] Error: {name}: {ex.Message}"); }
         }
         Log($"[ImportTimelines] Done. Created: {created}, Updated: {updated}");
+    }
+
+    // =========================================================================
+    // AnimationCurves
+    // =========================================================================
+    private static void ImportAnimationCurves(UndertaleData data, string inputDir)
+    {
+        if (data.AnimationCurves == null)
+        {
+            Log("[ImportAnimationCurves] Skipped: target data has no ACRV chunk.");
+            return;
+        }
+
+        var dirs = GetDirs(inputDir);
+        if (dirs.Length == 0) return;
+
+        int created = 0, updated = 0;
+        foreach (string dir in dirs)
+        {
+            string name = Path.GetFileName(dir);
+            string jsonFile = Path.Combine(dir, name + ".json");
+            if (!FExists(jsonFile)) continue;
+
+            try
+            {
+                using var jsonDoc = JsonDocument.Parse(FReadText(jsonFile));
+                var root = jsonDoc.RootElement;
+                if (root.TryGetProperty("name", out JsonElement nameElm))
+                    name = nameElm.GetString() ?? name;
+
+                var curve = data.AnimationCurves.ByName(name);
+                bool isNew = curve == null;
+                if (isNew)
+                {
+                    curve = new UndertaleAnimationCurve
+                    {
+                        Name = data.Strings.MakeString(name),
+                        Channels = []
+                    };
+                    data.AnimationCurves.Add(curve);
+                    created++;
+                }
+                else updated++;
+
+                curve!.GraphType = (UndertaleAnimationCurve.GraphTypeEnum)GetJsonValue(root, "graphType", (int)curve.GraphType);
+                curve.Channels ??= [];
+                curve.Channels.Clear();
+
+                if (root.TryGetProperty("channels", out var channelsElm) && channelsElm.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var channelElm in channelsElm.EnumerateArray())
+                    {
+                        if (channelElm.ValueKind != JsonValueKind.Object) continue;
+                        var channel = new UndertaleAnimationCurve.Channel
+                        {
+                            Name = data.Strings.MakeString(channelElm.TryGetProperty("name", out var channelNameElm) ? channelNameElm.GetString() ?? "" : ""),
+                            Curve = (UndertaleAnimationCurve.Channel.CurveType)GetJsonValue(channelElm, "curve", 0),
+                            Iterations = GetJsonValue(channelElm, "iterations", (uint)0),
+                            Points = []
+                        };
+
+                        if (channelElm.TryGetProperty("points", out var pointsElm) && pointsElm.ValueKind == JsonValueKind.Array)
+                        {
+                            foreach (var pointElm in pointsElm.EnumerateArray())
+                            {
+                                if (pointElm.ValueKind != JsonValueKind.Object) continue;
+                                channel.Points.Add(new UndertaleAnimationCurve.Channel.Point
+                                {
+                                    X = GetJsonValue(pointElm, "x", 0f),
+                                    Value = GetJsonValue(pointElm, "value", 0f),
+                                    BezierX0 = GetJsonValue(pointElm, "bezierX0", 0f),
+                                    BezierY0 = GetJsonValue(pointElm, "bezierY0", 0f),
+                                    BezierX1 = GetJsonValue(pointElm, "bezierX1", 0f),
+                                    BezierY1 = GetJsonValue(pointElm, "bezierY1", 0f)
+                                });
+                            }
+                        }
+
+                        curve.Channels.Add(channel);
+                    }
+                }
+            }
+            catch (Exception ex) { Log($"[ImportAnimationCurves] Error: {name}: {ex.Message}"); }
+        }
+        Log($"[ImportAnimationCurves] Done. Created: {created}, Updated: {updated}");
+    }
+
+    // =========================================================================
+    // Sequences
+    // =========================================================================
+    private static void ImportSequences(UndertaleData data, string inputDir)
+    {
+        if (data.Sequences == null)
+        {
+            Log("[ImportSequences] Skipped: target data has no SEQN chunk.");
+            return;
+        }
+
+        var dirs = GetDirs(inputDir);
+        if (dirs.Length == 0) return;
+
+        var files = new List<string>();
+        foreach (string dir in dirs)
+        {
+            string name = Path.GetFileName(dir);
+            string jsonFile = Path.Combine(dir, name + ".json");
+            if (FExists(jsonFile))
+                files.Add(jsonFile);
+        }
+        if (files.Count == 0) return;
+
+        string tempRoot = Path.Combine(Path.GetTempPath(), "g3mtool_seq_import", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            var localFiles = new List<string>(files.Count);
+            foreach (string source in files)
+            {
+                string local = Path.Combine(tempRoot, Path.GetFileName(Path.GetDirectoryName(source)!) + ".json");
+                File.WriteAllText(local, FReadText(source), Encoding.UTF8);
+                localFiles.Add(local);
+            }
+
+            var context = CreateProjectContext(data, Path.Combine(tempRoot, ".project_context"));
+            SerializableProjectAssetBridge.ImportMany(context, localFiles);
+            Log($"[ImportSequences] Done. Imported: {localFiles.Count}");
+        }
+        catch (Exception ex)
+        {
+            Log($"[ImportSequences] Error: {ex.Message}");
+        }
+        finally
+        {
+            try { Directory.Delete(tempRoot, recursive: true); } catch { }
+        }
+    }
+
+    private static void ImportParticleSystems(UndertaleData data, string inputDir)
+    {
+        if (data.ParticleSystems == null)
+        {
+            Log("[ImportParticleSystems] Skipped: target data has no PSYS chunk.");
+            return;
+        }
+
+        foreach (string dir in GetDirs(inputDir))
+        {
+            string name = Path.GetFileName(dir);
+            string jsonFile = Path.Combine(dir, name + ".json");
+            if (!FExists(jsonFile)) continue;
+            try
+            {
+                using var jsonDoc = JsonDocument.Parse(FReadText(jsonFile));
+                var root = jsonDoc.RootElement;
+                if (root.TryGetProperty("name", out var nameElm))
+                    name = nameElm.GetString() ?? name;
+                var ps = data.ParticleSystems.ByName(name);
+                if (ps == null)
+                {
+                    ps = new UndertaleParticleSystem { Name = data.Strings.MakeString(name) };
+                    data.ParticleSystems.Add(ps);
+                }
+                ps.OriginX = GetJsonValue(root, "originX", ps.OriginX);
+                ps.OriginY = GetJsonValue(root, "originY", ps.OriginY);
+                ps.DrawOrder = (UndertaleParticleSystem.DrawOrderEnum)GetJsonValue(root, "drawOrder", (int)ps.DrawOrder);
+                ps.GlobalSpaceParticles = GetJsonValue(root, "globalSpaceParticles", ps.GlobalSpaceParticles);
+                ps.Emitters = [];
+                if (root.TryGetProperty("emitters", out var emittersElm) && emittersElm.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var emitterElm in emittersElm.EnumerateArray())
+                    {
+                        var emitterName = emitterElm.GetString();
+                        var emitter = !string.IsNullOrEmpty(emitterName) ? data.ParticleSystemEmitters?.ByName(emitterName) : null;
+                        if (emitter != null)
+                            ps.Emitters.Add(new UndertaleResourceById<UndertaleParticleSystemEmitter, UndertaleChunkPSEM>(emitter));
+                    }
+                }
+            }
+            catch (Exception ex) { Log($"[ImportParticleSystems] Error: {name}: {ex.Message}"); }
+        }
+    }
+
+    private static void ImportParticleSystemEmitters(UndertaleData data, string inputDir)
+    {
+        if (data.ParticleSystemEmitters == null)
+        {
+            Log("[ImportParticleSystemEmitters] Skipped: target data has no PSEM chunk.");
+            return;
+        }
+
+        var pendingRefs = new List<(UndertaleParticleSystemEmitter Emitter, string Sprite, string SpawnOnDeath, string SpawnOnUpdate)>();
+        foreach (string dir in GetDirs(inputDir))
+        {
+            string name = Path.GetFileName(dir);
+            string jsonFile = Path.Combine(dir, name + ".json");
+            if (!FExists(jsonFile)) continue;
+            try
+            {
+                using var jsonDoc = JsonDocument.Parse(FReadText(jsonFile));
+                var root = jsonDoc.RootElement;
+                if (root.TryGetProperty("name", out var nameElm))
+                    name = nameElm.GetString() ?? name;
+                var emitter = data.ParticleSystemEmitters.ByName(name);
+                if (emitter == null)
+                {
+                    emitter = new UndertaleParticleSystemEmitter { Name = data.Strings.MakeString(name) };
+                    data.ParticleSystemEmitters.Add(emitter);
+                }
+                ApplyParticleEmitterScalars(emitter, root);
+                string sprite = root.TryGetProperty("sprite", out var spriteElm) ? spriteElm.GetString() ?? "" : "";
+                string sod = root.TryGetProperty("spawnOnDeath", out var sodElm) ? sodElm.GetString() ?? "" : "";
+                string sou = root.TryGetProperty("spawnOnUpdate", out var souElm) ? souElm.GetString() ?? "" : "";
+                pendingRefs.Add((emitter, sprite, sod, sou));
+            }
+            catch (Exception ex) { Log($"[ImportParticleSystemEmitters] Error: {name}: {ex.Message}"); }
+        }
+
+        foreach (var (emitter, sprite, spawnOnDeath, spawnOnUpdate) in pendingRefs)
+        {
+            if (!string.IsNullOrEmpty(sprite))
+                emitter.Sprite = data.Sprites.ByName(sprite);
+            if (!string.IsNullOrEmpty(spawnOnDeath))
+                emitter.SpawnOnDeath = data.ParticleSystemEmitters.ByName(spawnOnDeath);
+            if (!string.IsNullOrEmpty(spawnOnUpdate))
+                emitter.SpawnOnUpdate = data.ParticleSystemEmitters.ByName(spawnOnUpdate);
+        }
+    }
+
+    private static void ApplyParticleEmitterScalars(UndertaleParticleSystemEmitter emitter, JsonElement root)
+    {
+        foreach (var prop in typeof(UndertaleParticleSystemEmitter).GetProperties())
+        {
+            if (!prop.CanRead || !prop.CanWrite) continue;
+            if (prop.Name is "Name" or "Sprite" or "SpawnOnDeath" or "SpawnOnUpdate" or
+                "SizeMin" or "SizeMax" or "SizeIncrease" or "SizeWiggle")
+                continue;
+            if (!root.TryGetProperty(prop.Name, out var value)) continue;
+            var type = Nullable.GetUnderlyingType(prop.PropertyType) ?? prop.PropertyType;
+            if (type.IsEnum)
+                prop.SetValue(emitter, Enum.ToObject(type, value.GetInt32()));
+            else if (type == typeof(bool))
+                prop.SetValue(emitter, value.GetBoolean());
+            else if (type == typeof(int))
+                prop.SetValue(emitter, value.GetInt32());
+            else if (type == typeof(uint))
+                prop.SetValue(emitter, (uint)value.GetInt64());
+            else if (type == typeof(float))
+                prop.SetValue(emitter, (float)value.GetDouble());
+        }
+    }
+
+    private static ProjectContext CreateProjectContext(UndertaleData data, string root)
+    {
+        Directory.CreateDirectory(root);
+        string load = Path.Combine(root, "load.win");
+        string save = Path.Combine(root, "save.win");
+        string project = Path.Combine(root, "project", "project.yy");
+        Directory.CreateDirectory(Path.GetDirectoryName(project)!);
+        return new ProjectContext(data, load, save, project, "G3MTool");
     }
 
     // Shared helper for event action properties (used by Timelines and GameObjects)
@@ -555,12 +1371,12 @@ public static partial class ResourceImportService
                 UndertaleString? shaderString = null;
                 switch (fileName)
                 {
-                    case "GLSL_ES_Fragment.txt": if (shader.GLSL_ES_Fragment == null) shader.GLSL_ES_Fragment = new UndertaleString(code); else shader.GLSL_ES_Fragment.Content = code; shaderString = shader.GLSL_ES_Fragment; break;
-                    case "GLSL_ES_Vertex.txt": if (shader.GLSL_ES_Vertex == null) shader.GLSL_ES_Vertex = new UndertaleString(code); else shader.GLSL_ES_Vertex.Content = code; shaderString = shader.GLSL_ES_Vertex; break;
-                    case "GLSL_Fragment.txt": if (shader.GLSL_Fragment == null) shader.GLSL_Fragment = new UndertaleString(code); else shader.GLSL_Fragment.Content = code; shaderString = shader.GLSL_Fragment; break;
-                    case "GLSL_Vertex.txt": if (shader.GLSL_Vertex == null) shader.GLSL_Vertex = new UndertaleString(code); else shader.GLSL_Vertex.Content = code; shaderString = shader.GLSL_Vertex; break;
-                    case "HLSL9_Fragment.txt": if (shader.HLSL9_Fragment == null) shader.HLSL9_Fragment = new UndertaleString(code); else shader.HLSL9_Fragment.Content = code; shaderString = shader.HLSL9_Fragment; break;
-                    case "HLSL9_Vertex.txt": if (shader.HLSL9_Vertex == null) shader.HLSL9_Vertex = new UndertaleString(code); else shader.HLSL9_Vertex.Content = code; shaderString = shader.HLSL9_Vertex; break;
+                    case "GLSL_ES_Fragment.txt": shader.GLSL_ES_Fragment = data.Strings.MakeString(code); shaderString = shader.GLSL_ES_Fragment; break;
+                    case "GLSL_ES_Vertex.txt": shader.GLSL_ES_Vertex = data.Strings.MakeString(code); shaderString = shader.GLSL_ES_Vertex; break;
+                    case "GLSL_Fragment.txt": shader.GLSL_Fragment = data.Strings.MakeString(code); shaderString = shader.GLSL_Fragment; break;
+                    case "GLSL_Vertex.txt": shader.GLSL_Vertex = data.Strings.MakeString(code); shaderString = shader.GLSL_Vertex; break;
+                    case "HLSL9_Fragment.txt": shader.HLSL9_Fragment = data.Strings.MakeString(code); shaderString = shader.HLSL9_Fragment; break;
+                    case "HLSL9_Vertex.txt": shader.HLSL9_Vertex = data.Strings.MakeString(code); shaderString = shader.HLSL9_Vertex; break;
                 }
                 if (shaderString != null && !data.Strings.Any(s => s == shaderString))
                     data.Strings.Add(shaderString);
@@ -611,8 +1427,7 @@ public static partial class ResourceImportService
                     foreach (var line in text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
                     {
                         if (string.IsNullOrWhiteSpace(line)) continue;
-                        var attrName = new UndertaleString(line.Trim());
-                        data.Strings.Add(attrName);
+                        var attrName = data.Strings.MakeString(line.Trim());
                         shader.VertexShaderAttributes.Add(new UndertaleShader.VertexShaderAttribute { Name = attrName });
                     }
                 }

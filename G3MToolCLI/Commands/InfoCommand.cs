@@ -1,5 +1,6 @@
 using System.CommandLine;
 using System.Text.Json;
+using G3MToolCLI.Models;
 using G3MToolCLI.Services;
 using G3MToolCLI.Utils;
 using UndertaleModLib;
@@ -18,19 +19,24 @@ public static class InfoCommand
 
     public static Command Create()
     {
-        var command = new Command("info", "Display information about a data file or .g3mpatch patch file.\n  Usage: info <target>\n  Without -v: resource counts, GeneralInfo, breakdowns\n  With -v: full per-resource detailed listing");
+        var command = new Command("info", "Show metadata for a data file or .g3mpatch.\n  Usage: info <target> [--cache <dir>]\n  Without -v: counts, GeneralInfo, and short breakdowns\n  With -v: full per-resource listing");
 
         var targetArg = new Argument<FileInfo>("target", "Path to data file (.win/.ios/.droid/.unx) or .g3mpatch");
         var verboseOption = new Option<bool>(
             aliases: ["--verbose", "-v"],
-            description: "Show detailed per-resource listing (every item with all properties)");
+            description: "Show full per-resource listing");
+        var cacheOption = new Option<DirectoryInfo?>(
+            name: "--cache",
+            description: "Read and write reusable .g3mcache info analysis in this directory.");
 
         command.AddArgument(targetArg);
         command.AddOption(verboseOption);
+        command.AddOption(cacheOption);
 
-        command.SetHandler(async (target, verbose) =>
+        command.SetHandler(async (target, verbose, cacheDir) =>
         {
             var jsonOutput = Program.JsonOutput;
+            var cacheOptions = G3MCacheOptions.FromDirectory(cacheDir?.FullName);
 
             var extension = Path.GetExtension(target.FullName);
 
@@ -40,19 +46,32 @@ public static class InfoCommand
             }
             else
             {
-                await ShowDataFileInfoAsync(target.FullName, verbose, jsonOutput);
+                await ShowDataFileInfoAsync(target.FullName, verbose, jsonOutput, cacheOptions);
             }
-        }, targetArg, verboseOption);
+        }, targetArg, verboseOption, cacheOption);
 
         return command;
     }
 
-    private static async Task ShowDataFileInfoAsync(string path, bool verbose, bool jsonOutput)
+    private static async Task ShowDataFileInfoAsync(string path, bool verbose, bool jsonOutput, G3MCacheOptions? cacheOptions)
     {
         try
         {
-            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read);
+            if (!verbose)
+            {
+                var cached = G3MCacheService.TryReadDataInfoSnapshot(path, cacheOptions);
+                if (cached != null)
+                {
+                    PrintInfoSnapshot(cached, jsonOutput);
+                    return;
+                }
+            }
+
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1024 * 1024, FileOptions.SequentialScan);
             var data = UndertaleIO.Read(stream);
+            var snapshot = G3MCacheService.BuildInfoSnapshot(path, data);
+            if (!verbose)
+                await G3MCacheService.WriteDataInfoCacheAsync(path, snapshot, cacheOptions);
 
             var generalInfo = data.GeneralInfo;
             var versionDisplay = GeneralInfoUtil.GetVersionDisplay(generalInfo);
@@ -95,7 +114,6 @@ public static class InfoCommand
             }
             else
             {
-                // Header (always shown)
                 Console.WriteLine($"Data File: {Path.GetFileName(path)}");
                 Console.WriteLine($"Size: {new FileInfo(path).Length:N0} bytes");
                 Console.WriteLine($"Game: {generalInfo?.DisplayName?.Content ?? "Unknown"}");
@@ -103,7 +121,6 @@ public static class InfoCommand
                 Console.WriteLine($"Version: {versionDisplay}");
                 Console.WriteLine();
 
-                // All resource counts (always shown)
                 Console.WriteLine("Resources:");
                 Console.WriteLine($"  Sprites:      {data.Sprites?.Count ?? 0,6}");
                 Console.WriteLine($"  Sounds:       {data.Sounds?.Count ?? 0,6}");
@@ -126,14 +143,12 @@ public static class InfoCommand
                 Console.WriteLine($"  TexGroupInfo: {data.TextureGroupInfo?.Count ?? 0,6}");
                 Console.WriteLine($"  Tilesets:     {data.Backgrounds?.Count ?? 0,6}");
 
-                // GeneralInfo (always shown)
                 if (generalInfo != null)
                 {
                     Console.WriteLine();
                     GeneralInfoUtil.PrintVerboseGeneralInfo(generalInfo);
                 }
 
-                // Breakdowns - skip when verbose (detailed listing supersedes these)
                 if (!verbose)
                 {
                     if (data.Variables != null && data.Variables.Count > 0)
@@ -190,7 +205,6 @@ public static class InfoCommand
                 }
                 else
                 {
-                    // VERBOSE: full per-resource detailed listing
                     PrintDetailedResources(data);
                 }
             }
@@ -202,6 +216,103 @@ public static class InfoCommand
         }
 
         await Task.CompletedTask;
+    }
+
+    private static void PrintInfoSnapshot(G3MDataInfoSnapshot info, bool jsonOutput)
+    {
+        if (jsonOutput)
+        {
+            Console.WriteLine(JsonSerializer.Serialize(info, s_jsonOptions));
+            return;
+        }
+
+        int Count(string key) => info.ResourceCounts.GetValueOrDefault(key);
+        Console.WriteLine($"Data File: {info.File}");
+        Console.WriteLine($"Size: {info.Size:N0} bytes");
+        Console.WriteLine($"Game: {info.Game}");
+        Console.WriteLine($"Bytecode: {info.BytecodeVersion}");
+        Console.WriteLine($"Version: {info.Version}");
+        Console.WriteLine();
+        Console.WriteLine("Resources:");
+        Console.WriteLine($"  Sprites:      {Count("Sprites"),6}");
+        Console.WriteLine($"  Sounds:       {Count("Sounds"),6}");
+        Console.WriteLine($"  Code:         {Count("Code"),6}");
+        Console.WriteLine($"  GameObjects:  {Count("GameObjects"),6}");
+        Console.WriteLine($"  Rooms:        {Count("Rooms"),6}");
+        Console.WriteLine($"  Backgrounds:  {Count("Backgrounds"),6}");
+        Console.WriteLine($"  Fonts:        {Count("Fonts"),6}");
+        Console.WriteLine($"  Scripts:      {Count("Scripts"),6}");
+        Console.WriteLine($"  Shaders:      {Count("Shaders"),6}");
+        Console.WriteLine($"  Paths:        {Count("Paths"),6}");
+        Console.WriteLine($"  Timelines:    {Count("Timelines"),6}");
+        Console.WriteLine($"  Extensions:   {Count("Extensions"),6}");
+        Console.WriteLine($"  Variables:    {Count("Variables"),6}");
+        Console.WriteLine($"  Functions:    {Count("Functions"),6}");
+        Console.WriteLine($"  Strings:      {Count("Strings"),6}");
+        Console.WriteLine($"  AudioGroups:  {Count("AudioGroups"),6}");
+        Console.WriteLine($"  EmbTextures:  {Count("EmbeddedTextures"),6}");
+        Console.WriteLine($"  TexPageItems: {Count("TexturePageItems"),6}");
+        Console.WriteLine($"  TexGroupInfo: {Count("TextureGroupInfo"),6}");
+        Console.WriteLine($"  Tilesets:     {Count("Tilesets"),6}");
+
+        PrintGeneralInfoSnapshot(info.GeneralInfo);
+        if (info.VariablesByInstanceType.Count > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("Variables by InstanceType:");
+            foreach (var (key, count) in info.VariablesByInstanceType.OrderByDescending(kvp => kvp.Value))
+                Console.WriteLine($"  {key,-12} {count,6}");
+        }
+        if (info.FirstFunction != null || info.LastFunction != null)
+        {
+            Console.WriteLine();
+            Console.WriteLine("Functions (first/last):");
+            Console.WriteLine($"  [0]    {info.FirstFunction}");
+            Console.WriteLine($"  [{Math.Max(Count("Functions") - 1, 0)}] {info.LastFunction}");
+        }
+        if (Count("Code") > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine($"Code entries: {info.TopLevelCodeCount} top-level, {info.ChildCodeCount} child");
+        }
+        if (info.AudioGroups.Count > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("AudioGroups:");
+            for (int i = 0; i < info.AudioGroups.Count; i++)
+                Console.WriteLine($"  [{i}] {info.AudioGroups[i]}");
+        }
+        if (info.Extensions.Count > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("Extensions:");
+            foreach (var ext in info.Extensions)
+                Console.WriteLine($"  {ext}");
+        }
+        if (info.RoomOrderCount > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine($"Room order ({info.RoomOrderCount} rooms):");
+            for (int i = 0; i < info.RoomOrderPreview.Count; i++)
+                Console.WriteLine($"  [{i}] {info.RoomOrderPreview[i]}");
+            if (info.RoomOrderCount > info.RoomOrderPreview.Count)
+                Console.WriteLine($"  ... and {info.RoomOrderCount - info.RoomOrderPreview.Count} more");
+        }
+    }
+
+    private static void PrintGeneralInfoSnapshot(GeneralInfoData? generalInfo)
+    {
+        if (generalInfo == null)
+            return;
+
+        Console.WriteLine();
+        Console.WriteLine("GeneralInfo:");
+        Console.WriteLine($"  DisplayName: {generalInfo.DisplayName}");
+        Console.WriteLine($"  Name:        {generalInfo.Name}");
+        Console.WriteLine($"  FileName:    {generalInfo.FileName}");
+        Console.WriteLine($"  Config:      {generalInfo.Config}");
+        Console.WriteLine($"  GameID:      {generalInfo.GameID}");
+        Console.WriteLine($"  Version:     {generalInfo.Major}.{generalInfo.Minor}.{generalInfo.Release}.{generalInfo.Build}");
     }
 
     private static readonly string[] EventTypeNames =
@@ -511,7 +622,7 @@ public static class InfoCommand
                 if (verbose)
                 {
                     Console.WriteLine();
-                    Console.WriteLine("Archive contents:");
+                    Console.WriteLine("Patch contents:");
                     foreach (var entry in entries.Take(50))
                         Console.WriteLine($"  {entry}");
                     if (entries.Count > 50)
@@ -520,7 +631,7 @@ public static class InfoCommand
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"Failed to read patch archive: {ex.Message}");
+                Console.Error.WriteLine($"Failed to read patch file: {ex.Message}");
                 Environment.ExitCode = 1;
             }
             return;

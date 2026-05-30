@@ -3,28 +3,28 @@ using System.CommandLine.Builder;
 using System.CommandLine.Parsing;
 using G3MToolCLI.Commands;
 using G3MToolCLI.Services;
+using G3MToolCLI.Utils;
 
 namespace G3MToolCLI;
 
 class Program
 {
     public static bool JsonOutput { get; set; }
+    public static string? XDeltaPathOverride { get; private set; }
 
     static async Task<int> Main(string[] args)
     {
-        var rootCommand = new RootCommand("Cross-platform tool for various actions with GameMaker data files.")
+        var rootCommand = new RootCommand("Create, apply, merge, inspect, and compare GameMaker data-file patches.")
         {
             Name = "G3MTool"
         };
 
-        // Add commands
         rootCommand.AddCommand(XPatchCommand.Create());
         rootCommand.AddCommand(ExecuteCommand.Create());
         rootCommand.AddCommand(PatchCommand.Create());
         rootCommand.AddCommand(InfoCommand.Create());
         rootCommand.AddCommand(DiffCommand.Create());
 
-        // Global options
         var verboseOption = new Option<bool>(
             aliases: ["--verbose", "-v"],
             description: "Enable verbose output");
@@ -36,12 +36,15 @@ class Program
 
         var jsonOption = new Option<bool>(
             name: "--json",
-            description: "Output in JSON format (for info, patch validate)");
+            description: "Output machine-readable JSON for supported commands");
+        var xdeltaPathOption = new Option<string?>(
+            name: "--xdelta-path",
+            description: "Use this xdelta executable instead of the bundled binary.");
 
         rootCommand.AddGlobalOption(logOption);
         rootCommand.AddGlobalOption(jsonOption);
+        rootCommand.AddGlobalOption(xdeltaPathOption);
 
-        // Build parser with middleware to apply global options before any command handler
         var parser = new CommandLineBuilder(rootCommand)
             .UseDefaults()
             .UseVersionOption(["--version", "-V"])
@@ -50,11 +53,22 @@ class Program
                 var parseResult = context.ParseResult;
                 LogService.Verbose = parseResult.GetValueForOption(verboseOption);
                 JsonOutput = parseResult.GetValueForOption(jsonOption);
-                await next(context);
+                XDeltaPathOverride = parseResult.GetValueForOption(xdeltaPathOption);
+                LogService.Suppress = JsonOutput;
+                var requestedLogPath = parseResult.GetValueForOption(logOption);
+                var resolvedLogPath = ResolveLogPath(parseResult.CommandResult.Command.Name, requestedLogPath);
+                LogService.SetFileLogging(resolvedLogPath);
+                try
+                {
+                    await next(context);
+                }
+                finally
+                {
+                    LogService.Shutdown();
+                }
             })
             .Build();
 
-        // Interactive mode when no arguments provided
         if (args.Length == 0)
         {
             return await RunInteractiveMode(parser);
@@ -162,5 +176,20 @@ class Program
         }
 
         return [.. args];
+    }
+
+    static string? ResolveLogPath(string commandName, string? requestedPath)
+    {
+        if (string.IsNullOrWhiteSpace(requestedPath))
+            return null;
+
+        if (!requestedPath.Equals("default", StringComparison.OrdinalIgnoreCase))
+            return Path.GetFullPath(requestedPath);
+
+        var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+        return Path.Combine(
+            PlatformUtil.GetExecutableDirectory(),
+            "logs",
+            $"{commandName}_{timestamp}.log");
     }
 }

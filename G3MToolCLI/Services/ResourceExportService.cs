@@ -5,6 +5,7 @@ using ImageMagick;
 using UndertaleModLib;
 using UndertaleModLib.Decompiler;
 using UndertaleModLib.Models;
+using UndertaleModLib.Project;
 using UndertaleModLib.Util;
 
 namespace G3MToolCLI.Services;
@@ -59,11 +60,22 @@ public static class ResourceExportService
         // Always export these (tiny, no filter needed)
         sw.Restart();
         if (changedNames.ContainsKey("GeneralInfo")) ExportGeneralInfo(data, outputDir);
+        if (changedNames.ContainsKey("Options")) ExportOptions(data, outputDir);
+        if (changedNames.ContainsKey("GlobalScripts")) ExportGlobalScripts(data, outputDir);
+        if (changedNames.ContainsKey("Language")) ExportLanguage(data, outputDir);
+        if (changedNames.ContainsKey("FeatureFlags")) ExportFeatureFlags(data, outputDir);
+        if (changedNames.ContainsKey("Tags")) ExportTags(data, outputDir);
+        if (changedNames.ContainsKey("FilterEffects")) ExportFilterEffects(data, outputDir, changedNames.GetValueOrDefault("FilterEffects"));
+        if (changedNames.ContainsKey("EmbeddedAudio")) ExportEmbeddedAudio(data, outputDir, changedNames.GetValueOrDefault("EmbeddedAudio"));
         if (changedNames.ContainsKey("TextureGroupInfo")) ExportTextureGroupInfo(data, outputDir);
+        if (changedNames.ContainsKey("EmbeddedTextures")) ExportEmbeddedTextures(data, outputDir, changedNames.GetValueOrDefault("EmbeddedTextures"));
+        if (changedNames.ContainsKey("TexturePageItems")) ExportTexturePageItems(data, outputDir);
+        if (changedNames.ContainsKey("EmbeddedImages")) ExportEmbeddedImages(data, outputDir, changedNames.GetValueOrDefault("EmbeddedImages"));
         if (changedNames.ContainsKey("Extensions")) ExportExtensions(data, outputDir);
         LogService.Log($"[Export Timing] Small types: {sw.Elapsed.TotalSeconds:F1}s");
 
         Time("AudioGroups", () => ExportAudioGroups(data, outputDir, changedNames.GetValueOrDefault("AudioGroups")));
+        Time("Scripts", () => ExportScripts(data, outputDir, changedNames.GetValueOrDefault("Scripts")));
         Time("Sprites", () => ExportSprites(data, outputDir, changedNames.GetValueOrDefault("Sprites")));
         Time("Backgrounds", () => ExportBackgrounds(data, outputDir, changedNames.GetValueOrDefault("Backgrounds")));
         Time("Fonts", () => ExportFonts(data, outputDir, changedNames.GetValueOrDefault("Fonts")));
@@ -73,7 +85,11 @@ public static class ResourceExportService
         Time("Shaders", () => ExportShaders(data, outputDir, changedNames.GetValueOrDefault("Shaders")));
         Time("Timelines", () => ExportTimelines(data, outputDir, changedNames.GetValueOrDefault("Timelines")));
         Time("GameObjects", () => ExportGameObjects(data, outputDir, changedNames.GetValueOrDefault("GameObjects")));
+        Time("ParticleSystemEmitters", () => ExportParticleSystemEmitters(data, outputDir, changedNames.GetValueOrDefault("ParticleSystemEmitters")));
+        Time("ParticleSystems", () => ExportParticleSystems(data, outputDir, changedNames.GetValueOrDefault("ParticleSystems")));
+        Time("Sequences", () => ExportSequences(data, outputDir, changedNames.GetValueOrDefault("Sequences")));
         Time("Rooms", () => ExportRooms(data, outputDir, changedNames.GetValueOrDefault("Rooms")));
+        Time("AnimationCurves", () => ExportAnimationCurves(data, outputDir, changedNames.GetValueOrDefault("AnimationCurves")));
 
         totalSw.Stop();
         LogService.Log($"[Export Timing] TOTAL (selective, excl. code): {totalSw.Elapsed.TotalSeconds:F1}s");
@@ -93,8 +109,19 @@ public static class ResourceExportService
         switch (resourceType)
         {
             case "GeneralInfo": ExportGeneralInfo(data, outputDir); break;
+            case "Options": ExportOptions(data, outputDir); break;
+            case "GlobalScripts": ExportGlobalScripts(data, outputDir); break;
+            case "Scripts": ExportScripts(data, outputDir); break;
+            case "Language": ExportLanguage(data, outputDir); break;
+            case "FeatureFlags": ExportFeatureFlags(data, outputDir); break;
+            case "Tags": ExportTags(data, outputDir); break;
+            case "FilterEffects": ExportFilterEffects(data, outputDir); break;
             case "AudioGroups": ExportAudioGroups(data, outputDir); break;
+            case "EmbeddedAudio": ExportEmbeddedAudio(data, outputDir); break;
             case "TextureGroupInfo": ExportTextureGroupInfo(data, outputDir); break;
+            case "EmbeddedTextures": ExportEmbeddedTextures(data, outputDir); break;
+            case "TexturePageItems": ExportTexturePageItems(data, outputDir); break;
+            case "EmbeddedImages": ExportEmbeddedImages(data, outputDir); break;
             case "Sprites": ExportSprites(data, outputDir); break;
             case "Backgrounds": ExportBackgrounds(data, outputDir); break;
             case "Fonts": ExportFonts(data, outputDir); break;
@@ -104,7 +131,11 @@ public static class ResourceExportService
             case "Shaders": ExportShaders(data, outputDir); break;
             case "Timelines": ExportTimelines(data, outputDir); break;
             case "GameObjects": ExportGameObjects(data, outputDir); break;
+            case "ParticleSystemEmitters": ExportParticleSystemEmitters(data, outputDir); break;
+            case "ParticleSystems": ExportParticleSystems(data, outputDir); break;
+            case "Sequences": ExportSequences(data, outputDir); break;
             case "Rooms": ExportRooms(data, outputDir); break;
+            case "AnimationCurves": ExportAnimationCurves(data, outputDir); break;
             case "CodeEntries": ExportCodeEntries(data, outputDir); break;
             case "Extensions": ExportExtensions(data, outputDir); break;
         }
@@ -211,6 +242,266 @@ public static class ResourceExportService
         w.WriteEndObject();
     }
 
+    public static void ExportOptions(UndertaleData data, string outputDir)
+    {
+        if (data.Options == null) return;
+
+        var dir = EnsureDir(outputDir, "Options");
+        var options = data.Options;
+        var payload = new Dictionary<string, object?>
+        {
+            ["newFormat"] = options.NewFormat,
+            ["shaderExtensionFlag"] = options.ShaderExtensionFlag,
+            ["shaderExtensionVersion"] = options.ShaderExtensionVersion,
+            ["info"] = (ulong)options.Info,
+            ["scale"] = options.Scale,
+            ["windowColor"] = options.WindowColor,
+            ["colorDepth"] = options.ColorDepth,
+            ["resolution"] = options.Resolution,
+            ["frequency"] = options.Frequency,
+            ["vertexSync"] = options.VertexSync,
+            ["priority"] = options.Priority,
+            ["loadAlpha"] = options.LoadAlpha,
+            ["constants"] = options.Constants?.Select(c => new Dictionary<string, object?>
+            {
+                ["name"] = c?.Name?.Content ?? "",
+                ["value"] = c?.Value?.Content ?? ""
+            }).ToArray() ?? []
+        };
+
+        File.WriteAllText(Path.Combine(dir, "options.json"), JsonSerializer.Serialize(payload, s_jsonOpts));
+    }
+
+    public static void ExportGlobalScripts(UndertaleData data, string outputDir)
+    {
+        var dir = EnsureDir(outputDir, "GlobalScripts");
+        var payload = new Dictionary<string, object?>
+        {
+            ["globalInitScripts"] = data.GlobalInitScripts?.Select(s => s?.Code?.Name?.Content ?? "").ToArray() ?? [],
+            ["gameEndScripts"] = data.GameEndScripts?.Select(s => s?.Code?.Name?.Content ?? "").ToArray() ?? []
+        };
+
+        File.WriteAllText(Path.Combine(dir, "global_scripts.json"), JsonSerializer.Serialize(payload, s_jsonOpts));
+    }
+
+    public static void ExportScripts(UndertaleData data, string outputDir, HashSet<string>? filter = null)
+    {
+        if (data.Scripts == null) return;
+        var dir = EnsureDir(outputDir, "Scripts");
+        var entries = BuildUniqueExportNames(
+            data.Scripts
+                .Where(script => script?.Name?.Content != null)
+                .Select(script => (script!, script!.Name.Content))
+                .ToList());
+
+        if (filter != null)
+        {
+            entries = [.. entries
+                .Where(entry =>
+                    filter.Contains(entry.ExportName) ||
+                    filter.Contains(entry.Item.Name.Content))];
+        }
+
+        Parallel.ForEach(entries, entry =>
+        {
+            var script = entry.Item;
+            var name = entry.ExportName;
+            var resDir = Path.Combine(dir, name);
+            Directory.CreateDirectory(resDir);
+            var payload = new Dictionary<string, object?>
+            {
+                ["name"] = script.Name.Content,
+                ["code"] = script.Code?.Name?.Content ?? "",
+                ["isConstructor"] = script.IsConstructor
+            };
+            File.WriteAllText(Path.Combine(resDir, name + ".json"), JsonSerializer.Serialize(payload, s_jsonOpts));
+        });
+    }
+
+    private static List<(T Item, string ExportName)> BuildUniqueExportNames<T>(List<(T Item, string Name)> items)
+    {
+        var used = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var result = new List<(T Item, string ExportName)>(items.Count);
+
+        foreach (var (item, originalName) in items)
+        {
+            var safeName = SafeName(originalName);
+            if (string.IsNullOrWhiteSpace(safeName))
+                safeName = "_";
+
+            if (!used.TryGetValue(safeName, out var count))
+            {
+                used[safeName] = 1;
+                result.Add((item, safeName));
+                continue;
+            }
+
+            string uniqueName;
+            do
+            {
+                count++;
+                uniqueName = $"{safeName}__{count}";
+            }
+            while (used.ContainsKey(uniqueName));
+
+            used[safeName] = count;
+            used[uniqueName] = 1;
+            result.Add((item, uniqueName));
+        }
+
+        return result;
+    }
+
+    public static void ExportEmbeddedImages(UndertaleData data, string outputDir, HashSet<string>? filter = null)
+    {
+        if (data.EmbeddedImages == null) return;
+        var dir = EnsureDir(outputDir, "EmbeddedImages");
+
+        Parallel.ForEach(data.EmbeddedImages.ToList(), image =>
+        {
+            if (image?.Name?.Content == null) return;
+            if (filter != null && !filter.Contains(image.Name.Content)) return;
+
+            var name = SafeName(image.Name.Content);
+            var resDir = Path.Combine(dir, name);
+            Directory.CreateDirectory(resDir);
+            var payload = new Dictionary<string, object?>
+            {
+                ["name"] = image.Name.Content,
+                ["texturePageItemIndex"] = image.TextureEntry != null && data.TexturePageItems != null
+                    ? data.TexturePageItems.IndexOf(image.TextureEntry)
+                    : -1,
+                ["texturePageItemName"] = image.TextureEntry?.Name?.Content ?? ""
+            };
+            File.WriteAllText(Path.Combine(resDir, name + ".json"), JsonSerializer.Serialize(payload, s_jsonOpts));
+        });
+    }
+
+    public static void ExportFeatureFlags(UndertaleData data, string outputDir)
+    {
+        if (data.FeatureFlags?.List == null) return;
+
+        var dir = EnsureDir(outputDir, "FeatureFlags");
+        var flags = data.FeatureFlags.List.Select(f => f?.Content ?? "").ToArray();
+        File.WriteAllText(Path.Combine(dir, "feature_flags.json"),
+            JsonSerializer.Serialize(flags, s_jsonOpts));
+    }
+
+    public static void ExportLanguage(UndertaleData data, string outputDir)
+    {
+        if (data.Language == null) return;
+
+        var dir = EnsureDir(outputDir, "Language");
+        var payload = new Dictionary<string, object?>
+        {
+            ["unknown1"] = data.Language.Unknown1,
+            ["entryIds"] = data.Language.EntryIDs?.Select(e => e?.Content ?? "").ToArray() ?? [],
+            ["languages"] = data.Language.Languages?.Where(l => l != null).Select(language => new Dictionary<string, object?>
+            {
+                ["name"] = language.Name?.Content ?? "",
+                ["region"] = language.Region?.Content ?? "",
+                ["entries"] = language.Entries?.Select(e => e?.Content ?? "").ToArray() ?? []
+            }).ToArray() ?? []
+        };
+
+        File.WriteAllText(Path.Combine(dir, "language.json"),
+            JsonSerializer.Serialize(payload, s_jsonOpts));
+    }
+
+    public static void ExportTags(UndertaleData data, string outputDir)
+    {
+        if (data.Tags == null) return;
+
+        var dir = EnsureDir(outputDir, "Tags");
+        var assetTags = new List<Dictionary<string, object?>>();
+        if (data.Tags.AssetTags != null)
+        {
+            foreach (var (assetId, tags) in data.Tags.AssetTags.OrderBy(kvp => kvp.Key))
+            {
+                var decoded = DecodeAssetTagId(data, assetId);
+                assetTags.Add(new Dictionary<string, object?>
+                {
+                    ["assetId"] = assetId,
+                    ["assetType"] = decoded.Type,
+                    ["assetIndex"] = decoded.Index,
+                    ["assetName"] = decoded.Name,
+                    ["tags"] = tags?.Select(t => t?.Content ?? "").ToArray() ?? []
+                });
+            }
+        }
+
+        var payload = new Dictionary<string, object?>
+        {
+            ["tags"] = data.Tags.Tags?.Select(t => t?.Content ?? "").ToArray() ?? [],
+            ["assetTags"] = assetTags
+        };
+
+        File.WriteAllText(Path.Combine(dir, "tags.json"),
+            JsonSerializer.Serialize(payload, s_jsonOpts));
+    }
+
+    public static void ExportFilterEffects(UndertaleData data, string outputDir, HashSet<string>? filter = null)
+    {
+        var items = data.FilterEffects?.ToList();
+        if (items == null || items.Count == 0) return;
+        var dir = EnsureDir(outputDir, "FilterEffects");
+
+        Parallel.ForEach(items, effect =>
+        {
+            if (effect?.Name?.Content == null) return;
+            if (filter != null && !filter.Contains(effect.Name.Content)) return;
+
+            try
+            {
+                var name = SafeName(effect.Name.Content);
+                var effectDir = Path.Combine(dir, name);
+                Directory.CreateDirectory(effectDir);
+                var payload = new Dictionary<string, object?>
+                {
+                    ["name"] = effect.Name.Content,
+                    ["value"] = effect.Value?.Content ?? ""
+                };
+                File.WriteAllText(Path.Combine(effectDir, name + ".json"),
+                    JsonSerializer.Serialize(payload, s_jsonOpts),
+                    Encoding.UTF8);
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"[ExportFilterEffects] Failed to export '{effect.Name.Content}': {ex.Message}");
+            }
+        });
+    }
+
+    private static (string Type, int Index, string Name) DecodeAssetTagId(UndertaleData data, int assetId)
+    {
+        var type = (ResourceType)(assetId >> 24);
+        int rawIndex = assetId & 0xFFFFFF;
+        int index = type == ResourceType.Script ? rawIndex - 100000 : rawIndex;
+        string name = GetAssetNameByTagType(data, type, index) ?? "";
+        return (type.ToString(), index, name);
+    }
+
+    private static string? GetAssetNameByTagType(UndertaleData data, ResourceType type, int index)
+    {
+        return type switch
+        {
+            ResourceType.Object when index >= 0 && index < data.GameObjects.Count => data.GameObjects[index]?.Name?.Content,
+            ResourceType.Sprite when index >= 0 && index < data.Sprites.Count => data.Sprites[index]?.Name?.Content,
+            ResourceType.Sound when index >= 0 && index < data.Sounds.Count => data.Sounds[index]?.Name?.Content,
+            ResourceType.Room when index >= 0 && index < data.Rooms.Count => data.Rooms[index]?.Name?.Content,
+            ResourceType.Path when index >= 0 && index < data.Paths.Count => data.Paths[index]?.Name?.Content,
+            ResourceType.Script when index >= 0 && index < data.Scripts.Count => data.Scripts[index]?.Name?.Content,
+            ResourceType.Font when index >= 0 && index < data.Fonts.Count => data.Fonts[index]?.Name?.Content,
+            ResourceType.Timeline when index >= 0 && index < data.Timelines.Count => data.Timelines[index]?.Name?.Content,
+            ResourceType.Background when index >= 0 && index < data.Backgrounds.Count => data.Backgrounds[index]?.Name?.Content,
+            ResourceType.Shader when index >= 0 && index < data.Shaders.Count => data.Shaders[index]?.Name?.Content,
+            ResourceType.Sequence when data.Sequences != null && index >= 0 && index < data.Sequences.Count => data.Sequences[index]?.Name?.Content,
+            ResourceType.AnimCurve when data.AnimationCurves != null && index >= 0 && index < data.AnimationCurves.Count => data.AnimationCurves[index]?.Name?.Content,
+            ResourceType.ParticleSystem when data.ParticleSystems != null && index >= 0 && index < data.ParticleSystems.Count => data.ParticleSystems[index]?.Name?.Content,
+            _ => null
+        };
+    }
+
     // ────────────────────────────────────────────────────────────────
     // AudioGroups
     // ────────────────────────────────────────────────────────────────
@@ -315,26 +606,44 @@ public static class ResourceExportService
     // EmbeddedTextures
     // ────────────────────────────────────────────────────────────────
 
-    public static void ExportEmbeddedTextures(UndertaleData data, string outputDir)
+    public static void ExportEmbeddedTextures(UndertaleData data, string outputDir, HashSet<string>? filter = null)
     {
         if (data.EmbeddedTextures == null || data.EmbeddedTextures.Count == 0) return;
         var dir = EnsureDir(outputDir, "EmbeddedTextures");
 
         Parallel.For(0, data.EmbeddedTextures.Count, i =>
         {
+            var texName = $"texture_{i:D4}";
+            if (filter != null && !filter.Contains(texName))
+                return;
+
             var tex = data.EmbeddedTextures[i];
             try
             {
-                var texName = $"texture_{i:D4}";
                 var texDir = Path.Combine(dir, texName);
                 Directory.CreateDirectory(texDir);
 
                 if (tex.TextureData?.Image != null)
                 {
-                    using var img = tex.TextureData.Image.GetMagickImage();
-                    img.Strip();
-                    var pngBytes = GMImage.FromMagickImage(img).ConvertToPng().GetData();
-                    File.WriteAllBytes(Path.Combine(texDir, texName + ".png"), pngBytes);
+                    bool wroteExactBinary = false;
+                    try
+                    {
+                        var exactBytes = tex.TextureData.Image.ToSpan(data.IsVersionAtLeast(2022, 5)).ToArray();
+                        File.WriteAllBytes(Path.Combine(texDir, texName + ".bin"), exactBytes);
+                        wroteExactBinary = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        LogService.Warning($"[ExportEmbeddedTextures] Binary export failed for {texName}, keeping PNG payload: {ex.Message}");
+                    }
+
+                    if (!wroteExactBinary)
+                    {
+                        using var img = tex.TextureData.Image.GetMagickImage();
+                        img.Strip();
+                        var pngBytes = GMImage.FromMagickImage(img).ConvertToPng().GetData();
+                        File.WriteAllBytes(Path.Combine(texDir, texName + ".png"), pngBytes);
+                    }
                 }
 
                 var meta = new Dictionary<string, object>
@@ -348,8 +657,54 @@ public static class ResourceExportService
                 File.WriteAllText(Path.Combine(texDir, texName + ".json"),
                     JsonSerializer.Serialize(meta, s_jsonOpts), Encoding.UTF8);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                LogService.Warning($"[ExportEmbeddedTextures] Failed to export {texName}: {ex.Message}");
+            }
         });
+    }
+
+    public static void ExportTexturePageItems(UndertaleData data, string outputDir)
+    {
+        if (data.TexturePageItems == null) return;
+
+        var dir = EnsureDir(outputDir, "TexturePageItems");
+        var embeddedTextureIndices = BuildReferenceIndex(data.EmbeddedTextures);
+        var texturePageItems = new List<Dictionary<string, object?>>(data.TexturePageItems.Count);
+
+        for (int i = 0; i < data.TexturePageItems.Count; i++)
+        {
+            var tpi = data.TexturePageItems[i];
+            if (tpi == null)
+            {
+                texturePageItems.Add(new Dictionary<string, object?> { ["index"] = i, ["isNull"] = true });
+                continue;
+            }
+
+            int texIdx = tpi.TexturePage != null && embeddedTextureIndices.TryGetValue(tpi.TexturePage, out var textureIndex)
+                ? textureIndex
+                : -1;
+
+            texturePageItems.Add(new Dictionary<string, object?>
+            {
+                ["index"] = i,
+                ["name"] = tpi.Name?.Content ?? "",
+                ["texturePageIndex"] = texIdx,
+                ["sourceX"] = tpi.SourceX,
+                ["sourceY"] = tpi.SourceY,
+                ["sourceWidth"] = tpi.SourceWidth,
+                ["sourceHeight"] = tpi.SourceHeight,
+                ["targetX"] = tpi.TargetX,
+                ["targetY"] = tpi.TargetY,
+                ["targetWidth"] = tpi.TargetWidth,
+                ["targetHeight"] = tpi.TargetHeight,
+                ["boundingWidth"] = tpi.BoundingWidth,
+                ["boundingHeight"] = tpi.BoundingHeight
+            });
+        }
+
+        File.WriteAllText(Path.Combine(dir, "texture_page_items.json"),
+            JsonSerializer.Serialize(texturePageItems, s_jsonOpts));
     }
 
     // ────────────────────────────────────────────────────────────────
@@ -629,7 +984,7 @@ public static class ResourceExportService
             }
             var agName = data.AudioGroups[gid]?.Name?.Content;
             if (agName == null) { audioGroupData[gid] = null; continue; }
-            var agPath = Path.Combine(dataDir, $"audiogroup{gid}.dat");
+            var agPath = ResolveAudioGroupPath(data, dataDir, gid);
             if (!File.Exists(agPath)) { audioGroupData[gid] = null; continue; }
             audioGroupData[gid] = null; // placeholder - loaded per-sound below
         }
@@ -644,8 +999,17 @@ public static class ResourceExportService
                 var resDir = Path.Combine(dir, name);
                 Directory.CreateDirectory(resDir);
 
+                bool isInternalEmbeddedAudio = sound.GroupID <= 0 &&
+                    sound.AudioFile != null &&
+                    sound.AudioFile.Data != null &&
+                    sound.AudioFile.Data.Length > 0 &&
+                    sound.AudioID >= 0;
+
                 // Export audio data
-                if (sound.AudioFile != null && sound.AudioFile.Data != null && sound.AudioFile.Data.Length > 0)
+                if (!isInternalEmbeddedAudio &&
+                    sound.AudioFile != null &&
+                    sound.AudioFile.Data != null &&
+                    sound.AudioFile.Data.Length > 0)
                 {
                     var ext = sound.Type?.Content ?? ".ogg";
                     if (!ext.StartsWith('.')) ext = "." + ext;
@@ -654,7 +1018,7 @@ public static class ResourceExportService
                 else if (sound.GroupID > 0 && data.AudioGroups != null && sound.GroupID < data.AudioGroups.Count)
                 {
                     // Try loading from audiogroup dat
-                    var agPath = Path.Combine(dataDir, $"audiogroup{sound.GroupID}.dat");
+                    var agPath = ResolveAudioGroupPath(data, dataDir, sound.GroupID);
                     if (File.Exists(agPath))
                     {
                         try
@@ -687,12 +1051,74 @@ public static class ResourceExportService
                 w.WriteNumber("effects", (uint)sound.Effects);
                 w.WriteNumber("volume", sound.Volume);
                 w.WriteNumber("pitch", sound.Pitch);
+                w.WriteBoolean("preload", sound.Preload);
                 w.WriteNumber("audioID", sound.AudioID);
                 w.WriteNumber("groupID", sound.GroupID);
                 w.WriteNumber("flags", (uint)sound.Flags);
+                if (data.IsVersionAtLeast(2024, 6))
+                    w.WriteNumber("audioLength", sound.AudioLength);
                 if (sound.AudioGroup?.Name?.Content != null)
                     w.WriteString("audioGroupName", sound.AudioGroup.Name.Content);
                 w.WriteEndObject();
+            }
+            catch { }
+        });
+    }
+
+    private static string? ResolveAudioGroupPath(UndertaleData data, string dataDir, int groupId)
+    {
+        string relativePath = $"audiogroup{groupId}.dat";
+        if (data.AudioGroups != null &&
+            groupId >= 0 &&
+            groupId < data.AudioGroups.Count &&
+            !string.IsNullOrWhiteSpace(data.AudioGroups[groupId]?.Path?.Content))
+        {
+            relativePath = data.AudioGroups[groupId].Path.Content;
+        }
+
+        try
+        {
+            string baseDir = Path.GetFullPath(dataDir);
+            string fullPath = Path.GetFullPath(Path.Combine(baseDir, relativePath));
+            if (!fullPath.StartsWith(baseDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar,
+                    StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(fullPath, baseDir, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+            return fullPath;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public static void ExportEmbeddedAudio(UndertaleData data, string outputDir, HashSet<string>? filter = null)
+    {
+        if (data.EmbeddedAudio == null || data.EmbeddedAudio.Count == 0) return;
+        var dir = EnsureDir(outputDir, "EmbeddedAudio");
+
+        Parallel.For(0, data.EmbeddedAudio.Count, i =>
+        {
+            string name = $"audio_{i:D4}";
+            if (filter != null && !filter.Contains(name))
+                return;
+
+            try
+            {
+                var audio = data.EmbeddedAudio[i];
+                var audioDir = Path.Combine(dir, name);
+                Directory.CreateDirectory(audioDir);
+
+                File.WriteAllBytes(Path.Combine(audioDir, name + ".bin"), audio?.Data ?? []);
+                var meta = new Dictionary<string, object>
+                {
+                    ["index"] = i,
+                    ["bytes"] = audio?.Data?.Length ?? 0
+                };
+                File.WriteAllText(Path.Combine(audioDir, name + ".json"),
+                    JsonSerializer.Serialize(meta, s_jsonOpts), Encoding.UTF8);
             }
             catch { }
         });
@@ -749,51 +1175,110 @@ public static class ResourceExportService
         if (items.Count == 0) return;
         var dir = EnsureDir(outputDir, "Tilesets");
         bool exportAllTilesets = filter == null || filter.Contains("Tilesets");
+        var selectedItems = items
+            .Where(ts => ts?.Name?.Content != null && (exportAllTilesets || filter!.Contains(ts.Name.Content)))
+            .ToList();
+        if (selectedItems.Count == 0) return;
 
         using var worker = new TextureWorker();
-        Parallel.ForEach(items, ts =>
+        var noTextureItems = selectedItems.Where(ts => ts!.Texture == null).ToList();
+        var groupedByTexturePage = selectedItems
+            .Where(ts => ts!.Texture?.TexturePage != null)
+            .GroupBy(ts => ts!.Texture!.TexturePage)
+            .ToList();
+
+        Parallel.ForEach(groupedByTexturePage, group =>
         {
-            if (ts?.Name?.Content == null) return;
-            if (!exportAllTilesets && !filter!.Contains(ts.Name.Content)) return;
             try
             {
-                var name = SafeName(ts.Name.Content);
-                if (ts.Texture != null) worker.ExportAsPNG(ts.Texture, Path.Combine(dir, name + ".png"));
+                var embeddedImage = worker.GetEmbeddedTexture(group.Key);
+                foreach (var ts in group)
+                {
+                    if (ts?.Name?.Content == null || ts.Texture == null)
+                        continue;
 
-                var meta = new Dictionary<string, object>
-                {
-                    ["name"] = ts.Name?.Content ?? "",
-                    ["transparent"] = ts.Transparent,
-                    ["smooth"] = ts.Smooth,
-                    ["preload"] = ts.Preload,
-                    ["gms2UnknownAlways2"] = ts.GMS2UnknownAlways2,
-                    ["gms2TileWidth"] = ts.GMS2TileWidth,
-                    ["gms2TileHeight"] = ts.GMS2TileHeight,
-                    ["gms2OutputBorderX"] = ts.GMS2OutputBorderX,
-                    ["gms2OutputBorderY"] = ts.GMS2OutputBorderY,
-                    ["gms2TileColumns"] = ts.GMS2TileColumns,
-                    ["gms2ItemsPerTileCount"] = ts.GMS2ItemsPerTileCount,
-                    ["gms2TileCount"] = ts.GMS2TileCount,
-                    ["gms2ExportedSpriteIndex"] = ts.GMS2ExportedSpriteIndex,
-                    ["gms2FrameLength"] = ts.GMS2FrameLength
-                };
-                if (data.IsVersionAtLeast(2024, 14, 1))
-                {
-                    meta["gms2TileSeparationX"] = ts.GMS2TileSeparationX;
-                    meta["gms2TileSeparationY"] = ts.GMS2TileSeparationY;
+                    var name = SafeName(ts.Name.Content);
+                    using var image = ExportTexturePageItemFromCachedImage(embeddedImage, ts.Texture, name);
+                    TextureWorker.SaveImageToFile(image, Path.Combine(dir, name + ".png"));
+                    WriteTilesetMetadata(data, dir, ts, name);
                 }
-                if (ts.GMS2TileIds?.Count > 0)
-                {
-                    var ids = new List<uint>();
-                    foreach (var tid in ts.GMS2TileIds) ids.Add(tid.ID);
-                    meta["gms2TileIds"] = ids;
-                }
-
-                File.WriteAllText(Path.Combine(dir, name + ".json"),
-                    JsonSerializer.Serialize(meta, s_jsonOpts), Encoding.UTF8);
             }
             catch { }
         });
+
+        Parallel.ForEach(noTextureItems, ts =>
+        {
+            if (ts?.Name?.Content == null) return;
+            try
+            {
+                var name = SafeName(ts.Name.Content);
+                WriteTilesetMetadata(data, dir, ts, name);
+            }
+            catch { }
+        });
+    }
+
+    private static void WriteTilesetMetadata(UndertaleData data, string dir, UndertaleBackground ts, string name)
+    {
+        var meta = new Dictionary<string, object>
+        {
+            ["name"] = ts.Name?.Content ?? "",
+            ["transparent"] = ts.Transparent,
+            ["smooth"] = ts.Smooth,
+            ["preload"] = ts.Preload,
+            ["gms2UnknownAlways2"] = ts.GMS2UnknownAlways2,
+            ["gms2TileWidth"] = ts.GMS2TileWidth,
+            ["gms2TileHeight"] = ts.GMS2TileHeight,
+            ["gms2OutputBorderX"] = ts.GMS2OutputBorderX,
+            ["gms2OutputBorderY"] = ts.GMS2OutputBorderY,
+            ["gms2TileColumns"] = ts.GMS2TileColumns,
+            ["gms2ItemsPerTileCount"] = ts.GMS2ItemsPerTileCount,
+            ["gms2TileCount"] = ts.GMS2TileCount,
+            ["gms2ExportedSpriteIndex"] = ts.GMS2ExportedSpriteIndex,
+            ["gms2FrameLength"] = ts.GMS2FrameLength
+        };
+        if (data.IsVersionAtLeast(2024, 14, 1))
+        {
+            meta["gms2TileSeparationX"] = ts.GMS2TileSeparationX;
+            meta["gms2TileSeparationY"] = ts.GMS2TileSeparationY;
+        }
+        if (ts.GMS2TileIds?.Count > 0)
+        {
+            var ids = new List<uint>();
+            foreach (var tid in ts.GMS2TileIds) ids.Add(tid.ID);
+            meta["gms2TileIds"] = ids;
+        }
+
+        File.WriteAllText(Path.Combine(dir, name + ".json"),
+            JsonSerializer.Serialize(meta, s_jsonOpts), Encoding.UTF8);
+    }
+
+    private static IMagickImage<byte> ExportTexturePageItemFromCachedImage(
+        MagickImage embeddedImage,
+        UndertaleTexturePageItem texPageItem,
+        string imageName)
+    {
+        int exportWidth = texPageItem.BoundingWidth;
+        int exportHeight = texPageItem.BoundingHeight;
+        if (texPageItem.TargetWidth > exportWidth || texPageItem.TargetHeight > exportHeight)
+            throw new InvalidDataException($"{imageName}'s texture is larger than its bounding box!");
+
+        IMagickImage<byte> image;
+        lock (embeddedImage)
+        {
+            image = embeddedImage.CloneArea(texPageItem.SourceX, texPageItem.SourceY, texPageItem.SourceWidth, texPageItem.SourceHeight);
+        }
+
+        if (texPageItem.SourceWidth != texPageItem.TargetWidth || texPageItem.SourceHeight != texPageItem.TargetHeight)
+        {
+            uint resizeWidth = texPageItem.TargetWidth;
+            uint resizeHeight = texPageItem.TargetHeight;
+            if (image.Width != resizeWidth || image.Height != resizeHeight)
+                image.InterpolativeResize(resizeWidth, resizeHeight, PixelInterpolateMethod.Bilinear);
+        }
+
+        image.Strip();
+        return image;
     }
 
     // ────────────────────────────────────────────────────────────────
@@ -907,6 +1392,187 @@ public static class ResourceExportService
             }
             catch { }
         });
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // AnimationCurves
+    // ────────────────────────────────────────────────────────────────
+
+    public static void ExportAnimationCurves(UndertaleData data, string outputDir, HashSet<string>? filter = null)
+    {
+        var items = data.AnimationCurves?.ToList();
+        if (items == null || items.Count == 0) return;
+        var dir = EnsureDir(outputDir, "AnimationCurves");
+
+        Parallel.ForEach(items, curve =>
+        {
+            if (curve?.Name?.Content == null) return;
+            if (filter != null && !filter.Contains(curve.Name.Content)) return;
+
+            try
+            {
+                var name = SafeName(curve.Name.Content);
+                var curveDir = Path.Combine(dir, name);
+                Directory.CreateDirectory(curveDir);
+                File.WriteAllText(Path.Combine(curveDir, name + ".json"),
+                    JsonSerializer.Serialize(ToAnimationCurvePayload(data, curve), s_jsonOpts),
+                    Encoding.UTF8);
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"[ExportAnimationCurves] Failed to export '{curve.Name.Content}': {ex.Message}");
+            }
+        });
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // Sequences
+    // ────────────────────────────────────────────────────────────────
+
+    public static void ExportSequences(UndertaleData data, string outputDir, HashSet<string>? filter = null)
+    {
+        var items = data.Sequences?.ToList();
+        if (items == null || items.Count == 0) return;
+        var dir = EnsureDir(outputDir, "Sequences");
+        var context = CreateProjectContext(data, Path.Combine(dir, ".project_context"));
+
+        foreach (var sequence in items)
+        {
+            if (sequence?.Name?.Content == null) continue;
+            if (filter != null && !filter.Contains(sequence.Name.Content)) continue;
+
+            try
+            {
+                var name = SafeName(sequence.Name.Content);
+                var seqDir = Path.Combine(dir, name);
+                Directory.CreateDirectory(seqDir);
+                SerializableProjectAssetBridge.Export(context, sequence, Path.Combine(seqDir, name + ".json"));
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"[ExportSequences] Failed to export '{sequence.Name.Content}': {ex.Message}");
+            }
+        }
+
+        try { Directory.Delete(Path.Combine(dir, ".project_context"), recursive: true); } catch { }
+    }
+
+    public static void ExportParticleSystems(UndertaleData data, string outputDir, HashSet<string>? filter = null)
+    {
+        var items = data.ParticleSystems?.ToList();
+        if (items == null || items.Count == 0) return;
+        var dir = EnsureDir(outputDir, "ParticleSystems");
+        Parallel.ForEach(items, ps =>
+        {
+            if (ps?.Name?.Content == null) return;
+            if (filter != null && !filter.Contains(ps.Name.Content)) return;
+            var name = SafeName(ps.Name.Content);
+            var psDir = Path.Combine(dir, name);
+            Directory.CreateDirectory(psDir);
+            File.WriteAllText(Path.Combine(psDir, name + ".json"),
+                JsonSerializer.Serialize(ToParticleSystemPayload(ps), s_jsonOpts), Encoding.UTF8);
+        });
+    }
+
+    public static void ExportParticleSystemEmitters(UndertaleData data, string outputDir, HashSet<string>? filter = null)
+    {
+        var items = data.ParticleSystemEmitters?.ToList();
+        if (items == null || items.Count == 0) return;
+        var dir = EnsureDir(outputDir, "ParticleSystemEmitters");
+        Parallel.ForEach(items, emitter =>
+        {
+            if (emitter?.Name?.Content == null) return;
+            if (filter != null && !filter.Contains(emitter.Name.Content)) return;
+            var name = SafeName(emitter.Name.Content);
+            var emitterDir = Path.Combine(dir, name);
+            Directory.CreateDirectory(emitterDir);
+            File.WriteAllText(Path.Combine(emitterDir, name + ".json"),
+                JsonSerializer.Serialize(ToParticleEmitterPayload(emitter), s_jsonOpts), Encoding.UTF8);
+        });
+    }
+
+    private static Dictionary<string, object?> ToParticleSystemPayload(UndertaleParticleSystem ps)
+    {
+        return new Dictionary<string, object?>
+        {
+            ["name"] = ps.Name?.Content ?? "",
+            ["originX"] = ps.OriginX,
+            ["originY"] = ps.OriginY,
+            ["drawOrder"] = (int)ps.DrawOrder,
+            ["globalSpaceParticles"] = ps.GlobalSpaceParticles,
+            ["emitters"] = ps.Emitters?.Select(e => e?.Resource?.Name?.Content ?? "").Where(n => !string.IsNullOrEmpty(n)).ToArray() ?? []
+        };
+    }
+
+    private static Dictionary<string, object?> ToParticleEmitterPayload(UndertaleParticleSystemEmitter e)
+    {
+        Dictionary<string, object?> payload = new()
+        {
+            ["name"] = e.Name?.Content ?? "",
+            ["sprite"] = e.Sprite?.Name?.Content ?? "",
+            ["spawnOnDeath"] = e.SpawnOnDeath?.Name?.Content ?? "",
+            ["spawnOnUpdate"] = e.SpawnOnUpdate?.Name?.Content ?? ""
+        };
+
+        foreach (var prop in typeof(UndertaleParticleSystemEmitter).GetProperties())
+        {
+            if (!prop.CanRead || !prop.CanWrite) continue;
+            if (prop.Name is "Name" or "Sprite" or "SpawnOnDeath" or "SpawnOnUpdate" or
+                "SizeMin" or "SizeMax" or "SizeIncrease" or "SizeWiggle")
+                continue;
+            var type = Nullable.GetUnderlyingType(prop.PropertyType) ?? prop.PropertyType;
+            if (type.IsEnum)
+                payload[prop.Name] = Convert.ToInt32(prop.GetValue(e));
+            else if (type == typeof(bool) || type == typeof(int) || type == typeof(uint) || type == typeof(float))
+                payload[prop.Name] = prop.GetValue(e);
+        }
+
+        return payload;
+    }
+
+    private static ProjectContext CreateProjectContext(UndertaleData data, string root)
+    {
+        Directory.CreateDirectory(root);
+        string load = Path.Combine(root, "load.win");
+        string save = Path.Combine(root, "save.win");
+        string project = Path.Combine(root, "project", "project.yy");
+        Directory.CreateDirectory(Path.GetDirectoryName(project)!);
+        return new ProjectContext(data, load, save, project, "G3MTool");
+    }
+
+    private static Dictionary<string, object?> ToAnimationCurvePayload(UndertaleData data, UndertaleAnimationCurve curve)
+    {
+        return new Dictionary<string, object?>
+        {
+            ["name"] = curve.Name?.Content ?? "",
+            ["graphType"] = (uint)curve.GraphType,
+            ["channels"] = curve.Channels?.Where(channel => channel != null).Select(channel => new Dictionary<string, object?>
+            {
+                ["name"] = channel!.Name?.Content ?? "",
+                ["curve"] = (uint)channel.Curve,
+                ["iterations"] = channel.Iterations,
+                ["points"] = channel.Points?.Where(point => point != null).Select(point => ToAnimationCurvePointPayload(data, point!)).ToArray() ?? []
+            }).ToArray() ?? []
+        };
+    }
+
+    private static Dictionary<string, object?> ToAnimationCurvePointPayload(UndertaleData data, UndertaleAnimationCurve.Channel.Point point)
+    {
+        var payload = new Dictionary<string, object?>
+        {
+            ["x"] = point.X,
+            ["value"] = point.Value
+        };
+
+        if (data.IsVersionAtLeast(2, 3, 1))
+        {
+            payload["bezierX0"] = point.BezierX0;
+            payload["bezierY0"] = point.BezierY0;
+            payload["bezierX1"] = point.BezierX1;
+            payload["bezierY1"] = point.BezierY1;
+        }
+
+        return payload;
     }
 
     // ────────────────────────────────────────────────────────────────
@@ -1236,6 +1902,11 @@ public static class ResourceExportService
                     w.WriteNumber("tileDepth", t.TileDepth); w.WriteNumber("instanceID", t.InstanceID);
                     w.WriteNumber("scaleX", t.ScaleX); w.WriteNumber("scaleY", t.ScaleY);
                     w.WriteNumber("color", t.Color);
+                    w.WriteBoolean("spriteMode", t.spriteMode);
+                    if (t.spriteMode)
+                        w.WriteString("spriteDefinition", t.SpriteDefinition?.Name?.Content ?? "");
+                    else
+                        w.WriteString("backgroundDefinition", t.BackgroundDefinition?.Name?.Content ?? "");
                     w.WriteString("background", t.BackgroundDefinition?.Name?.Content ?? "");
                     w.WriteEndObject();
                 }
@@ -1284,49 +1955,57 @@ public static class ResourceExportService
 
     /// <summary>
     /// Export code entries to memory (no disk I/O). Returns dictionary: codeName → (gml, asm, childAsms).
-    /// Used for direct-to-archive optimization in patch create.
+    /// Used for direct patch writing in patch create.
     /// </summary>
-    public static Dictionary<string, (string? gml, string? asm, Dictionary<string, string>? childAsms)>
+    public static Dictionary<string, (string LogicalName, string? gml, string? asm, Dictionary<string, (string LogicalName, string Asm)>? childAsms)>
         ExportCodeEntriesToMemory(UndertaleData data, HashSet<string> entryNames)
     {
-        var result = new System.Collections.Concurrent.ConcurrentDictionary<string, (string? gml, string? asm, Dictionary<string, string>? childAsms)>();
+        var result = new System.Collections.Concurrent.ConcurrentDictionary<string, (string LogicalName, string? gml, string? asm, Dictionary<string, (string LogicalName, string Asm)>? childAsms)>();
         if (data.Code == null || data.Code.Count == 0 || entryNames.Count == 0)
             return new(result);
 
+        var entryDescriptors = CodeEntryArchiveIdentity.DescribeEntries(data, entryNames);
         var topLevel = data.Code
             .Where(c => c?.ParentEntry == null && c?.Name?.Content != null && entryNames.Contains(c.Name.Content))
             .ToList();
+        var topLevelDescriptors = entryDescriptors.Where(x => x.ParentArchiveKey == null).ToList();
 
         var context = new GlobalDecompileContext(data);
         var decompilerSettings = data.ToolInfo.DecompilerSettings;
 
-        Parallel.ForEach(topLevel, entry =>
+        Parallel.ForEach(Enumerable.Range(0, Math.Min(topLevel.Count, topLevelDescriptors.Count)), index =>
         {
+            var entry = topLevel[index];
+            var descriptor = topLevelDescriptors[index];
             if (entry?.Name?.Content == null) return;
             try
             {
                 string? asm = null, gml = null;
-                Dictionary<string, string>? childAsms = null;
+                Dictionary<string, (string LogicalName, string Asm)>? childAsms = null;
 
-                try { asm = entry.Disassemble(data.Variables, data.CodeLocals?.For(entry)); } catch { }
                 try { gml = new Underanalyzer.Decompiler.DecompileContext(context, entry, decompilerSettings).DecompileToString(); } catch { }
+                try { asm = entry.Disassemble(data.Variables, data.CodeLocals?.For(entry)); } catch { }
 
                 if (entry.ChildEntries.Count > 0)
                 {
                     childAsms = [];
+                    var childDescriptors = entryDescriptors
+                        .Where(x => x.ParentArchiveKey == descriptor.ArchiveKey)
+                        .ToDictionary(x => x.LogicalName, x => x, StringComparer.Ordinal);
                     foreach (var child in entry.ChildEntries)
                     {
                         if (child?.Name?.Content == null) continue;
                         try
                         {
                             var childAsm = child.Disassemble(data.Variables, data.CodeLocals?.For(child));
-                            childAsms[SafeName(child.Name.Content)] = childAsm;
+                            if (childDescriptors.TryGetValue(child.Name.Content, out var childDescriptor))
+                                childAsms[childDescriptor.ArchiveKey[(descriptor.ArchiveKey.Length + 1)..]] = (child.Name.Content, childAsm);
                         }
                         catch { }
                     }
                 }
 
-                result[SafeName(entry.Name.Content)] = (gml, asm, childAsms);
+                result[descriptor.ArchiveKey] = (entry.Name.Content, gml, asm, childAsms);
             }
             catch { }
         });
@@ -1338,9 +2017,11 @@ public static class ResourceExportService
     {
         var dir = EnsureDir(outputDir, "CodeEntries");
 
+        var entryDescriptors = CodeEntryArchiveIdentity.DescribeEntries(data, filterNames);
         var topLevel = data.Code.Where(c => c.ParentEntry == null).ToList();
         if (filterNames != null)
             topLevel = [.. topLevel.Where(c => c?.Name?.Content != null && filterNames.Contains(c.Name.Content))];
+        var topLevelDescriptors = entryDescriptors.Where(x => x.ParentArchiveKey == null).ToList();
 
         var context = new GlobalDecompileContext(data);
         var decompilerSettings = data.ToolInfo.DecompilerSettings;
@@ -1348,20 +2029,21 @@ public static class ResourceExportService
             ? new ParallelOptions { MaxDegreeOfParallelism = maxDegreeOfParallelism }
             : new ParallelOptions();
 
-        Parallel.ForEach(topLevel, opts, entry =>
+        Parallel.ForEach(Enumerable.Range(0, Math.Min(topLevel.Count, topLevelDescriptors.Count)), opts, index =>
         {
+            var entry = topLevel[index];
+            var descriptor = topLevelDescriptors[index];
             if (entry?.Name?.Content == null) return;
             try
             {
-                var name = SafeName(entry.Name.Content);
-                var entryDir = Path.Combine(dir, name);
+                var entryDir = Path.Combine(dir, descriptor.ArchiveKey);
                 Directory.CreateDirectory(entryDir);
 
                 // Export ASM (byte-perfect)
                 try
                 {
                     var asm = entry.Disassemble(data.Variables, data.CodeLocals?.For(entry));
-                    File.WriteAllText(Path.Combine(entryDir, name + ".asm"), asm, Encoding.UTF8);
+                    File.WriteAllText(Path.Combine(entryDir, descriptor.ArchiveKey + ".asm"), asm, Encoding.UTF8);
                 }
                 catch { }
 
@@ -1369,19 +2051,25 @@ public static class ResourceExportService
                 try
                 {
                     var gml = new Underanalyzer.Decompiler.DecompileContext(context, entry, decompilerSettings).DecompileToString();
-                    File.WriteAllText(Path.Combine(entryDir, name + ".gml"), gml, Encoding.UTF8);
+                    File.WriteAllText(Path.Combine(entryDir, descriptor.ArchiveKey + ".gml"), gml, Encoding.UTF8);
                 }
                 catch { }
 
                 // Export child entries' ASM
+                var childDescriptors = entryDescriptors
+                    .Where(x => x.ParentArchiveKey == descriptor.ArchiveKey)
+                    .ToDictionary(x => x.LogicalName, x => x, StringComparer.Ordinal);
                 foreach (var child in entry.ChildEntries)
                 {
                     if (child?.Name?.Content == null) continue;
                     try
                     {
-                        var childName = SafeName(child.Name.Content);
                         var childAsm = child.Disassemble(data.Variables, data.CodeLocals?.For(child));
-                        File.WriteAllText(Path.Combine(entryDir, childName + ".asm"), childAsm, Encoding.UTF8);
+                        if (childDescriptors.TryGetValue(child.Name.Content, out var childDescriptor))
+                        {
+                            var childLeafKey = childDescriptor.ArchiveKey[(descriptor.ArchiveKey.Length + 1)..];
+                            File.WriteAllText(Path.Combine(entryDir, childLeafKey + ".asm"), childAsm, Encoding.UTF8);
+                        }
                     }
                     catch { }
                 }
@@ -1394,7 +2082,12 @@ public static class ResourceExportService
     // AssetOrder + Helpers (asset_order.txt, variables_functions.json, etc.)
     // ────────────────────────────────────────────────────────────────
 
-    public static void ExportAssetOrder(UndertaleData data, string outputDir)
+    public static void ExportAssetOrder(
+        UndertaleData data,
+        string outputDir,
+        bool includeObjectEvents = true,
+        bool includeVariablesFunctions = true,
+        bool includeTextureHelpers = true)
     {
         Directory.CreateDirectory(outputDir);
 
@@ -1404,12 +2097,13 @@ public static class ResourceExportService
             static void WriteNames<T>(StreamWriter w, IList<T>? assets) where T : UndertaleNamedResource
             {
                 if (assets == null) return;
-                foreach (var asset in assets)
+                for (int i = 0; i < assets.Count; i++)
                 {
+                    var asset = assets[i];
                     if (asset is not null)
                     {
                         var name = asset.Name?.Content;
-                        w.WriteLine(string.IsNullOrEmpty(name) ? assets.IndexOf(asset).ToString() : name);
+                        w.WriteLine(string.IsNullOrEmpty(name) ? i.ToString() : name);
                     }
                     else w.WriteLine("(null)");
                 }
@@ -1432,93 +2126,186 @@ public static class ResourceExportService
             writer.WriteLine($"TexturePageItems={data.TexturePageItems.Count}");
         }
 
-        // variables_functions.json
-        var varList = new List<Dictionary<string, object>>();
-        foreach (var v in data.Variables)
-            varList.Add(new Dictionary<string, object> { ["n"] = v.Name?.Content ?? "", ["t"] = (int)v.InstanceType, ["id"] = v.VarID });
-
-        var funcList = new List<string>();
-        foreach (var f in data.Functions)
-            funcList.Add(f.Name?.Content ?? "");
-
-        // Include all top-level code entry names so ImportCodeEntries can determine
-        // which entries are in TARGET (for deletion of ORIGINAL-only entries)
-        var codeEntryList = new List<string>();
-        foreach (var c in data.Code)
+        if (includeVariablesFunctions)
         {
-            if (c?.Name?.Content != null && c.ParentEntry == null)
-                codeEntryList.Add(c.Name.Content);
-        }
+            var varList = new List<Dictionary<string, object>>();
+            foreach (var v in data.Variables)
+                varList.Add(new Dictionary<string, object> { ["n"] = v.Name?.Content ?? "", ["t"] = (int)v.InstanceType, ["id"] = v.VarID });
 
-        File.WriteAllText(Path.Combine(outputDir, "variables_functions.json"),
-            JsonSerializer.Serialize(new Dictionary<string, object> { ["variables"] = varList, ["functions"] = funcList, ["codeEntries"] = codeEntryList }));
+            var funcList = new List<string>();
+            foreach (var f in data.Functions)
+                funcList.Add(f.Name?.Content ?? "");
 
-        // object_events.json
-        var objectEventsMap = new Dictionary<string, List<Dictionary<string, object>>>();
-        foreach (var obj in data.GameObjects)
-        {
-            if (obj?.Name?.Content == null) continue;
-            var events = new List<Dictionary<string, object>>();
-            for (int evtType = 0; evtType < obj.Events.Count; evtType++)
+            var codeEntryList = new List<Dictionary<string, object>>();
+            foreach (var descriptor in CodeEntryArchiveIdentity.DescribeEntries(data))
             {
-                foreach (var evt in obj.Events[evtType])
+                var entry = new Dictionary<string, object>
                 {
-                    var evtData = new Dictionary<string, object>
-                    {
-                        ["t"] = evtType,
-                        ["s"] = evt.EventSubtype,
-                        ["c"] = (evt.Actions.Count > 0 && evt.Actions[0].CodeId != null) ? evt.Actions[0].CodeId.Name?.Content ?? "" : ""
-                    };
-                    if (evtType == 4 && evt.EventSubtype < data.GameObjects.Count) // EventType.Collision = 4
-                    {
-                        var collObj = data.GameObjects[(int)evt.EventSubtype];
-                        evtData["cn"] = collObj?.Name?.Content ?? "";
-                    }
-                    events.Add(evtData);
-                }
+                    ["key"] = descriptor.ArchiveKey,
+                    ["name"] = descriptor.LogicalName,
+                    ["occurrence"] = descriptor.Occurrence
+                };
+                if (!string.IsNullOrEmpty(descriptor.ParentArchiveKey))
+                    entry["parent"] = descriptor.ParentArchiveKey;
+                codeEntryList.Add(entry);
             }
-            objectEventsMap[obj.Name.Content] = events;
-        }
-        File.WriteAllText(Path.Combine(outputDir, "object_events.json"), JsonSerializer.Serialize(objectEventsMap));
 
-        // texture_page_items.json
-        var tpiList = new List<int[]>();
-        foreach (var tpi in data.TexturePageItems)
-        {
-            int texIdx = tpi.TexturePage != null ? data.EmbeddedTextures.IndexOf(tpi.TexturePage) : -1;
-            tpiList.Add([texIdx, tpi.SourceX, tpi.SourceY, tpi.SourceWidth, tpi.SourceHeight,
-                tpi.TargetX, tpi.TargetY, tpi.TargetWidth, tpi.TargetHeight, tpi.BoundingWidth, tpi.BoundingHeight]);
+            File.WriteAllText(Path.Combine(outputDir, "variables_functions.json"),
+                JsonSerializer.Serialize(new Dictionary<string, object> { ["variables"] = varList, ["functions"] = funcList, ["codeEntries"] = codeEntryList }));
         }
-        File.WriteAllText(Path.Combine(outputDir, "texture_page_items.json"), JsonSerializer.Serialize(tpiList));
 
-        // sprite_frame_map.json
-        var spriteFrameMap = new Dictionary<string, int[]>();
-        foreach (var sprite in data.Sprites)
+        if (includeObjectEvents)
         {
-            if (sprite?.Textures == null || sprite.Textures.Count == 0) continue;
-            var key = sprite.Name?.Content ?? data.Sprites.IndexOf(sprite).ToString();
-            var indices = new int[sprite.Textures.Count];
-            for (int f = 0; f < sprite.Textures.Count; f++)
+            var objectNameCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var obj in data.GameObjects)
             {
-                var tpi = sprite.Textures[f]?.Texture;
-                indices[f] = tpi != null ? data.TexturePageItems.IndexOf(tpi) : -1;
+                var name = obj?.Name?.Content;
+                if (name != null)
+                    objectNameCounts[name] = objectNameCounts.GetValueOrDefault(name) + 1;
             }
-            spriteFrameMap[key] = indices;
+
+            var objectEventsMap = new Dictionary<string, List<Dictionary<string, object>>>();
+            for (int objIndex = 0; objIndex < data.GameObjects.Count; objIndex++)
+            {
+                var obj = data.GameObjects[objIndex];
+                if (obj?.Name?.Content == null) continue;
+                var events = new List<Dictionary<string, object>>();
+                for (int evtType = 0; evtType < obj.Events.Count; evtType++)
+                {
+                    foreach (var evt in obj.Events[evtType])
+                    {
+                        var evtData = new Dictionary<string, object>
+                        {
+                            ["t"] = evtType,
+                            ["s"] = evt.EventSubtype,
+                            ["c"] = (evt.Actions.Count > 0 && evt.Actions[0].CodeId != null) ? evt.Actions[0].CodeId.Name?.Content ?? "" : ""
+                        };
+                        if (evtType == 4 && evt.EventSubtype < data.GameObjects.Count) // EventType.Collision = 4
+                        {
+                            var collObj = data.GameObjects[(int)evt.EventSubtype];
+                            evtData["cn"] = collObj?.Name?.Content ?? "";
+                            if (collObj?.Name?.Content != null)
+                                evtData["co"] = GetGameObjectOccurrence(data, (int)evt.EventSubtype);
+                        }
+
+                        var actions = new List<Dictionary<string, object>>();
+                        foreach (var action in evt.Actions)
+                        {
+                            actions.Add(new Dictionary<string, object>
+                            {
+                                ["libId"] = action.LibID,
+                                ["id"] = action.ID,
+                                ["kind"] = action.Kind,
+                                ["useRelative"] = action.UseRelative,
+                                ["isQuestion"] = action.IsQuestion,
+                                ["useApplyTo"] = action.UseApplyTo,
+                                ["exeType"] = action.ExeType,
+                                ["actionName"] = action.ActionName?.Content ?? "",
+                                ["codeId"] = action.CodeId?.Name?.Content ?? "",
+                                ["argumentCount"] = action.ArgumentCount,
+                                ["who"] = action.Who,
+                                ["relative"] = action.Relative,
+                                ["isNot"] = action.IsNot
+                            });
+                        }
+                        evtData["actions"] = actions;
+                        events.Add(evtData);
+                    }
+                }
+                var key = objectNameCounts.GetValueOrDefault(obj.Name.Content) > 1
+                    ? $"{obj.Name.Content}__idx{objIndex:D4}"
+                    : obj.Name.Content;
+                objectEventsMap[key] = events;
+            }
+            File.WriteAllText(Path.Combine(outputDir, "object_events.json"), JsonSerializer.Serialize(objectEventsMap));
         }
-        var bgFrameMap = new Dictionary<string, int>();
-        foreach (var bg in data.Backgrounds)
+
+        if (includeTextureHelpers)
         {
-            if (bg?.Texture == null) continue;
-            bgFrameMap[bg.Name?.Content ?? data.Backgrounds.IndexOf(bg).ToString()] = data.TexturePageItems.IndexOf(bg.Texture);
+            ExportEmbeddedTextures(data, outputDir);
+
+            // texture_page_items.json
+            var embeddedTextureIndices = BuildReferenceIndex(data.EmbeddedTextures);
+            var texturePageItemIndices = BuildReferenceIndex(data.TexturePageItems);
+
+            var tpiList = new List<int[]>();
+            foreach (var tpi in data.TexturePageItems)
+            {
+                int texIdx = tpi.TexturePage != null && embeddedTextureIndices.TryGetValue(tpi.TexturePage, out var textureIndex)
+                    ? textureIndex
+                    : -1;
+                tpiList.Add([texIdx, tpi.SourceX, tpi.SourceY, tpi.SourceWidth, tpi.SourceHeight,
+                    tpi.TargetX, tpi.TargetY, tpi.TargetWidth, tpi.TargetHeight, tpi.BoundingWidth, tpi.BoundingHeight]);
+            }
+            File.WriteAllText(Path.Combine(outputDir, "texture_page_items.json"), JsonSerializer.Serialize(tpiList));
+
+            // sprite_frame_map.json
+            var spriteFrameMap = new Dictionary<string, int[]>();
+            foreach (var sprite in data.Sprites)
+            {
+                if (sprite?.Textures == null || sprite.Textures.Count == 0) continue;
+                var key = sprite.Name?.Content ?? data.Sprites.IndexOf(sprite).ToString();
+                var indices = new int[sprite.Textures.Count];
+                for (int f = 0; f < sprite.Textures.Count; f++)
+                {
+                    var tpi = sprite.Textures[f]?.Texture;
+                    indices[f] = tpi != null && texturePageItemIndices.TryGetValue(tpi, out var tpiIndex)
+                        ? tpiIndex
+                        : -1;
+                }
+                spriteFrameMap[key] = indices;
+            }
+            var bgFrameMap = new Dictionary<string, int>();
+            foreach (var bg in data.Backgrounds)
+            {
+                if (bg?.Texture == null) continue;
+                bgFrameMap[bg.Name?.Content ?? data.Backgrounds.IndexOf(bg).ToString()] =
+                    texturePageItemIndices.TryGetValue(bg.Texture, out var tpiIndex) ? tpiIndex : -1;
+            }
+            var fontFrameMap = new Dictionary<string, int>();
+            foreach (var font in data.Fonts)
+            {
+                if (font?.Texture == null) continue;
+                fontFrameMap[font.Name?.Content ?? data.Fonts.IndexOf(font).ToString()] =
+                    texturePageItemIndices.TryGetValue(font.Texture, out var tpiIndex) ? tpiIndex : -1;
+            }
+            File.WriteAllText(Path.Combine(outputDir, "sprite_frame_map.json"),
+                JsonSerializer.Serialize(new Dictionary<string, object> { ["sprites"] = spriteFrameMap, ["backgrounds"] = bgFrameMap, ["fonts"] = fontFrameMap }));
         }
-        var fontFrameMap = new Dictionary<string, int>();
-        foreach (var font in data.Fonts)
+    }
+
+    private static int GetGameObjectOccurrence(UndertaleData data, int objectIndex)
+    {
+        if (objectIndex < 0 || objectIndex >= data.GameObjects.Count)
+            return -1;
+        var name = data.GameObjects[objectIndex]?.Name?.Content;
+        if (name == null)
+            return -1;
+        int occurrence = 0;
+        for (int i = 0; i < objectIndex; i++)
+            if (string.Equals(data.GameObjects[i]?.Name?.Content, name, StringComparison.Ordinal))
+                occurrence++;
+        return occurrence;
+    }
+
+    private static Dictionary<T, int> BuildReferenceIndex<T>(IList<T> items) where T : class
+    {
+        var result = new Dictionary<T, int>(ReferenceEqualityComparer<T>.Instance);
+        for (int i = 0; i < items.Count; i++)
         {
-            if (font?.Texture == null) continue;
-            fontFrameMap[font.Name?.Content ?? data.Fonts.IndexOf(font).ToString()] = data.TexturePageItems.IndexOf(font.Texture);
+            if (items[i] != null)
+                result.TryAdd(items[i], i);
         }
-        File.WriteAllText(Path.Combine(outputDir, "sprite_frame_map.json"),
-            JsonSerializer.Serialize(new Dictionary<string, object> { ["sprites"] = spriteFrameMap, ["backgrounds"] = bgFrameMap, ["fonts"] = fontFrameMap }));
+        return result;
+    }
+
+    private sealed class ReferenceEqualityComparer<T> : IEqualityComparer<T> where T : class
+    {
+        public static readonly ReferenceEqualityComparer<T> Instance = new();
+
+        public bool Equals(T? x, T? y) => ReferenceEquals(x, y);
+
+        public int GetHashCode(T obj) => System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(obj);
     }
 
     // ────────────────────────────────────────────────────────────────
