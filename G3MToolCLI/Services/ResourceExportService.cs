@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using ImageMagick;
@@ -22,12 +23,22 @@ public static class ResourceExportService
     };
 
     private static readonly char[] s_invalidChars = Path.GetInvalidFileNameChars();
+    private const int MaxSafeNameLength = 96;
 
     internal static string SafeName(string name)
     {
+        if (string.IsNullOrWhiteSpace(name))
+            return "_";
+
         var sb = new StringBuilder(name.Length);
         foreach (var ch in name) sb.Append(s_invalidChars.Contains(ch) ? '_' : ch);
-        return sb.ToString();
+        var safe = sb.ToString();
+        if (safe.Length <= MaxSafeNameLength)
+            return safe;
+
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(name)))[..12].ToLowerInvariant();
+        var prefixLength = MaxSafeNameLength - hash.Length - 2;
+        return $"{safe[..prefixLength]}__{hash}";
     }
 
     private static string EnsureDir(string outputDir, string typeName)

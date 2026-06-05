@@ -1027,6 +1027,24 @@ public partial class PatchService
             }
         }
 
+        foreach (var name in originalHashes.Keys.Intersect(modifiedHashes.Keys))
+        {
+            if (knownChangedOrNewNames?.Contains(name) == true || originalHashes[name] == modifiedHashes[name])
+                continue;
+
+            List<string> folderNames = [];
+            if (folderMap.TryGetValue(name, out var mappedFolder))
+                folderNames.Add(mappedFolder);
+            else
+                folderNames = GetFolderNamesForBaseName(modifiedResDir, name);
+
+            if (folderNames.Count == 0)
+                folderNames.Add(name);
+
+            foreach (var folderName in folderNames)
+                changes.Changed!.Add(new ResourceChange { Name = folderName });
+        }
+
         foreach (var name in originalHashes.Keys.Except(modifiedHashes.Keys))
             changes.Deleted!.Add(name);
 
@@ -1367,7 +1385,6 @@ public partial class PatchService
                 var originalGmlForCodeRemap = needsCodeRemapPreparation ? CaptureOriginalCodeGmlForAssetRemap(data, resourceTypesToProcess) : [];
                 var patchCodeEntryNames = needsCodeRemapPreparation ? CapturePatchCodeEntryNames(pfs) : [];
                 var untouchedEmbeddedTextureSnapshot = needsTexturePreservation ? CaptureUntouchedEmbeddedTextures(data, pfs) : [];
-                var untouchedFontTextureSnapshot = needsFontTexturePreservation ? CaptureUntouchedFontTextureCrops(data, pfs, ["fnt_main", "fnt_maintext"]) : [];
                 string? stagedEmbeddedTexturesDir = needsTexturePreservation ? StageEmbeddedTexturesForAssetOrder(data, pfs) : null;
                 bool hasFontTexturePayload = needsFontTexturePreservation;
                 var localeArtSpritePayloads = needsLocaleArtPayloadScan ? CapturePatchedLocaleArtSpriteNames(pfs) : [];
@@ -1611,7 +1628,6 @@ public partial class PatchService
                 nonCodeImportSw.Stop();
 
                 finalizeSw.Start();
-                RestoreUntouchedFontTextureCrops(data, untouchedFontTextureSnapshot);
                 if (capturedAssetOrderLines != null && requiresFinalAssetReorder)
                 {
                     var finalReorderDir = Path.Combine(Path.GetTempPath(), $"g3mtool_final_reorder_{Guid.NewGuid():N}");
@@ -1991,7 +2007,6 @@ public partial class PatchService
                 var originalGmlForCodeRemap = needsCodeRemapPreparation ? CaptureOriginalCodeGmlForAssetRemap(data, resourceTypesToProcess) : [];
                 var patchCodeEntryNames = needsCodeRemapPreparation ? CapturePatchCodeEntryNames(pfs) : [];
                 var untouchedEmbeddedTextureSnapshot = needsTexturePreservation ? CaptureUntouchedEmbeddedTextures(data, pfs) : [];
-                var untouchedFontTextureSnapshot = needsFontTexturePreservation ? CaptureUntouchedFontTextureCrops(data, pfs, ["fnt_main", "fnt_maintext"]) : [];
                 string? stagedEmbeddedTexturesDir = needsTexturePreservation ? StageEmbeddedTexturesForAssetOrder(data, pfs) : null;
                 bool hasFontTexturePayload = needsFontTexturePreservation;
                 var localeArtSpritePayloads = needsLocaleArtPayloadScan ? CapturePatchedLocaleArtSpriteNames(pfs) : [];
@@ -2217,7 +2232,6 @@ public partial class PatchService
                 nonCodeImportSw.Stop();
 
                 finalizeSw.Start();
-                RestoreUntouchedFontTextureCrops(data, untouchedFontTextureSnapshot);
                 if (capturedAssetOrderLines != null && requiresFinalAssetReorder)
                 {
                     var finalReorderDir = Path.Combine(Path.GetTempPath(), $"g3mtool_final_reorder_{Guid.NewGuid():N}");
@@ -2788,7 +2802,8 @@ public partial class PatchService
             "Timelines" => RemoveNamed(data.Timelines, name),
             "GameObjects" => RemoveReferencedOrNamed(data, data.GameObjects, "GameObjects", name, IsGameObjectReferenced),
             "Rooms" => RemoveNamed(data.Rooms, name),
-            "Extensions" => RemoveNamed(data.Extensions, name),
+            "TextureGroupInfo" => RemoveNamed(data.TextureGroupInfo, name),
+            "Extensions" => RemoveExtension(data, name),
             "AudioGroups" => RemoveNamed(data.AudioGroups, name),
             "Scripts" => RemoveScriptOnlyWhenCodeIsGone(data, name),
             "EmbeddedImages" => data.EmbeddedImages != null && RemoveNamed(data.EmbeddedImages, name),
@@ -2843,6 +2858,24 @@ public partial class PatchService
                 return true;
             }
         }
+        return false;
+    }
+
+    private static bool RemoveExtension(UndertaleData data, string name)
+    {
+        for (int i = data.Extensions.Count - 1; i >= 0; i--)
+        {
+            var extension = data.Extensions[i];
+            if (!string.Equals(extension?.Name?.Content, name, StringComparison.Ordinal))
+                continue;
+
+            data.Extensions.RemoveAt(i);
+            var productIdData = data.FORM.EXTN?.productIdData;
+            if (productIdData != null && i < productIdData.Count)
+                productIdData.RemoveAt(i);
+            return true;
+        }
+
         return false;
     }
 
@@ -3708,97 +3741,6 @@ public partial class PatchService
             LogService.Log($"[PatchService] Trimmed unreferenced trailing EmbeddedTextures: {oldCount} -> {data.EmbeddedTextures.Count}");
     }
 
-    private static Dictionary<string, byte[]> CaptureUntouchedFontTextureCrops(
-        UndertaleData data,
-        PatchFileSystem pfs,
-        IEnumerable<string> fontNames)
-    {
-        var result = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
-        using var worker = new TextureWorker();
-        foreach (var fontName in fontNames)
-        {
-            if (pfs.FileExists($"Fonts/{fontName}/font.json") ||
-                pfs.FileExists($"Fonts/{fontName}/texture.png"))
-            {
-                continue;
-            }
-
-            var font = data.Fonts.ByName(fontName);
-            if (font?.Texture == null)
-                continue;
-
-            try
-            {
-                string tempPath = Path.Combine(Path.GetTempPath(), $"g3mtool_fontcrop_{Guid.NewGuid():N}.png");
-                try
-                {
-                    worker.ExportAsPNG(font.Texture, tempPath);
-                    result[fontName] = File.ReadAllBytes(tempPath);
-                }
-                finally
-                {
-                    try { File.Delete(tempPath); } catch { }
-                }
-            }
-            catch
-            {
-            }
-        }
-        return result;
-    }
-
-    private static void RestoreUntouchedFontTextureCrops(UndertaleData data, Dictionary<string, byte[]> snapshot)
-    {
-        int restored = 0;
-        foreach (var (fontName, pngBytes) in snapshot)
-        {
-            var font = data.Fonts.ByName(fontName);
-            if (font == null)
-                continue;
-
-            try
-            {
-                using var image = new MagickImage(pngBytes);
-                var newTex = new UndertaleEmbeddedTexture
-                {
-                    Name = data.Strings.MakeString($"Texture {data.EmbeddedTextures.Count}")
-                };
-                newTex.TextureData.Image = GMImage.FromMagickImage(image).ConvertToPng();
-                data.EmbeddedTextures.Add(newTex);
-
-                ushort origTX = font.Texture?.TargetX ?? 0;
-                ushort origTY = font.Texture?.TargetY ?? 0;
-                ushort origBW = font.Texture?.BoundingWidth ?? (ushort)image.Width;
-                ushort origBH = font.Texture?.BoundingHeight ?? (ushort)image.Height;
-
-                var newTpi = new UndertaleTexturePageItem
-                {
-                    Name = data.Strings.MakeString($"PageItem {data.TexturePageItems.Count}"),
-                    SourceX = 0,
-                    SourceY = 0,
-                    SourceWidth = (ushort)image.Width,
-                    SourceHeight = (ushort)image.Height,
-                    TargetX = origTX,
-                    TargetY = origTY,
-                    TargetWidth = (ushort)image.Width,
-                    TargetHeight = (ushort)image.Height,
-                    BoundingWidth = origBW,
-                    BoundingHeight = origBH,
-                    TexturePage = newTex
-                };
-                data.TexturePageItems.Add(newTpi);
-                font.Texture = newTpi;
-                restored++;
-            }
-            catch
-            {
-            }
-        }
-
-        if (restored > 0)
-            LogService.Log($"[PatchService] Restored {restored} untouched font texture crop(s)");
-    }
-
     private static byte[] RemoveUnsafeRelinksFromSpriteFrameMap(
         byte[] spriteFrameMapBytes,
         HashSet<string> localeArtSpritePayloads,
@@ -3822,11 +3764,6 @@ public partial class PatchService
                         writer.WriteStartObject();
                         foreach (var spriteProp in prop.Value.EnumerateObject())
                         {
-                            if (localeArtSpritePayloads.Contains(spriteProp.Name))
-                            {
-                                continue;
-                            }
-
                             spriteProp.WriteTo(writer);
                         }
                         writer.WriteEndObject();
@@ -5126,8 +5063,10 @@ public partial class PatchService
                         childDirectiveEntries++;
                         childDirectiveSw.Start();
                         targetChildEntriesByParent.TryGetValue(entryKey, out var explicitChildEntries);
-                        if (explicitChildEntries != null && explicitChildEntries.Count > 0)
+                        bool hasExplicitChildEntries = false;
+                        if (explicitChildEntries is { Count: > 0 } explicitChildren)
                         {
+                            hasExplicitChildEntries = true;
                             var existingChildren = code.ChildEntries.ToList();
                             foreach (var existingChild in existingChildren)
                             {
@@ -5149,7 +5088,7 @@ public partial class PatchService
                                         script.Code = null;
                             }
 
-                            foreach (var (childEntryKey, childLogicalName) in explicitChildEntries)
+                            foreach (var (childEntryKey, childLogicalName) in explicitChildren)
                             {
                                 if (!archiveCodeLookup.TryGetValue(childEntryKey, out var desiredChild))
                                 {
@@ -5208,7 +5147,7 @@ public partial class PatchService
                                 $"[ImportCodeEntries] Child topology differs for {codeName}: ASM has {targetChildNames.Count}, compiled has {oursChildren.Count}; continuing with partial remap");
                         }
 
-                        int remapCount = Math.Min(targetChildNames.Count, oursChildren.Count);
+                        int remapCount = hasExplicitChildEntries ? 0 : Math.Min(targetChildNames.Count, oursChildren.Count);
                         for (int ci = 0; ci < remapCount; ci++)
                         {
                             string tName = targetChildNames[ci];

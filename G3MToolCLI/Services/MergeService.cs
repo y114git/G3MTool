@@ -3434,9 +3434,6 @@ public static partial class MergeService
                     if (!PatchHasResourcePayload(patches[pi], "Sprites", sp.Name))
                         continue;
 
-                    if (IsLocaleArtSpriteName(sp.Name))
-                        continue;
-
                     var indices = sp.Value.EnumerateArray().Select(e => e.GetInt32()).ToArray();
                     // Shift indices for new TPIs (>= originalTpiCount)
                     for (int i = 0; i < indices.Length; i++)
@@ -3466,7 +3463,7 @@ public static partial class MergeService
                 {
                     if (!PatchHasResourcePayload(patches[pi], "Fonts", font.Name))
                         continue;
-                    if (patches[pi].FileExists($"Fonts/{font.Name}/texture.png"))
+                    if (!patches[pi].FileExists($"Fonts/{font.Name}/texture.png"))
                         continue;
 
                     int idx = font.Value.GetInt32();

@@ -463,28 +463,25 @@ public static class ResourceHashService
                     frameHashes[(pageIdx, srcX, srcY, srcW, srcH)] = "";
                 return;
             }
-            const int bpp = 4;
-
             foreach (var (srcX, srcY, srcW, srcH) in regions)
             {
-                if (srcW == 0 || srcH == 0 ||
-                    srcX >= pageW || srcY >= pageH ||
-                    srcX + srcW > pageW || srcY + srcH > pageH)
+                if (!TryHashTextureRegionPixels(
+                        allPixels,
+                        pageIdx,
+                        pageW,
+                        pageH,
+                        srcX,
+                        srcY,
+                        srcW,
+                        srcH,
+                        out var regionHash))
                 {
-                    frameHashes[(pageIdx, srcX, srcY, srcW, srcH)] =
-                        $"invalid:{pageIdx}:{srcX}:{srcY}:{srcW}:{srcH}:{pageW}:{pageH}";
-                    continue;
+                    frameHashes[(pageIdx, srcX, srcY, srcW, srcH)] = regionHash;
                 }
-
-                int regionSize = srcW * srcH * bpp;
-                var regionBytes = new byte[regionSize];
-                int dst = 0;
-                for (int y = srcY; y < srcY + srcH; y++)
+                else
                 {
-                    Buffer.BlockCopy(allPixels, (y * pageW + srcX) * bpp, regionBytes, dst, srcW * bpp);
-                    dst += srcW * bpp;
+                    frameHashes[(pageIdx, srcX, srcY, srcW, srcH)] = regionHash;
                 }
-                frameHashes[(pageIdx, srcX, srcY, srcW, srcH)] = HexHash(regionBytes);
             }
         });
 
@@ -619,16 +616,81 @@ public static class ResourceHashService
         byte[]? allPixels = pixels.ToByteArray("RGBA");
         if (allPixels == null) return "";
 
+        TryHashTextureRegionPixels(
+            allPixels,
+            -1,
+            pageW,
+            pageH,
+            tpi.SourceX,
+            tpi.SourceY,
+            tpi.SourceWidth,
+            tpi.SourceHeight,
+            out var regionHash);
+        return regionHash;
+    }
+
+    private static bool TryHashTextureRegionPixels(
+        byte[] allPixels,
+        int pageIdx,
+        int pageW,
+        int pageH,
+        int srcX,
+        int srcY,
+        int srcW,
+        int srcH,
+        out string hash)
+    {
         const int bpp = 4;
-        int regionSize = tpi.SourceWidth * tpi.SourceHeight * bpp;
-        var regionBytes = new byte[regionSize];
-        int dst = 0;
-        for (int y = tpi.SourceY; y < tpi.SourceY + tpi.SourceHeight; y++)
+        string invalidPrefix = pageIdx >= 0 ? $"invalid:{pageIdx}" : "invalid";
+
+        if (srcW <= 0 || srcH <= 0 ||
+            srcX < 0 || srcY < 0 ||
+            srcX >= pageW || srcY >= pageH ||
+            srcX > pageW - srcW || srcY > pageH - srcH)
         {
-            Buffer.BlockCopy(allPixels, (y * pageW + tpi.SourceX) * bpp, regionBytes, dst, tpi.SourceWidth * bpp);
-            dst += tpi.SourceWidth * bpp;
+            hash = $"{invalidPrefix}:{srcX}:{srcY}:{srcW}:{srcH}:{pageW}:{pageH}:rect";
+            return false;
         }
-        return HexHash(regionBytes);
+
+        long expectedPixelsLength = (long)pageW * pageH * bpp;
+        if (allPixels.LongLength < expectedPixelsLength)
+        {
+            hash = $"{invalidPrefix}:{srcX}:{srcY}:{srcW}:{srcH}:{pageW}:{pageH}:buffer:{allPixels.LongLength}:{expectedPixelsLength}";
+            return false;
+        }
+
+        long regionSizeLong = (long)srcW * srcH * bpp;
+        if (regionSizeLong > int.MaxValue)
+        {
+            hash = $"{invalidPrefix}:{srcX}:{srcY}:{srcW}:{srcH}:{pageW}:{pageH}:region-too-large";
+            return false;
+        }
+
+        long rowBytesLong = (long)srcW * bpp;
+        if (rowBytesLong > int.MaxValue)
+        {
+            hash = $"{invalidPrefix}:{srcX}:{srcY}:{srcW}:{srcH}:{pageW}:{pageH}:row-too-large";
+            return false;
+        }
+
+        int rowBytes = (int)rowBytesLong;
+        var regionBytes = new byte[(int)regionSizeLong];
+        int dst = 0;
+        for (int y = srcY; y < srcY + srcH; y++)
+        {
+            long sourceOffsetLong = ((long)y * pageW + srcX) * bpp;
+            if (sourceOffsetLong < 0 || sourceOffsetLong > allPixels.LongLength - rowBytes)
+            {
+                hash = $"{invalidPrefix}:{srcX}:{srcY}:{srcW}:{srcH}:{pageW}:{pageH}:offset:{sourceOffsetLong}:{allPixels.LongLength}:{rowBytes}";
+                return false;
+            }
+
+            Buffer.BlockCopy(allPixels, (int)sourceOffsetLong, regionBytes, dst, rowBytes);
+            dst += rowBytes;
+        }
+
+        hash = HexHash(regionBytes);
+        return true;
     }
 
     // ── Backgrounds ──────────────────────────────────────────────────

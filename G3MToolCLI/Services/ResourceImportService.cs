@@ -72,14 +72,7 @@ public static partial class ResourceImportService
 
     private static string SafeName(string name)
     {
-        if (string.IsNullOrEmpty(name))
-            return "_";
-
-        var invalid = Path.GetInvalidFileNameChars();
-        var sb = new StringBuilder(name.Length);
-        foreach (var ch in name)
-            sb.Append(invalid.Contains(ch) ? '_' : ch);
-        return sb.ToString();
+        return ResourceExportService.SafeName(name);
     }
 
     /// <summary>
