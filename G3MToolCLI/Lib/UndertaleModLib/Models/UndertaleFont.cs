@@ -178,7 +178,7 @@ public class UndertaleFont : UndertaleNamedResource, IProjectAsset, IDisposable
             writer.Write(SourceHeight);
             writer.Write(Shift);
             writer.Write(Offset);
-            if (writer.undertaleData.IsVersionAtLeast(2024, 11))
+            if (writer.undertaleData.IsNonLTSVersionAtLeast(2024, 11))
                 writer.Write(UnknownAlwaysZero);
             writer.WriteUndertaleObject(Kerning);
         }
@@ -193,7 +193,7 @@ public class UndertaleFont : UndertaleNamedResource, IProjectAsset, IDisposable
             SourceHeight = reader.ReadUInt16();
             Shift = reader.ReadInt16();
             Offset = reader.ReadInt16(); // Potential assumption, see the conversation at https://github.com/UnderminersTeam/UndertaleModTool/issues/40#issuecomment-440208912
-            if (reader.undertaleData.IsVersionAtLeast(2024, 11))
+            if (reader.undertaleData.IsNonLTSVersionAtLeast(2024, 11))
                 UnknownAlwaysZero = reader.ReadInt16();
             Kerning = reader.ReadUndertaleObject<UndertaleSimpleListShort<GlyphKerning>>();
         }
@@ -202,7 +202,7 @@ public class UndertaleFont : UndertaleNamedResource, IProjectAsset, IDisposable
         public static uint UnserializeChildObjectCount(UndertaleReader reader)
         {
             reader.Position += 14;
-            if (reader.undertaleData.IsVersionAtLeast(2024, 11))
+            if (reader.undertaleData.IsNonLTSVersionAtLeast(2024, 11))
                 reader.Position += 2; // UnknownAlwaysZero
 
             return 1 + UndertaleSimpleListShort<GlyphKerning>.UnserializeChildObjectCount(reader);

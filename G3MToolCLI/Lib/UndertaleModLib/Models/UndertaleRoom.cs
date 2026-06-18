@@ -1880,14 +1880,15 @@ public class UndertaleRoom : UndertaleNamedResource, IProjectAsset, INotifyPrope
 
                 if (hasPadding)
                 {
+                    long paddingStart = reader.Position;
                     length = reader.ReadByte();
                     tile = reader.ReadUInt32();
 
                     // sanity check: run of 2 empty tiles
-                    if (length != 0x81) 
-                        throw new IOException("Expected 0x81, got 0x" + length.ToString("X2"));
-                    if (tile != unchecked((uint)-1))
-                        throw new IOException("Expected -1, got " + tile + " (0x" + tile.ToString("X8") + ")");
+                    if (length != 0x81 || tile != unchecked((uint)-1))
+                    {
+                        reader.Position = paddingStart;
+                    }
                 }
 
                 if (reader.undertaleData.IsVersionAtLeast(2024, 4))
@@ -2126,7 +2127,7 @@ public class UndertaleRoom : UndertaleNamedResource, IProjectAsset, INotifyPrope
                         writer.WriteUndertaleObjectPointer(NineSlices);
                     if (writer.undertaleData.IsNonLTSVersionAtLeast(2023, 2))
                         writer.WriteUndertaleObjectPointer(ParticleSystems);
-                    if (writer.undertaleData.IsVersionAtLeast(2024, 6))
+                    if (writer.undertaleData.IsNonLTSVersionAtLeast(2024, 6))
                         writer.WriteUndertaleObjectPointer(TextItems);
                 }
                 writer.WriteUndertaleObject(LegacyTiles);
@@ -2138,7 +2139,7 @@ public class UndertaleRoom : UndertaleNamedResource, IProjectAsset, INotifyPrope
                         writer.WriteUndertaleObject(NineSlices);
                     if (writer.undertaleData.IsNonLTSVersionAtLeast(2023, 2))
                         writer.WriteUndertaleObject(ParticleSystems);
-                    if (writer.undertaleData.IsVersionAtLeast(2024, 6))
+                    if (writer.undertaleData.IsNonLTSVersionAtLeast(2024, 6))
                         writer.WriteUndertaleObject(TextItems);
                 }
             }
@@ -2159,9 +2160,11 @@ public class UndertaleRoom : UndertaleNamedResource, IProjectAsset, INotifyPrope
                         NineSlices = reader.ReadUndertaleObjectPointer<UndertalePointerList<SpriteInstance>>();
                     if (reader.undertaleData.IsNonLTSVersionAtLeast(2023, 2))
                         ParticleSystems = reader.ReadUndertaleObjectPointer<UndertalePointerList<ParticleSystemInstance>>();
-                    if (firstPointerTarget > reader.AbsPosition && !reader.undertaleData.IsVersionAtLeast(2024, 6))
+                    if (firstPointerTarget > reader.AbsPosition &&
+                        !reader.undertaleData.IsLTSBranch() &&
+                        !reader.undertaleData.IsNonLTSVersionAtLeast(2024, 6))
                         reader.undertaleData.SetGMS2Version(2024, 6); // There's more data before legacy tiles, so must be 2024.6+
-                    if (reader.undertaleData.IsVersionAtLeast(2024, 6))
+                    if (reader.undertaleData.IsNonLTSVersionAtLeast(2024, 6))
                         TextItems = reader.ReadUndertaleObjectPointer<UndertalePointerList<TextItemInstance>>();
                 }
                 reader.ReadUndertaleObject(LegacyTiles);
@@ -2173,7 +2176,7 @@ public class UndertaleRoom : UndertaleNamedResource, IProjectAsset, INotifyPrope
                         reader.ReadUndertaleObject(NineSlices);
                     if (reader.undertaleData.IsNonLTSVersionAtLeast(2023, 2))
                         reader.ReadUndertaleObject(ParticleSystems);
-                    if (reader.undertaleData.IsVersionAtLeast(2024, 6))
+                    if (reader.undertaleData.IsNonLTSVersionAtLeast(2024, 6))
                         reader.ReadUndertaleObject(TextItems);
                 }
             }
@@ -2196,9 +2199,11 @@ public class UndertaleRoom : UndertaleNamedResource, IProjectAsset, INotifyPrope
                         nineSlicesPtr = reader.ReadUInt32();
                     if (reader.undertaleData.IsNonLTSVersionAtLeast(2023, 2))
                         partSystemsPtr = reader.ReadUInt32();
-                    if (legacyTilesPtr > reader.AbsPosition && !reader.undertaleData.IsVersionAtLeast(2024, 6))
+                    if (legacyTilesPtr > reader.AbsPosition &&
+                        !reader.undertaleData.IsLTSBranch() &&
+                        !reader.undertaleData.IsNonLTSVersionAtLeast(2024, 6))
                         reader.undertaleData.SetGMS2Version(2024, 6); // There's more data before legacy tiles, so must be 2024.6+
-                    if (reader.undertaleData.IsVersionAtLeast(2024, 6))
+                    if (reader.undertaleData.IsNonLTSVersionAtLeast(2024, 6))
                         textItemsPtr = reader.ReadUInt32();
                 }
 
@@ -2220,7 +2225,7 @@ public class UndertaleRoom : UndertaleNamedResource, IProjectAsset, INotifyPrope
                         reader.AbsPosition = partSystemsPtr;
                         count += 1 + UndertalePointerList<ParticleSystemInstance>.UnserializeChildObjectCount(reader);
                     }
-                    if (reader.undertaleData.IsVersionAtLeast(2024, 6))
+                    if (reader.undertaleData.IsNonLTSVersionAtLeast(2024, 6))
                     {
                         reader.AbsPosition = textItemsPtr;
                         count += 1 + UndertalePointerList<TextItemInstance>.UnserializeChildObjectCount(reader);

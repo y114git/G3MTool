@@ -181,6 +181,7 @@ public static class ResourceExportService
         w.WriteNumber("minor", gi.Minor);
         w.WriteNumber("release", gi.Release);
         w.WriteNumber("build", gi.Build);
+        w.WriteString("branch", gi.Branch.ToString());
         w.WriteNumber("defaultWindowWidth", gi.DefaultWindowWidth);
         w.WriteNumber("defaultWindowHeight", gi.DefaultWindowHeight);
         w.WriteNumber("infoFlags", (uint)gi.Info);
@@ -1066,7 +1067,7 @@ public static class ResourceExportService
                 w.WriteNumber("audioID", sound.AudioID);
                 w.WriteNumber("groupID", sound.GroupID);
                 w.WriteNumber("flags", (uint)sound.Flags);
-                if (data.IsVersionAtLeast(2024, 6))
+                if (data.IsNonLTSVersionAtLeast(2024, 6))
                     w.WriteNumber("audioLength", sound.AudioLength);
                 if (sound.AudioGroup?.Name?.Content != null)
                     w.WriteString("audioGroupName", sound.AudioGroup.Name.Content);

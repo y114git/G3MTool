@@ -918,7 +918,7 @@ public class UndertaleSprite : UndertaleNamedResource, IProjectAsset, PrePaddedO
     /// </summary>
     public (int Width, int Height) CalculateMaskDimensions(UndertaleData data)
     {
-        if (data.IsVersionAtLeast(2024, 6))
+        if (data.IsNonLTSVersionAtLeast(2024, 6))
         {
             return CalculateBboxMaskDimensions(MarginRight, MarginLeft, MarginBottom, MarginTop);
         }
@@ -982,7 +982,7 @@ public class UndertaleSprite : UndertaleNamedResource, IProjectAsset, PrePaddedO
     private static void SkipMaskData(UndertaleReader reader, int width, int height, int marginRight, int marginLeft, int marginBottom, int marginTop)
     {
         uint maskCount = reader.ReadUInt32();
-        if (reader.undertaleData.IsVersionAtLeast(2024, 6))
+        if (reader.undertaleData.IsNonLTSVersionAtLeast(2024, 6))
         {
             (width, height) = CalculateBboxMaskDimensions(marginRight, marginLeft, marginBottom, marginTop);
         }

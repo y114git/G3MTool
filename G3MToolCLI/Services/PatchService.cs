@@ -311,25 +311,7 @@ public partial class PatchService
                     changedNamesPerType);
                 LogService.Log($"[Timing] Hash comparison (pre-export): {phaseSw.Elapsed.TotalMilliseconds:F0}ms");
 
-                // If a parent code entry changed, include all its children too.
-                if (changedNamesPerType.TryGetValue("CodeEntries", out var changedCode))
-                {
-                    var additionalChildren = new HashSet<string>();
-                    foreach (var code in modifiedData.Code)
-                    {
-                        if (code?.Name?.Content != null && code.ParentEntry?.Name?.Content != null)
-                        {
-                            if (changedCode.Contains(code.ParentEntry.Name.Content) && !changedCode.Contains(code.Name.Content))
-                                additionalChildren.Add(code.Name.Content);
-                        }
-                    }
-                    if (additionalChildren.Count > 0)
-                    {
-                        foreach (var child in additionalChildren)
-                            changedCode.Add(child);
-                        LogService.Log($"[PatchService] Added {additionalChildren.Count} child code entries for changed parents");
-                    }
-                }
+                ExpandChangedCodeEntriesForTopology(modifiedData, changedNamesPerType);
 
                 // Export only changed/new resources (selective export for ALL types)
                 phaseSw.Restart();
@@ -440,25 +422,7 @@ public partial class PatchService
                         changedNamesPerType);
                     LogService.Log($"[Timing] Hash comparison (pre-export): {phaseSw.Elapsed.TotalMilliseconds:F0}ms");
 
-                    // If a parent code entry changed, include all its children too.
-                    if (changedNamesPerType.TryGetValue("CodeEntries", out var changedCode))
-                    {
-                        var additionalChildren = new HashSet<string>();
-                        foreach (var code in modifiedData.Code)
-                        {
-                            if (code?.Name?.Content != null && code.ParentEntry?.Name?.Content != null)
-                            {
-                                if (changedCode.Contains(code.ParentEntry.Name.Content) && !changedCode.Contains(code.Name.Content))
-                                    additionalChildren.Add(code.Name.Content);
-                            }
-                        }
-                        if (additionalChildren.Count > 0)
-                        {
-                            foreach (var child in additionalChildren)
-                                changedCode.Add(child);
-                            LogService.Log($"[PatchService] Added {additionalChildren.Count} child code entries for changed parents");
-                        }
-                    }
+                    ExpandChangedCodeEntriesForTopology(modifiedData, changedNamesPerType);
 
                     // Export only changed/new resources (selective export for ALL types)
                     phaseSw.Restart();
@@ -773,6 +737,56 @@ public partial class PatchService
         AddDuplicateCountChangesForType("Shaders", originalNameCounts, modifiedData.Shaders, changedNamesPerType);
         AddDuplicateCountChangesForType("Extensions", originalNameCounts, modifiedData.Extensions, changedNamesPerType);
         AddDuplicateCountChangesForType("AudioGroups", originalNameCounts, modifiedData.AudioGroups, changedNamesPerType);
+    }
+
+    private static void ExpandChangedCodeEntriesForTopology(
+        UndertaleData modifiedData,
+        Dictionary<string, HashSet<string>> changedNamesPerType)
+    {
+        if (!changedNamesPerType.TryGetValue("CodeEntries", out var changedCode) ||
+            changedCode.Count == 0)
+        {
+            return;
+        }
+
+        int addedParents = 0;
+        int addedChildren = 0;
+        bool changed;
+        do
+        {
+            changed = false;
+            foreach (var code in modifiedData.Code ?? [])
+            {
+                var codeName = code?.Name?.Content;
+                if (code == null || string.IsNullOrEmpty(codeName))
+                    continue;
+
+                var parentName = code.ParentEntry?.Name?.Content;
+                if (!string.IsNullOrEmpty(parentName) &&
+                    changedCode.Contains(codeName) &&
+                    changedCode.Add(parentName))
+                {
+                    addedParents++;
+                    changed = true;
+                }
+
+                if (!changedCode.Contains(codeName))
+                    continue;
+
+                foreach (var child in code.ChildEntries ?? [])
+                {
+                    var childName = child?.Name?.Content;
+                    if (!string.IsNullOrEmpty(childName) && changedCode.Add(childName))
+                    {
+                        addedChildren++;
+                        changed = true;
+                    }
+                }
+            }
+        } while (changed);
+
+        if (addedParents > 0 || addedChildren > 0)
+            LogService.Log($"[PatchService] Expanded CodeEntries topology: +{addedParents} parent, +{addedChildren} child entrie(s)");
     }
 
     private static void AddDuplicateCountChangesForType<T>(
@@ -3860,6 +3874,7 @@ public partial class PatchService
         }
 
         var localMaps = new Dictionary<UndertaleCode, Dictionary<string, UndertaleFunction?>>();
+        var localOrdinalMaps = new Dictionary<UndertaleCode, Dictionary<string, UndertaleFunction>>();
         Dictionary<string, UndertaleFunction?> GetLocalMap(UndertaleCode owner)
         {
             if (localMaps.TryGetValue(owner, out var cached))
@@ -3869,13 +3884,13 @@ public partial class PatchService
             foreach (var child in owner.ChildEntries ?? [])
             {
                 var childName = child?.Name?.Content;
-                if (string.IsNullOrEmpty(childName) || !IsLocalStructFunctionName(childName))
+                if (string.IsNullOrEmpty(childName) || !IsLocalChildFunctionName(childName))
                     continue;
 
                 if (!functionByName.TryGetValue(childName, out var childFunction))
                     continue;
 
-                string signature = NormalizeLocalStructFunctionName(childName);
+                string signature = NormalizeLocalChildFunctionName(childName);
                 if (map.ContainsKey(signature))
                     map[signature] = null;
                 else
@@ -3884,6 +3899,73 @@ public partial class PatchService
 
             localMaps[owner] = map;
             return map;
+        }
+
+        Dictionary<string, UndertaleFunction> GetLocalOrdinalMap(UndertaleCode owner)
+        {
+            if (localOrdinalMaps.TryGetValue(owner, out var cached))
+                return cached;
+
+            var liveByFamily = new Dictionary<string, List<(int Ordinal, UndertaleFunction Function)>>(StringComparer.Ordinal);
+            foreach (var child in owner.ChildEntries ?? [])
+            {
+                var childName = child?.Name?.Content;
+                if (string.IsNullOrEmpty(childName) ||
+                    !functionByName.TryGetValue(childName, out var childFunction) ||
+                    !TryGetLocalChildOrdinalFamily(childName, out var family, out int ordinal))
+                {
+                    continue;
+                }
+
+                if (!liveByFamily.TryGetValue(family, out var list))
+                {
+                    list = [];
+                    liveByFamily[family] = list;
+                }
+                list.Add((ordinal, childFunction));
+            }
+
+            var referencedByFamily = new Dictionary<string, SortedSet<int>>(StringComparer.Ordinal);
+            foreach (var code in data.Code ?? [])
+            {
+                if ((code?.ParentEntry ?? code) != owner)
+                    continue;
+
+                foreach (var instruction in code?.Instructions ?? [])
+                {
+                    var name = instruction.ValueFunction?.Name?.Content;
+                    if (string.IsNullOrEmpty(name) ||
+                        !TryGetLocalChildOrdinalFamily(name, out var family, out int ordinal))
+                    {
+                        continue;
+                    }
+
+                    if (!referencedByFamily.TryGetValue(family, out var ordinals))
+                    {
+                        ordinals = [];
+                        referencedByFamily[family] = ordinals;
+                    }
+                    ordinals.Add(ordinal);
+                }
+            }
+
+            var result = new Dictionary<string, UndertaleFunction>(StringComparer.Ordinal);
+            foreach (var (family, referencedOrdinals) in referencedByFamily)
+            {
+                if (!liveByFamily.TryGetValue(family, out var liveFunctions))
+                    continue;
+
+                var liveOrdered = liveFunctions.OrderBy(x => x.Ordinal).Select(x => x.Function).ToList();
+                var referencedOrdered = referencedOrdinals.Order().ToList();
+                if (liveOrdered.Count < referencedOrdered.Count)
+                    continue;
+
+                for (int i = 0; i < referencedOrdered.Count; i++)
+                    result[family + "|" + referencedOrdered[i].ToString()] = liveOrdered[i];
+            }
+
+            localOrdinalMaps[owner] = result;
+            return result;
         }
 
         int repaired = 0;
@@ -3904,7 +3986,7 @@ public partial class PatchService
             {
                 var currentFunction = instruction.ValueFunction;
                 var currentName = currentFunction?.Name?.Content;
-                if (string.IsNullOrEmpty(currentName) || !IsLocalStructFunctionName(currentName))
+                if (string.IsNullOrEmpty(currentName) || !IsLocalChildFunctionName(currentName))
                     continue;
 
                 if (codeByName.TryGetValue(currentName, out var referencedCode) &&
@@ -3913,9 +3995,14 @@ public partial class PatchService
                     continue;
                 }
 
-                if (!localMap.TryGetValue(NormalizeLocalStructFunctionName(currentName), out var replacement) ||
-                    replacement == null ||
-                    ReferenceEquals(replacement, currentFunction))
+                if ((!localMap.TryGetValue(NormalizeLocalChildFunctionName(currentName), out var replacement) ||
+                     replacement == null) &&
+                    TryGetLocalChildOrdinalFamily(currentName, out var family, out int ordinal))
+                {
+                    GetLocalOrdinalMap(owner).TryGetValue(family + "|" + ordinal.ToString(), out replacement);
+                }
+
+                if (replacement == null || ReferenceEquals(replacement, currentFunction))
                 {
                     continue;
                 }
@@ -3963,12 +4050,12 @@ public partial class PatchService
         foreach (var code in data.Code ?? [])
         {
             if (code?.ParentEntry == null || string.IsNullOrEmpty(code.Name?.Content) ||
-                !IsLocalStructFunctionName(code.Name.Content))
+                !IsLocalChildFunctionName(code.Name.Content))
             {
                 continue;
             }
 
-            liveLocalSignatures.Add(NormalizeLocalStructFunctionName(code.Name.Content));
+            liveLocalSignatures.Add(NormalizeLocalChildFunctionName(code.Name.Content));
         }
 
         int removed = 0;
@@ -3976,13 +4063,13 @@ public partial class PatchService
         {
             var function = data.Functions[i];
             var name = function?.Name?.Content;
-            if (function == null || string.IsNullOrEmpty(name) || !IsLocalStructFunctionName(name))
+            if (function == null || string.IsNullOrEmpty(name) || !IsLocalChildFunctionName(name))
                 continue;
 
             if (codeByName.ContainsKey(name) || referenced.Contains(function))
                 continue;
 
-            if (!liveLocalSignatures.Contains(NormalizeLocalStructFunctionName(name)))
+            if (!liveLocalSignatures.Contains(NormalizeLocalChildFunctionName(name)))
                 continue;
 
             data.Functions.RemoveAt(i);
@@ -3992,14 +4079,48 @@ public partial class PatchService
         return removed;
     }
 
-    private static bool IsLocalStructFunctionName(string functionName) =>
-        functionName.Contains("____struct___", StringComparison.Ordinal);
+    private static bool IsLocalChildFunctionName(string functionName) =>
+        functionName.Contains("____struct___", StringComparison.Ordinal) ||
+        functionName.StartsWith("gml_Script_anon_", StringComparison.Ordinal);
 
-    private static string NormalizeLocalStructFunctionName(string functionName) =>
-        LocalStructOrdinalRegex().Replace(functionName, "____struct___#");
+    private static string NormalizeLocalChildFunctionName(string functionName)
+    {
+        functionName = LocalStructOrdinalRegex().Replace(functionName, "____struct___#");
+        return LocalAnonymousOrdinalRegex().Replace(functionName, "$1_#_$2");
+    }
 
     [GeneratedRegex("____struct___\\d+")]
     private static partial Regex LocalStructOrdinalRegex();
+
+    [GeneratedRegex(@"^(gml_Script_anon_.+)_\d+_([^_].*)$")]
+    private static partial Regex LocalAnonymousOrdinalRegex();
+
+    private static bool TryGetLocalChildOrdinalFamily(string functionName, out string family, out int ordinal)
+    {
+        var structMatch = LocalStructOrdinalFamilyRegex().Match(functionName);
+        if (structMatch.Success && int.TryParse(structMatch.Groups["ordinal"].Value, out ordinal))
+        {
+            family = structMatch.Groups["prefix"].Value + "#" + structMatch.Groups["suffix"].Value;
+            return true;
+        }
+
+        var anonMatch = LocalAnonymousOrdinalFamilyRegex().Match(functionName);
+        if (anonMatch.Success && int.TryParse(anonMatch.Groups["ordinal"].Value, out ordinal))
+        {
+            family = anonMatch.Groups["prefix"].Value + "_#_" + anonMatch.Groups["suffix"].Value;
+            return true;
+        }
+
+        family = string.Empty;
+        ordinal = 0;
+        return false;
+    }
+
+    [GeneratedRegex(@"^(?<prefix>gml_Script____struct___)(?<ordinal>\d+)(?<suffix>_.+)$")]
+    private static partial Regex LocalStructOrdinalFamilyRegex();
+
+    [GeneratedRegex(@"^(?<prefix>gml_Script_anon_.+)_(?<ordinal>\d+)_(?<suffix>[^_].*)$")]
+    private static partial Regex LocalAnonymousOrdinalFamilyRegex();
 
     private static Dictionary<string, string> CaptureOriginalCodeGmlForAssetRemap(
         UndertaleData data,

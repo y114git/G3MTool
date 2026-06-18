@@ -587,6 +587,20 @@ namespace UndertaleModLib
         }
 
         /// <summary>
+        /// Reports whether the data file is explicitly on an LTS branch.
+        /// </summary>
+        public bool IsLTSBranch()
+        {
+            if (GeneralInfo is null)
+            {
+                Debug.WriteLine("\"UndertaleData.IsLTSBranch()\" error - \"GeneralInfo\" is null.");
+                return false;
+            }
+
+            return GeneralInfo.Branch == UndertaleGeneralInfo.BranchType.LTS2022_0;
+        }
+
+        /// <summary>
         /// Returns the ID of the builtin (i.e., embedded in the main data file) audio group. Varies depending on version.
         /// </summary>
         /// <returns>ID of the builtin audio group; 0 or 1.</returns>

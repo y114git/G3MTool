@@ -19,8 +19,10 @@ public static partial class DataIntegrityService
         RepairScripts(data, result);
         RepairCodeParentLinks(data, result);
         RepairRoomCodeReferences(data, result);
+        RepairGeneralInfoBranch(data, result);
         RepairLocalChildFunctionReferences(data, result);
         RepairFunctionReferences(data, result);
+        RepairSoundAudioReferences(data, result);
         Validate(data, result);
         if (result.Repairs.Count > 0)
             LogService.Log($"[Integrity] Repairs: {string.Join("; ", result.Repairs.Take(12))}{(result.Repairs.Count > 12 ? " ..." : "")}");
@@ -36,6 +38,68 @@ public static partial class DataIntegrityService
         if (result.Errors.Count > 0)
             LogService.Warning($"[Integrity] Errors: {string.Join("; ", result.Errors.Take(12))}{(result.Errors.Count > 12 ? " ..." : "")}");
         return result;
+    }
+
+    private static void RepairGeneralInfoBranch(UndertaleData data, DataIntegrityResult result)
+    {
+        var gi = data.GeneralInfo;
+        if (gi == null)
+            return;
+
+        if (gi.BytecodeVersion == 17 &&
+            gi.Major == 2023 &&
+            gi.Minor == 6 &&
+            gi.Release == 0 &&
+            gi.Build == 0 &&
+            gi.Branch != UndertaleGeneralInfo.BranchType.LTS2022_0)
+        {
+            gi.Branch = UndertaleGeneralInfo.BranchType.LTS2022_0;
+            result.Repairs.Add("restored GeneralInfo branch to LTS2022_0 for 2023.6.0.0 bytecode-17 data");
+        }
+    }
+
+    private static void RepairSoundAudioReferences(UndertaleData data, DataIntegrityResult result)
+    {
+        if (data.Sounds == null || data.EmbeddedAudio == null)
+            return;
+
+        int builtinGroupId = data.GetBuiltinSoundGroupID();
+        int relinkedBuiltin = 0;
+        int clearedExternal = 0;
+        int clearedEmptyTypes = 0;
+
+        foreach (var sound in data.Sounds)
+        {
+            if (sound == null)
+                continue;
+
+            if (sound.Type != null && string.IsNullOrEmpty(sound.Type.Content))
+            {
+                sound.Type = null;
+                clearedEmptyTypes++;
+            }
+
+            if (sound.GroupID == builtinGroupId || sound.GroupID <= 0)
+            {
+                if (sound.AudioFile == null && sound.AudioID >= 0 && sound.AudioID < data.EmbeddedAudio.Count)
+                {
+                    sound.AudioFile = data.EmbeddedAudio[sound.AudioID];
+                    relinkedBuiltin++;
+                }
+            }
+            else if (sound.AudioFile != null)
+            {
+                sound.AudioFile = null!;
+                clearedExternal++;
+            }
+        }
+
+        if (relinkedBuiltin > 0)
+            result.Repairs.Add($"relinked {relinkedBuiltin} builtin Sound audio reference(s)");
+        if (clearedExternal > 0)
+            result.Repairs.Add($"cleared {clearedExternal} external Sound audio pointer(s)");
+        if (clearedEmptyTypes > 0)
+            result.Repairs.Add($"cleared {clearedEmptyTypes} empty Sound type reference(s)");
     }
 
     private static void RepairFunctionReferences(UndertaleData data, DataIntegrityResult result)
@@ -84,18 +148,36 @@ public static partial class DataIntegrityService
             }
         }
 
-        int removedNestedGlobals = 0;
+        var codeNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var code in data.Code ?? [])
+        {
+            var codeName = code?.Name?.Content;
+            if (!string.IsNullOrEmpty(codeName))
+                codeNames.Add(codeName);
+        }
+
+        int removedInvalidFunctions = 0;
         for (int i = data.Functions.Count - 1; i >= 0; i--)
         {
             var function = data.Functions[i];
             var name = function?.Name?.Content;
-            if (function != null &&
-                !referencedFunctions.Contains(function) &&
-                !string.IsNullOrEmpty(name) &&
-                !string.Equals(name, CanonicalizeFunctionName(name), StringComparison.Ordinal))
+            if (function == null ||
+                referencedFunctions.Contains(function) ||
+                string.IsNullOrEmpty(name))
+            {
+                continue;
+            }
+
+            bool isInvalidNestedGlobal =
+                !string.Equals(name, CanonicalizeFunctionName(name), StringComparison.Ordinal);
+            bool isOrphanScriptFunction =
+                name.StartsWith("gml_Script_", StringComparison.Ordinal) &&
+                !codeNames.Contains(name);
+
+            if (isInvalidNestedGlobal || isOrphanScriptFunction)
             {
                 data.Functions.RemoveAt(i);
-                removedNestedGlobals++;
+                removedInvalidFunctions++;
             }
         }
 
@@ -103,8 +185,8 @@ public static partial class DataIntegrityService
             result.Repairs.Add($"restored {restored} missing Function entries referenced by CodeEntries");
         if (relinked > 0)
             result.Repairs.Add($"relinked {relinked} CodeEntry instruction Function references");
-        if (removedNestedGlobals > 0)
-            result.Repairs.Add($"removed {removedNestedGlobals} invalid nested GlobalScript Function entries");
+        if (removedInvalidFunctions > 0)
+            result.Repairs.Add($"removed {removedInvalidFunctions} invalid or orphan Script Function entries");
     }
 
     private static void RepairLocalChildFunctionReferences(UndertaleData data, DataIntegrityResult result)
@@ -122,6 +204,7 @@ public static partial class DataIntegrityService
         }
 
         var localChildMaps = new Dictionary<UndertaleCode, Dictionary<string, UndertaleFunction?>>();
+        var localChildOrdinalMaps = new Dictionary<UndertaleCode, Dictionary<string, UndertaleFunction>>();
         Dictionary<string, UndertaleFunction?> GetLocalChildMap(UndertaleCode parent)
         {
             if (localChildMaps.TryGetValue(parent, out var cached))
@@ -131,10 +214,10 @@ public static partial class DataIntegrityService
             foreach (var child in parent.ChildEntries ?? [])
             {
                 var childName = child?.Name?.Content;
-                if (string.IsNullOrEmpty(childName) || !IsLocalStructFunctionName(childName))
+                if (string.IsNullOrEmpty(childName) || !IsLocalChildFunctionName(childName))
                     continue;
 
-                string signature = NormalizeLocalStructFunctionName(childName);
+                string signature = NormalizeLocalChildFunctionName(childName);
                 if (!functionByName.TryGetValue(childName, out var childFunction))
                     continue;
 
@@ -146,6 +229,73 @@ public static partial class DataIntegrityService
 
             localChildMaps[parent] = map;
             return map;
+        }
+
+        Dictionary<string, UndertaleFunction> GetLocalChildOrdinalMap(UndertaleCode parent)
+        {
+            if (localChildOrdinalMaps.TryGetValue(parent, out var cached))
+                return cached;
+
+            var liveByFamily = new Dictionary<string, List<(int Ordinal, UndertaleFunction Function)>>(StringComparer.Ordinal);
+            foreach (var child in parent.ChildEntries ?? [])
+            {
+                var childName = child?.Name?.Content;
+                if (string.IsNullOrEmpty(childName) ||
+                    !functionByName.TryGetValue(childName, out var childFunction) ||
+                    !TryGetLocalChildOrdinalFamily(childName, out var family, out int ordinal))
+                {
+                    continue;
+                }
+
+                if (!liveByFamily.TryGetValue(family, out var list))
+                {
+                    list = [];
+                    liveByFamily[family] = list;
+                }
+                list.Add((ordinal, childFunction));
+            }
+
+            var referencedByFamily = new Dictionary<string, SortedSet<int>>(StringComparer.Ordinal);
+            foreach (var code in data.Code ?? [])
+            {
+                if ((code?.ParentEntry ?? code) != parent)
+                    continue;
+
+                foreach (var instruction in code?.Instructions ?? [])
+                {
+                    var name = instruction.ValueFunction?.Name?.Content;
+                    if (string.IsNullOrEmpty(name) ||
+                        !TryGetLocalChildOrdinalFamily(name, out var family, out int ordinal))
+                    {
+                        continue;
+                    }
+
+                    if (!referencedByFamily.TryGetValue(family, out var ordinals))
+                    {
+                        ordinals = [];
+                        referencedByFamily[family] = ordinals;
+                    }
+                    ordinals.Add(ordinal);
+                }
+            }
+
+            var result = new Dictionary<string, UndertaleFunction>(StringComparer.Ordinal);
+            foreach (var (family, referencedOrdinals) in referencedByFamily)
+            {
+                if (!liveByFamily.TryGetValue(family, out var liveFunctions))
+                    continue;
+
+                var liveOrdered = liveFunctions.OrderBy(x => x.Ordinal).Select(x => x.Function).ToList();
+                var referencedOrdered = referencedOrdinals.Order().ToList();
+                if (liveOrdered.Count < referencedOrdered.Count)
+                    continue;
+
+                for (int i = 0; i < referencedOrdered.Count; i++)
+                    result[family + "|" + referencedOrdered[i].ToString()] = liveOrdered[i];
+            }
+
+            localChildOrdinalMaps[parent] = result;
+            return result;
         }
 
         int repaired = 0;
@@ -166,17 +316,23 @@ public static partial class DataIntegrityService
             {
                 var currentFunction = instruction.ValueFunction;
                 var currentName = currentFunction?.Name?.Content;
-                if (string.IsNullOrEmpty(currentName) || !IsLocalStructFunctionName(currentName))
+                if (string.IsNullOrEmpty(currentName) || !IsLocalChildFunctionName(currentName))
                     continue;
 
-                if (!codeByName.TryGetValue(currentName, out var referencedCode))
+                if (codeByName.TryGetValue(currentName, out var referencedCode) &&
+                    ReferenceEquals(referencedCode.ParentEntry, owner))
+                {
                     continue;
+                }
 
-                if (ReferenceEquals(referencedCode.ParentEntry, owner))
-                    continue;
+                string signature = NormalizeLocalChildFunctionName(currentName);
+                if ((!localMap.TryGetValue(signature, out var replacement) || replacement == null) &&
+                    TryGetLocalChildOrdinalFamily(currentName, out var family, out int ordinal))
+                {
+                    GetLocalChildOrdinalMap(owner).TryGetValue(family + "|" + ordinal.ToString(), out replacement);
+                }
 
-                string signature = NormalizeLocalStructFunctionName(currentName);
-                if (!localMap.TryGetValue(signature, out var replacement) || replacement == null || ReferenceEquals(replacement, currentFunction))
+                if (replacement == null || ReferenceEquals(replacement, currentFunction))
                     continue;
 
                 instruction.ValueFunction = replacement;
@@ -188,14 +344,48 @@ public static partial class DataIntegrityService
             result.Repairs.Add($"relinked {repaired} local child Function references to their owning CodeEntry");
     }
 
-    private static bool IsLocalStructFunctionName(string functionName) =>
-        functionName.Contains("____struct___", StringComparison.Ordinal);
+    private static bool IsLocalChildFunctionName(string functionName) =>
+        functionName.Contains("____struct___", StringComparison.Ordinal) ||
+        functionName.StartsWith("gml_Script_anon_", StringComparison.Ordinal);
 
-    private static string NormalizeLocalStructFunctionName(string functionName) =>
-        LocalStructOrdinalRegex().Replace(functionName, "____struct___#");
+    private static string NormalizeLocalChildFunctionName(string functionName)
+    {
+        functionName = LocalStructOrdinalRegex().Replace(functionName, "____struct___#");
+        return LocalAnonymousOrdinalRegex().Replace(functionName, "$1_#_$2");
+    }
 
     [GeneratedRegex("____struct___\\d+")]
     private static partial Regex LocalStructOrdinalRegex();
+
+    [GeneratedRegex(@"^(gml_Script_anon_.+)_\d+_([^_].*)$")]
+    private static partial Regex LocalAnonymousOrdinalRegex();
+
+    private static bool TryGetLocalChildOrdinalFamily(string functionName, out string family, out int ordinal)
+    {
+        var structMatch = LocalStructOrdinalFamilyRegex().Match(functionName);
+        if (structMatch.Success && int.TryParse(structMatch.Groups["ordinal"].Value, out ordinal))
+        {
+            family = structMatch.Groups["prefix"].Value + "#" + structMatch.Groups["suffix"].Value;
+            return true;
+        }
+
+        var anonMatch = LocalAnonymousOrdinalFamilyRegex().Match(functionName);
+        if (anonMatch.Success && int.TryParse(anonMatch.Groups["ordinal"].Value, out ordinal))
+        {
+            family = anonMatch.Groups["prefix"].Value + "_#_" + anonMatch.Groups["suffix"].Value;
+            return true;
+        }
+
+        family = string.Empty;
+        ordinal = 0;
+        return false;
+    }
+
+    [GeneratedRegex(@"^(?<prefix>gml_Script____struct___)(?<ordinal>\d+)(?<suffix>_.+)$")]
+    private static partial Regex LocalStructOrdinalFamilyRegex();
+
+    [GeneratedRegex(@"^(?<prefix>gml_Script_anon_.+)_(?<ordinal>\d+)_(?<suffix>[^_].*)$")]
+    private static partial Regex LocalAnonymousOrdinalFamilyRegex();
 
     private static string CanonicalizeFunctionName(string functionName)
     {

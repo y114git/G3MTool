@@ -232,7 +232,7 @@ namespace UndertaleModLib
         {
             if (_warningHandler != null)
                 _warningHandler.Invoke(warning, isImportant);
-            else
+            else if (isImportant)
                 throw new IOException(warning);
         }
 

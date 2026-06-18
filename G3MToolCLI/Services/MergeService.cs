@@ -173,7 +173,6 @@ public static partial class MergeService
     private static int TryGetBestExactCodeBasePatchIndex(PatchFileSystem[] patches, string[] sourcePaths)
     {
         int best = -1;
-        long bestScore = 0;
 
         for (int i = 0; i < patches.Length; i++)
         {
@@ -183,19 +182,8 @@ public static partial class MergeService
                 continue;
             }
 
-            var stats = patches[i].Manifest?.Statistics;
-            long score =
-                (stats?.TotalChanged ?? 0) +
-                (stats?.TotalNew ?? 0) +
-                (stats?.TotalDeleted ?? 0) +
-                patches[i].GmlEntries.Count * 10L +
-                patches[i].AsmEntries.Count * 10L;
-
-            if (score > bestScore)
-            {
+            if (best < 0)
                 best = i;
-                bestScore = score;
-            }
         }
 
         return best;
@@ -350,7 +338,13 @@ public static partial class MergeService
             }
 
             RepairMergedEmbeddedSoundAudioSlots(baseData, finalPfs, normalizedPatchFileSystems, soundAudioIdRemaps.AffectedSoundNames);
-            RepairExactMergedSoundPayloadsFromOwners(baseData, finalPfs, normalizedPatchFileSystems);
+            RepairExactMergedChildCodeOffsetsFromAsm(baseData, finalPfs, normalizedPatchFileSystems);
+            await RepairExactMergedChildCodeMetadataFromSourceDataAsync(
+                baseData,
+                originalPath,
+                sourcePatchPaths,
+                tempRoot);
+            DataIntegrityService.RepairAndValidate(baseData);
 
             var mergedDir = Path.GetDirectoryName(mergedDataPath);
             if (!string.IsNullOrWhiteSpace(mergedDir))
@@ -430,6 +424,191 @@ public static partial class MergeService
         }
 
         return normalization;
+    }
+
+    private static void RepairExactMergedChildCodeOffsetsFromAsm(
+        UndertaleData data,
+        PatchFileSystem finalPfs,
+        PatchFileSystem[] sourcePatches)
+    {
+        var candidatePatches = new List<PatchFileSystem> { finalPfs };
+        candidatePatches.AddRange(sourcePatches.Reverse());
+
+        var repairedParents = 0;
+        foreach (var parent in data.Code ?? [])
+        {
+            var parentName = parent?.Name?.Content;
+            if (parent == null ||
+                parent.ParentEntry != null ||
+                string.IsNullOrEmpty(parentName) ||
+                parent.ChildEntries == null ||
+                parent.ChildEntries.Count == 0 ||
+                parent.ChildEntries.All(child => child?.Offset != 0))
+            {
+                continue;
+            }
+
+            foreach (var patch in candidatePatches)
+            {
+                if (!patch.AsmEntries.TryGetValue(parentName, out var asm) ||
+                    !asm.Contains("\n> ", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                var snapshot = parent.ChildEntries
+                    .Where(child => child?.Name?.Content != null)
+                    .ToDictionary(
+                        child => child!.Name!.Content,
+                        child => (child!.Offset, child.LocalsCount, child.ArgumentsCount),
+                        StringComparer.Ordinal);
+
+                try
+                {
+                    var assembled = Assembler.Assemble(asm, data, null, parent);
+                    if (assembled.Count != (parent.Instructions?.Count ?? 0))
+                    {
+                        RestoreChildCodeMetadata(parent, snapshot);
+                        continue;
+                    }
+
+                    if (parent.ChildEntries.Any(child => child?.Offset == 0))
+                    {
+                        RestoreChildCodeMetadata(parent, snapshot);
+                        continue;
+                    }
+
+                    repairedParents++;
+                    break;
+                }
+                catch
+                {
+                    RestoreChildCodeMetadata(parent, snapshot);
+                }
+            }
+        }
+
+        if (repairedParents > 0)
+            LogService.Log($"[MergeService] Repaired child code offsets for {repairedParents} exact-merge parent entrie(s)");
+    }
+
+    private static void RestoreChildCodeMetadata(
+        UndertaleCode parent,
+        Dictionary<string, (uint Offset, uint LocalsCount, ushort ArgumentsCount)> snapshot)
+    {
+        foreach (var child in parent.ChildEntries ?? [])
+        {
+            var name = child?.Name?.Content;
+            if (child == null || string.IsNullOrEmpty(name) || !snapshot.TryGetValue(name, out var saved))
+                continue;
+
+            child.Offset = saved.Offset;
+            child.LocalsCount = saved.LocalsCount;
+            child.ArgumentsCount = saved.ArgumentsCount;
+        }
+    }
+
+    private static async Task RepairExactMergedChildCodeMetadataFromSourceDataAsync(
+        UndertaleData data,
+        string originalPath,
+        string[] sourcePatchPaths,
+        string tempRoot)
+    {
+        var missingChildren = data.Code
+            .Where(code => code?.ParentEntry != null && code.Offset == 0 && !string.IsNullOrEmpty(code.Name?.Content))
+            .ToList();
+        if (missingChildren.Count == 0)
+            return;
+
+        var missingByParent = missingChildren
+            .GroupBy(code => code.ParentEntry!.Name?.Content ?? string.Empty, StringComparer.Ordinal)
+            .Where(group => !string.IsNullOrEmpty(group.Key))
+            .ToDictionary(
+                group => group.Key,
+                group => group.ToDictionary(code => code.Name!.Content, code => code, StringComparer.Ordinal),
+                StringComparer.Ordinal);
+        if (missingByParent.Count == 0)
+            return;
+
+        int repaired = 0;
+        for (int i = sourcePatchPaths.Length - 1; i >= 0 && missingByParent.Count > 0; i--)
+        {
+            string sourceDataPath = Path.Combine(tempRoot, $"child_metadata_source_{i}.win");
+            bool materialized = await TryMaterializeExactBaseDataAsync(originalPath, sourcePatchPaths[i], sourceDataPath);
+            if (!materialized)
+            {
+                var applyResult = await PatchService.ApplyPatchAsync(originalPath, sourcePatchPaths[i], sourceDataPath, allowXdeltaFallback: false, verifyModifiedHash: false);
+                materialized = applyResult.Success;
+            }
+            if (!materialized || !File.Exists(sourceDataPath))
+                continue;
+
+            UndertaleData? sourceData = null;
+            try
+            {
+                using (var stream = OpenDataReadStream(sourceDataPath))
+                    sourceData = UndertaleIO.Read(stream);
+
+                var neededParents = missingByParent.Keys.ToHashSet(StringComparer.Ordinal);
+                foreach (var sourceParent in sourceData.Code ?? [])
+                {
+                    var parentName = sourceParent?.Name?.Content;
+                    if (sourceParent == null ||
+                        sourceParent.ParentEntry != null ||
+                        string.IsNullOrEmpty(parentName) ||
+                        !neededParents.Contains(parentName) ||
+                        sourceParent.ChildEntries == null ||
+                        !missingByParent.TryGetValue(parentName, out var targetChildren))
+                    {
+                        continue;
+                    }
+
+                    foreach (var sourceChild in sourceParent.ChildEntries)
+                    {
+                        var childName = sourceChild?.Name?.Content;
+                        if (sourceChild == null ||
+                            string.IsNullOrEmpty(childName) ||
+                            sourceChild.Offset == 0 ||
+                            !targetChildren.TryGetValue(childName, out var targetChild) ||
+                            targetChild.ParentEntry == null ||
+                            targetChild.ParentEntry.Length != sourceParent.Length)
+                        {
+                            continue;
+                        }
+
+                        targetChild.Offset = sourceChild.Offset;
+                        targetChild.LocalsCount = sourceChild.LocalsCount;
+                        targetChild.ArgumentsCount = sourceChild.ArgumentsCount;
+                        targetChildren.Remove(childName);
+                        repaired++;
+                    }
+
+                    if (targetChildren.Count == 0)
+                        missingByParent.Remove(parentName);
+                }
+            }
+            finally
+            {
+                sourceData?.Dispose();
+                TryDeleteFile(sourceDataPath);
+            }
+        }
+
+        if (repaired > 0)
+            LogService.Log($"[MergeService] Repaired {repaired} exact-merge child code metadata entrie(s) from source data");
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+        catch
+        {
+            // Best-effort cleanup for temporary merge materialization.
+        }
     }
 
     private static PatchFileSystem BuildOverlayAgainstExactCodeBase(
@@ -2468,88 +2647,6 @@ public static partial class MergeService
             LogService.Log($"[MergeService] Repaired {repaired} duplicate embedded sound slot(s) in merged data");
     }
 
-    private static void RepairExactMergedSoundPayloadsFromOwners(
-        UndertaleData data,
-        PatchFileSystem finalPfs,
-        PatchFileSystem[] sourcePatches)
-    {
-        if (data.EmbeddedAudio == null)
-            return;
-
-        var ownerPayloads = BuildFinalSoundOwnerPayloads(finalPfs, sourcePatches);
-        int repaired = 0;
-        foreach (var (soundName, payload) in ownerPayloads)
-        {
-            if (payload.AudioBytes == null || payload.GroupId > 0 || payload.AudioId < 0)
-                continue;
-
-            var sound = data.Sounds.ByName(soundName);
-            if (sound == null)
-                continue;
-
-            while (data.EmbeddedAudio.Count <= payload.AudioId)
-                data.EmbeddedAudio.Add(new UndertaleEmbeddedAudio());
-
-            data.EmbeddedAudio[payload.AudioId].Data = payload.AudioBytes;
-            sound.AudioID = payload.AudioId;
-            sound.GroupID = payload.GroupId;
-            sound.AudioFile = data.EmbeddedAudio[payload.AudioId];
-            if (data.AudioGroups != null && payload.GroupId >= 0 && payload.GroupId < data.AudioGroups.Count)
-                sound.AudioGroup = data.AudioGroups[payload.GroupId];
-            repaired++;
-        }
-
-        if (repaired > 0)
-            LogService.Log($"[MergeService] Restored {repaired} exact-base sound payload(s) from patch owners");
-    }
-
-    private static Dictionary<string, MergedSoundPayload> BuildFinalSoundOwnerPayloads(
-        PatchFileSystem finalPfs,
-        PatchFileSystem[] sourcePatches)
-    {
-        var sourcePayloads = sourcePatches.Select(ReadMergedSoundPayloads).ToArray();
-        var finalPayloads = ReadMergedSoundPayloads(finalPfs);
-        var result = new Dictionary<string, MergedSoundPayload>(StringComparer.Ordinal);
-
-        foreach (var finalPath in finalPfs.GetAllFilePaths()
-                     .Where(path => path.StartsWith("Sounds/", StringComparison.OrdinalIgnoreCase) &&
-                                    path.EndsWith(".json", StringComparison.OrdinalIgnoreCase)))
-        {
-            JsonObject? node;
-            try
-            {
-                node = JsonNode.Parse(finalPfs.ReadAllText(finalPath))?.AsObject();
-            }
-            catch
-            {
-                continue;
-            }
-
-            string? soundName = node?["name"]?.GetValue<string>();
-            if (string.IsNullOrWhiteSpace(soundName))
-                continue;
-
-            byte[] finalBytes = finalPfs.ReadAllBytes(finalPath);
-            MergedSoundPayload? selected = null;
-            for (int i = sourcePatches.Length - 1; i >= 0; i--)
-            {
-                if (sourcePatches[i].TryGetFile(finalPath, out var sourceBytes) &&
-                    sourceBytes.AsSpan().SequenceEqual(finalBytes) &&
-                    sourcePayloads[i].TryGetValue(soundName, out var payload))
-                {
-                    selected = payload;
-                    break;
-                }
-            }
-
-            selected ??= finalPayloads.GetValueOrDefault(soundName);
-            if (selected != null)
-                result[soundName] = selected;
-        }
-
-        return result;
-    }
-
     private sealed record MergedSoundPayload(int AudioId, int GroupId, string Extension, byte[]? AudioBytes);
 
     private static Dictionary<string, MergedSoundPayload> ReadMergedSoundPayloads(PatchFileSystem finalPfs)
@@ -3698,7 +3795,7 @@ public static partial class MergeService
         if (!existingHasExpandedCoverage)
             return false;
 
-        details = $"Kept existing {fontName} payload because it has expanded glyph coverage ({existingGlyphs} glyphs) while incoming has {incomingGlyphs}; replacing it would drop Korean glyphs from the lower-priority translation.";
+        details = $"Kept existing {fontName} payload because it has expanded glyph coverage ({existingGlyphs} glyphs) while incoming has {incomingGlyphs}; replacing it would discard lower-priority glyph additions.";
         return true;
     }
 
@@ -3716,20 +3813,6 @@ public static partial class MergeService
         {
             return -1;
         }
-    }
-
-    private static bool ShouldHighPriorityBaseCodeOverrideLowerChange(string codeName, PatchFileSystem incomingPatch)
-    {
-        if (!codeName.Equals("gml_Object_DEVICE_MENU_Draw_0", StringComparison.Ordinal) &&
-            !codeName.Equals("gml_Object_DEVICE_MENU_Step_0", StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        return incomingPatch.DirectoryExists("Fonts") ||
-               incomingPatch.DirectoryExists("EmbeddedTextures") ||
-               incomingPatch.FileExists($"{incomingPatch.HelpersPrefix}/texture_page_items.json") ||
-               incomingPatch.FileExists($"{incomingPatch.HelpersPrefix}/sprite_frame_map.json");
     }
 
     private static string CanonicalizeFunctionName(string functionName)

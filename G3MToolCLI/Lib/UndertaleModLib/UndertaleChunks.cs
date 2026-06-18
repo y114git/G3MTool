@@ -413,7 +413,7 @@ namespace UndertaleModLib
         private bool checkedFor2024_6 = false;
         private void CheckForGM2024_6(UndertaleReader reader)
         {
-            if (!reader.undertaleData.IsNonLTSVersionAtLeast(2023, 2) || reader.undertaleData.IsVersionAtLeast(2024, 6))
+            if (!reader.undertaleData.IsNonLTSVersionAtLeast(2023, 2))
             {
                 checkedFor2024_6 = true;
                 return;
@@ -438,9 +438,14 @@ namespace UndertaleModLib
             {
                 // If first sound's theoretical (old) end offset is below the start offset of
                 // the next sound by exactly 4 bytes, then this is 2024.6.
-                if ((soundPtrs[0] + (4 * 9)) == (soundPtrs[1] - 4))
+                if ((soundPtrs[0] + (4 * 9)) == (soundPtrs[1] - 4) &&
+                    !reader.undertaleData.IsLTSBranch())
                 {
                     reader.undertaleData.SetGMS2Version(2024, 6);
+                }
+                else if ((soundPtrs[0] + (4 * 9)) == soundPtrs[1])
+                {
+                    reader.undertaleData.SetGMS2Version(2023, 6, 0, 0, isLTS: true);
                 }
             }
             else if (soundPtrs.Count == 1)
@@ -453,7 +458,7 @@ namespace UndertaleModLib
                     // If this occurs, then something weird has happened at the start of the chunk?
                     throw new IOException("Expected to be on specific alignment at this point");
                 }
-                if (reader.ReadUInt32() != 0)
+                    if (reader.ReadUInt32() != 0 && !reader.undertaleData.IsLTSBranch())
                 {
                     reader.undertaleData.SetGMS2Version(2024, 6);
                 }
@@ -730,13 +735,15 @@ namespace UndertaleModLib
                 if (bboxEndPos == expectedEndOffset)
                 {
                     // "Bbox" mask data is valid
-                    reader.undertaleData.SetGMS2Version(2024, 6);
+                    if (!reader.undertaleData.IsLTSBranch())
+                        reader.undertaleData.SetGMS2Version(2024, 6);
                     break;
                 }
                 if (endOffsetLenient && (bboxEndPos % 16) != 0 && bboxEndPos + (16 - (bboxEndPos % 16)) == expectedEndOffset)
                 {
                     // "Bbox" mask data doesn't exactly line up, but works if rounded up to the next chunk padding
-                    reader.undertaleData.SetGMS2Version(2024, 6);
+                    if (!reader.undertaleData.IsLTSBranch())
+                        reader.undertaleData.SetGMS2Version(2024, 6);
                     break;
                 }
 

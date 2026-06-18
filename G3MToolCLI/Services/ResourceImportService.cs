@@ -1460,6 +1460,12 @@ public static partial class ResourceImportService
             if (root.TryGetProperty("minor", out JsonElement minElm)) data.GeneralInfo.Minor = (uint)minElm.GetInt64();
             if (root.TryGetProperty("release", out JsonElement relElm)) data.GeneralInfo.Release = (uint)relElm.GetInt64();
             if (root.TryGetProperty("build", out JsonElement bldElm)) data.GeneralInfo.Build = (uint)bldElm.GetInt64();
+            if (root.TryGetProperty("branch", out JsonElement brElm) &&
+                brElm.ValueKind == JsonValueKind.String &&
+                Enum.TryParse(brElm.GetString(), out UndertaleGeneralInfo.BranchType branch))
+            {
+                data.GeneralInfo.Branch = branch;
+            }
             if (root.TryGetProperty("defaultWindowWidth", out JsonElement wwElm)) data.GeneralInfo.DefaultWindowWidth = (uint)wwElm.GetInt64();
             if (root.TryGetProperty("defaultWindowHeight", out JsonElement whElm)) data.GeneralInfo.DefaultWindowHeight = (uint)whElm.GetInt64();
             if (root.TryGetProperty("infoFlags", out JsonElement ifElm)) data.GeneralInfo.Info = (UndertaleGeneralInfo.InfoFlags)ifElm.GetUInt32();

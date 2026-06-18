@@ -183,7 +183,7 @@ public class UndertaleSound : UndertaleNamedResource, IProjectAsset, INotifyProp
         else
             writer.Write(_audioFile.CachedId);
 
-        if (writer.undertaleData.IsVersionAtLeast(2024, 6))
+        if (writer.undertaleData.IsNonLTSVersionAtLeast(2024, 6))
             writer.Write(AudioLength);
     }
 
@@ -219,7 +219,7 @@ public class UndertaleSound : UndertaleNamedResource, IProjectAsset, INotifyProp
             _audioFile.CachedId = reader.ReadInt32();
         }
 
-        if (reader.undertaleData.IsVersionAtLeast(2024, 6))
+        if (reader.undertaleData.IsNonLTSVersionAtLeast(2024, 6))
             AudioLength = reader.ReadSingle();
     }
 

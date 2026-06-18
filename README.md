@@ -1,6 +1,6 @@
 # G3MTool
 
-G3MTool is the command-line tool and reference implementation for the `.g3mpatch` format. It works with GameMaker data files, creates and applies `.g3mpatch` patches, merges patches, inspects files, compares files, runs bundled/import scripts, and works with xdelta patches.
+G3MTool is the command-line tool and reference implementation for the `.g3mpatch` format. It works with GameMaker data files, creates and applies `.g3mpatch` patches, batch-processes patch jobs, merges patches, inspects files, compares files, runs bundled/import scripts, and works with xdelta patches.
 
 Supported data-file extensions are `.win`, `.ios`, `.droid`, and `.unx`.
 
@@ -68,14 +68,32 @@ Options:
 
 | Option | Meaning |
 | --- | --- |
-| `-o`, `--out <path>` | Write the merged `.g3mpatch` |
-| `-a`, `--apply <path>` | Apply the merged patch and write a data file |
+| `-a`, `--apply <path>` | Write the merged data file |
+| `-o`, `--out <path>` | Also keep the merged `.g3mpatch` |
 | `--code` | Enable 3-way merge for GML code files |
 | `--properties` | Enable deep merge for JSON property files |
 | `-r`, `--report <path>` | Write a Markdown merge report |
 | `--cache <dir>` | Reuse `.g3mcache` analysis files while converting data-file or `.xdelta` inputs |
 
-If neither `--out` nor `--apply` is set, G3MTool writes a merged `.g3mpatch` to the default output path.
+If `--apply` is not set, G3MTool writes the merged data file to the current directory as `<original>_merged<ext>`. Add `--out` when you also want to keep the intermediate merged `.g3mpatch`.
+
+### patch batch
+
+Batch commands run multiple independent patch jobs against the same original data file. They hash inputs before work starts, skip repeated identical jobs, and copy the already-produced output under the next generated name.
+
+```bash
+G3MTool patch batch apply <original> <patches...> --out-dir <dir> [--cache <dir>] [--continue-on-error] [--xdelta-fallback]
+G3MTool patch batch create <original> <modified...> --out-dir <dir> [--cache <dir>] [--continue-on-error] [--xdelta-fallback]
+G3MTool patch batch merge <original> <sets...> [--apply <data-dir>] [--out <patch-dir>] [--cache <dir>] [--continue-on-error] [--code] [--properties] [--report]
+```
+
+`batch apply` applies each patch independently to the original data file. `batch create` creates one `.g3mpatch` per modified input. `batch merge` runs multiple independent merge jobs; each set is a quoted comma-separated list of patches in low-to-high priority order:
+
+```bash
+G3MTool patch batch merge game.win "base_patch.xdelta,ui_patch.g3mpatch" "mod_a.win,mod_b.xdelta,mod_c.g3mpatch" --apply data --out patches
+```
+
+Batch merge writes patched data outputs using the original file extension. By default those files go to the current directory; use `--apply <data-dir>` to choose the data output folder. Add `--out <patch-dir>` when you also want to keep each merged `.g3mpatch`. Use `--code`, `--properties`, and `--report` to apply those merge options to every set.
 
 ## diff
 

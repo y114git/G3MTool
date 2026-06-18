@@ -498,7 +498,7 @@ public static partial class ResourceImportService
                 if (ag != null) { sound.AudioGroup = ag; sound.GroupID = data.AudioGroups.IndexOf(ag); }
             }
         }
-        if (root.TryGetProperty("audioLength", out JsonElement alElm) && data.IsVersionAtLeast(2024, 6))
+        if (root.TryGetProperty("audioLength", out JsonElement alElm) && data.IsNonLTSVersionAtLeast(2024, 6))
             sound.AudioLength = (float)alElm.GetDouble();
         if (sound.GroupID <= 0 && sound.AudioID >= 0)
             sound.AudioFile = EnsureEmbeddedAudioSlot(data, sound.AudioID);
