@@ -4624,8 +4624,11 @@ public static partial class MergeService
             stats.TotalChanged += changes.Changed?.Count ?? 0;
             stats.TotalNew += changes.New?.Count ?? 0;
             stats.TotalDeleted += changes.Deleted?.Count ?? 0;
+            foreach (var changed in changes.Changed ?? [])
+                stats.TotalChangedFiles += changed.Files?.Count ?? 0;
+            foreach (var added in changes.New ?? [])
+                stats.TotalNewFiles += added.Files?.Count ?? 0;
         }
-        stats.TotalChangedFiles = finalPfs.FileCount + finalPfs.GmlEntries.Count + finalPfs.AsmEntries.Count;
 
         return new G3MPatchManifest
         {

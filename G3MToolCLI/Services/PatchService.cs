@@ -233,6 +233,7 @@ public partial class PatchService
             Dictionary<string, Dictionary<string, string>> modifiedHashes;
             var modifiedCacheOptions = tempXdeltaResult == null ? cacheOptions : null;
             Dictionary<string, HashSet<string>> changedNamesPerType = [];
+            Dictionary<string, HashSet<string>> manifestChangedNamesPerType = [];
             var helperForcedResourceTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             Dictionary<string, (string LogicalName, string? gml, string? asm, Dictionary<string, (string LogicalName, string Asm)>? childAsms)> codeEntriesInMemory = [];
 
@@ -296,6 +297,7 @@ public partial class PatchService
                         changedNamesPerType[resourceType] = changedNames;
                 }
 
+                manifestChangedNamesPerType = CloneChangedNameMap(changedNamesPerType);
                 AddDuplicateCountChanges(originalNameCounts, modifiedData, changedNamesPerType);
                 PromoteOrderSensitiveExportsIfNeeded(
                     originalOrderedNames,
@@ -407,6 +409,7 @@ public partial class PatchService
                             changedNamesPerType[resourceType] = changedNames;
                     }
 
+                    manifestChangedNamesPerType = CloneChangedNameMap(changedNamesPerType);
                     AddDuplicateCountChanges(originalNameCounts, modifiedData, changedNamesPerType);
                     PromoteOrderSensitiveExportsIfNeeded(
                         originalOrderedNames,
@@ -488,7 +491,9 @@ public partial class PatchService
                         modTypeHashes,
                         modifiedExportDir,
                         resourceType,
-                        changedNamesPerType.GetValueOrDefault(resourceType));
+                        manifestChangedNamesPerType.GetValueOrDefault(resourceType));
+                    if (resourceType == "CodeEntries")
+                        PopulateCodeEntryFiles(changes, codeEntriesInMemory);
                     if (changes.HasChanges)
                         manifest.Resources[resourceType] = changes;
                 }
@@ -739,6 +744,15 @@ public partial class PatchService
         AddDuplicateCountChangesForType("AudioGroups", originalNameCounts, modifiedData.AudioGroups, changedNamesPerType);
     }
 
+    private static Dictionary<string, HashSet<string>> CloneChangedNameMap(
+        Dictionary<string, HashSet<string>> source)
+    {
+        return source.ToDictionary(
+            pair => pair.Key,
+            pair => new HashSet<string>(pair.Value, StringComparer.Ordinal),
+            StringComparer.OrdinalIgnoreCase);
+    }
+
     private static void ExpandChangedCodeEntriesForTopology(
         UndertaleData modifiedData,
         Dictionary<string, HashSet<string>> changedNamesPerType)
@@ -967,7 +981,7 @@ public partial class PatchService
             if (folderNames.Count == 0)
                 folderNames.Add(folderMap.GetValueOrDefault(name) ?? name);
             foreach (var folderName in folderNames)
-                changes.New.Add(new ResourceChange { Name = folderName });
+                changes.New.Add(CreateResourceChange(modifiedResDir, resourceType, folderName));
         }
 
         // Deleted resources (in original but not in modified)
@@ -993,7 +1007,7 @@ public partial class PatchService
                 if (folderNames.Count == 0)
                     folderNames.Add(folderMap.GetValueOrDefault(name) ?? name);
                 foreach (var folderName in folderNames)
-                    changes.Changed.Add(new ResourceChange { Name = folderName });
+                    changes.Changed.Add(CreateResourceChange(modifiedResDir, resourceType, folderName));
             }
         }
 
@@ -1034,9 +1048,9 @@ public partial class PatchService
                 foreach (var folderName in folderNames)
                 {
                     if (isNew)
-                        changes.New!.Add(new ResourceChange { Name = folderName });
+                        changes.New!.Add(CreateResourceChange(modifiedResDir, resourceType, folderName));
                     else
-                        changes.Changed!.Add(new ResourceChange { Name = folderName });
+                        changes.Changed!.Add(CreateResourceChange(modifiedResDir, resourceType, folderName));
                 }
             }
         }
@@ -1056,7 +1070,7 @@ public partial class PatchService
                 folderNames.Add(name);
 
             foreach (var folderName in folderNames)
-                changes.Changed!.Add(new ResourceChange { Name = folderName });
+                changes.Changed!.Add(CreateResourceChange(modifiedResDir, resourceType, folderName));
         }
 
         foreach (var name in originalHashes.Keys.Except(modifiedHashes.Keys))
@@ -1078,6 +1092,74 @@ public partial class PatchService
                 result.Add(folderName);
         }
         return result;
+    }
+
+    private static ResourceChange CreateResourceChange(string sourceDir, string resourceType, string resourceName)
+    {
+        return new ResourceChange
+        {
+            Name = resourceName,
+            Files = BuildResourceFileMap(sourceDir, resourceType, resourceName)
+        };
+    }
+
+    private static void PopulateCodeEntryFiles(
+        ResourceTypeChanges changes,
+        Dictionary<string, (string LogicalName, string? gml, string? asm, Dictionary<string, (string LogicalName, string Asm)>? childAsms)> codeEntriesInMemory)
+    {
+        foreach (var change in (changes.Changed ?? []).Concat(changes.New ?? []))
+        {
+            if (string.IsNullOrWhiteSpace(change.Name) ||
+                !codeEntriesInMemory.TryGetValue(change.Name, out var entry))
+            {
+                change.Files ??= [];
+                continue;
+            }
+
+            var files = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (entry.gml != null)
+                files[$"{change.Name}.gml"] = $"CodeEntries/{change.Name}/{change.Name}.gml";
+            if (entry.asm != null)
+                files[$"{change.Name}.asm"] = $"CodeEntries/{change.Name}/{change.Name}.asm";
+            if (entry.childAsms != null)
+            {
+                foreach (var (childLeafKey, _childEntry) in entry.childAsms)
+                    files[$"{childLeafKey}.asm"] = $"CodeEntries/{change.Name}/{childLeafKey}.asm";
+            }
+            change.Files = files;
+        }
+    }
+
+    private static Dictionary<string, string> BuildResourceFileMap(string sourceDir, string resourceType, string resourceName)
+    {
+        var resourcePath = Path.Combine(sourceDir, resourceName);
+        var files = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        if (!Directory.Exists(resourcePath) && resourceName == Path.GetFileName(sourceDir))
+        {
+            if (!Directory.Exists(sourceDir))
+                return files;
+
+            foreach (var file in Directory.GetFiles(sourceDir, "*", SearchOption.AllDirectories))
+            {
+                var relativeToResource = Path.GetRelativePath(sourceDir, file).Replace('\\', '/');
+                var entryPath = Path.Combine(resourceType, relativeToResource).Replace('\\', '/');
+                files[relativeToResource] = entryPath;
+            }
+            return files;
+        }
+
+        if (!Directory.Exists(resourcePath))
+            return files;
+
+        foreach (var file in Directory.GetFiles(resourcePath, "*", SearchOption.AllDirectories))
+        {
+            var relativeToResource = Path.GetRelativePath(resourcePath, file).Replace('\\', '/');
+            var entryPath = Path.Combine(resourceType, resourceName, relativeToResource).Replace('\\', '/');
+            files[relativeToResource] = entryPath;
+        }
+
+        return files;
     }
 
     /// <summary>
