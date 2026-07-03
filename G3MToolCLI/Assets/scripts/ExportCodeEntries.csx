@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using System.Security.Cryptography;
 using UndertaleModLib;
 using UndertaleModLib.Models;
 using UndertaleModLib.Decompiler;
@@ -17,6 +18,24 @@ string SafeName(string name)
     var sb = new StringBuilder(name.Length);
     foreach (var ch in name) sb.Append(invalid.Contains(ch) ? '_' : ch);
     return sb.ToString();
+}
+
+string ShortHash(string value)
+{
+    byte[] bytes = SHA256.HashData(Encoding.UTF8.GetBytes(value));
+    return Convert.ToHexString(bytes, 0, 6).ToLowerInvariant();
+}
+
+string BuildEntryFolderName(UndertaleCode code)
+{
+    string originalName = code.Name?.Content ?? "__unnamed_code__";
+    int codeIndex = Data.Code.IndexOf(code);
+    string safeName = SafeName(originalName);
+    const int maxNamePartLength = 72;
+    if (safeName.Length > maxNamePartLength)
+        safeName = safeName.Substring(0, maxNamePartLength);
+
+    return $"{codeIndex:D6}_{ShortHash(originalName)}_{safeName}";
 }
 
 string GetOutputDirectory()
@@ -62,27 +81,44 @@ void ExportCode(UndertaleCode code, string outputDir)
         return;
     }
 
-    string codeName = SafeName(code.Name.Content);
-    string resourceDir = Path.Combine(outputDir, codeName);
+    string originalCodeName = code.Name.Content;
+    string codeName = SafeName(originalCodeName);
+    string folderName = BuildEntryFolderName(code);
+    string resourceDir = Path.Combine(outputDir, folderName);
     Directory.CreateDirectory(resourceDir);
+
+    string manifestPath = Path.Combine(resourceDir, "entry.json");
+    File.WriteAllText(
+        manifestPath,
+        JsonSerializer.Serialize(
+            new Dictionary<string, object?>
+            {
+                ["originalName"] = originalCodeName,
+                ["safeName"] = codeName,
+                ["folderName"] = folderName,
+                ["codeIndex"] = Data.Code.IndexOf(code),
+                ["isTopLevel"] = code.ParentEntry is null
+            },
+            new JsonSerializerOptions { WriteIndented = true }),
+        Encoding.UTF8);
 
     // Export assembly for byte-perfect bytecode reproduction (all entries)
     try
     {
         var locals = Data.CodeLocals.For(code);
         string asm = code.Disassemble(Data.Variables, locals);
-        string asmPath = Path.Combine(resourceDir, codeName + ".asm");
+        string asmPath = Path.Combine(resourceDir, "entry.asm");
         File.WriteAllText(asmPath, asm, Encoding.UTF8);
     }
     catch (Exception asmEx)
     {
-        PrintLine($"[ExportCodeEntries] Warning: ASM export failed for {codeName}: {asmEx.Message}");
+        PrintLine($"[ExportCodeEntries] Warning: ASM export failed for {originalCodeName}: {asmEx.Message}");
     }
 
     // Export GML only for top-level entries (children can't be compiled standalone)
     if (code.ParentEntry is null)
     {
-        string gmlPath = Path.Combine(resourceDir, codeName + ".gml");
+        string gmlPath = Path.Combine(resourceDir, "entry.gml");
         try
         {
             string decompiled = new Underanalyzer.Decompiler.DecompileContext(globalDecompileContext, code, decompilerSettings).DecompileToString();

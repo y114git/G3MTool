@@ -103,54 +103,36 @@ foreach (string fontDir in fontDirs)
         {
             using (var img = TextureWorker.ReadBGRAImageFromFile(pngPath))
             {
-                // For existing fonts, DO NOT update the EmbeddedTexture!
-                // The EmbeddedTexture is shared with other resources (tilesets, sprites)
-                // and is already updated by ImportEmbeddedTextures.
-                // We only update the TexturePageItem dimensions if needed.
-                if (!isNew && font.Texture?.TexturePage != null)
-                {
-                    // Only update TexturePageItem dimensions, not the EmbeddedTexture itself
-                    // The full texture is already imported via ImportEmbeddedTextures
-                    font.Texture.SourceWidth = (ushort)img.Width;
-                    font.Texture.SourceHeight = (ushort)img.Height;
-                    font.Texture.TargetWidth = (ushort)img.Width;
-                    font.Texture.TargetHeight = (ushort)img.Height;
-                    PrintLine($"[ImportFonts] Updated TexturePageItem dimensions for font: {fontName} (EmbeddedTexture preserved)");
-                }
-                else
-                {
-                    // Only create new textures for new fonts
-                    int lastTextPage = Data.EmbeddedTextures.Count - 1;
-                    int lastTextPageItem = Data.TexturePageItems.Count - 1;
+                int lastTextPage = Data.EmbeddedTextures.Count - 1;
+                int lastTextPageItem = Data.TexturePageItems.Count - 1;
 
-                    UndertaleEmbeddedTexture newEmbeddedTexture = new UndertaleEmbeddedTexture();
-                    newEmbeddedTexture.Name = new UndertaleString($"Texture {++lastTextPage}");
-                    newEmbeddedTexture.TextureData.Image = GMImage.FromMagickImage(img).ConvertToPng();
-                    Data.EmbeddedTextures.Add(newEmbeddedTexture);
+                UndertaleEmbeddedTexture newEmbeddedTexture = new UndertaleEmbeddedTexture();
+                newEmbeddedTexture.Name = new UndertaleString($"Texture {++lastTextPage}");
+                newEmbeddedTexture.TextureData.Image = GMImage.FromMagickImage(img).ConvertToPng();
+                Data.EmbeddedTextures.Add(newEmbeddedTexture);
 
-                    ushort originalTargetX = font.Texture?.TargetX ?? 0;
-                    ushort originalTargetY = font.Texture?.TargetY ?? 0;
-                    ushort originalBoundingWidth = font.Texture?.BoundingWidth ?? (ushort)img.Width;
-                    ushort originalBoundingHeight = font.Texture?.BoundingHeight ?? (ushort)img.Height;
+                ushort originalTargetX = font.Texture?.TargetX ?? 0;
+                ushort originalTargetY = font.Texture?.TargetY ?? 0;
+                ushort originalBoundingWidth = font.Texture?.BoundingWidth ?? (ushort)img.Width;
+                ushort originalBoundingHeight = font.Texture?.BoundingHeight ?? (ushort)img.Height;
 
-                    UndertaleTexturePageItem newTexturePageItem = new UndertaleTexturePageItem();
-                    newTexturePageItem.Name = new UndertaleString($"PageItem {++lastTextPageItem}");
-                    newTexturePageItem.SourceX = 0;
-                    newTexturePageItem.SourceY = 0;
-                    newTexturePageItem.SourceWidth = (ushort)img.Width;
-                    newTexturePageItem.SourceHeight = (ushort)img.Height;
-                    newTexturePageItem.TargetX = originalTargetX;
-                    newTexturePageItem.TargetY = originalTargetY;
-                    newTexturePageItem.TargetWidth = (ushort)img.Width;
-                    newTexturePageItem.TargetHeight = (ushort)img.Height;
-                    newTexturePageItem.BoundingWidth = originalBoundingWidth;
-                    newTexturePageItem.BoundingHeight = originalBoundingHeight;
-                    newTexturePageItem.TexturePage = newEmbeddedTexture;
-                    Data.TexturePageItems.Add(newTexturePageItem);
+                UndertaleTexturePageItem newTexturePageItem = new UndertaleTexturePageItem();
+                newTexturePageItem.Name = new UndertaleString($"PageItem {++lastTextPageItem}");
+                newTexturePageItem.SourceX = 0;
+                newTexturePageItem.SourceY = 0;
+                newTexturePageItem.SourceWidth = (ushort)img.Width;
+                newTexturePageItem.SourceHeight = (ushort)img.Height;
+                newTexturePageItem.TargetX = originalTargetX;
+                newTexturePageItem.TargetY = originalTargetY;
+                newTexturePageItem.TargetWidth = (ushort)img.Width;
+                newTexturePageItem.TargetHeight = (ushort)img.Height;
+                newTexturePageItem.BoundingWidth = originalBoundingWidth;
+                newTexturePageItem.BoundingHeight = originalBoundingHeight;
+                newTexturePageItem.TexturePage = newEmbeddedTexture;
+                Data.TexturePageItems.Add(newTexturePageItem);
 
-                    font.Texture = newTexturePageItem;
-                    PrintLine($"[ImportFonts] Created new texture for font: {fontName}");
-                }
+                font.Texture = newTexturePageItem;
+                PrintLine($"[ImportFonts] Created dedicated texture for font: {fontName}");
             }
         }
 

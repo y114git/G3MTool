@@ -187,6 +187,32 @@ EnsureDataLoaded();
 
 string importFolder = GetInputDirectory();
 
+string GetOriginalCodeName(string codeDir)
+{
+    string manifestPath = Path.Combine(codeDir, "entry.json");
+    if (File.Exists(manifestPath))
+    {
+        using var manifestDoc = JsonDocument.Parse(File.ReadAllText(manifestPath, Encoding.UTF8));
+        if (manifestDoc.RootElement.TryGetProperty("originalName", out var originalNameElm))
+        {
+            string originalName = originalNameElm.GetString();
+            if (!string.IsNullOrEmpty(originalName))
+                return originalName;
+        }
+    }
+
+    return Path.GetFileName(codeDir);
+}
+
+string GetEntryFilePath(string codeDir, string originalCodeName, string extension)
+{
+    string manifestStylePath = Path.Combine(codeDir, "entry" + extension);
+    if (File.Exists(manifestStylePath))
+        return manifestStylePath;
+
+    return Path.Combine(codeDir, originalCodeName + extension);
+}
+
 string[] codeDirs = Directory.GetDirectories(importFolder);
 if (codeDirs.Length == 0)
 {
@@ -229,8 +255,8 @@ await Task.Run(() =>
     {
         IncrementProgress();
 
-        string originalCodeName = Path.GetFileName(codeDir);
-        string gmlFile = Path.Combine(codeDir, originalCodeName + ".gml");
+        string originalCodeName = GetOriginalCodeName(codeDir);
+        string gmlFile = GetEntryFilePath(codeDir, originalCodeName, ".gml");
 
         if (!File.Exists(gmlFile))
             continue;
@@ -548,8 +574,8 @@ int asmFallbackCount = 0;
 
 foreach (string codeDir in codeDirs)
 {
-    string codeName = Path.GetFileName(codeDir);
-    string asmFile = Path.Combine(codeDir, codeName + ".asm");
+    string codeName = GetOriginalCodeName(codeDir);
+    string asmFile = GetEntryFilePath(codeDir, codeName, ".asm");
     if (!File.Exists(asmFile)) continue;
 
     var code = Data.Code.ByName(codeName);
