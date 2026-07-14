@@ -1,4 +1,4 @@
-﻿/*
+/*
   This Source Code Form is subject to the terms of the Mozilla Public
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -12,7 +12,7 @@ namespace Underanalyzer.Decompiler.AST;
 /// <summary>
 /// Represents a conditional expression in the AST.
 /// </summary>
-public class ConditionalNode(IExpressionNode condition, IExpressionNode trueExpr, IExpressionNode falseExpr) 
+public class ConditionalNode(IExpressionNode condition, IExpressionNode trueExpr, IExpressionNode falseExpr)
     : IMultiExpressionNode, IMacroResolvableNode, IConditionalValueNode
 {
     /// <summary>
@@ -99,11 +99,15 @@ public class ConditionalNode(IExpressionNode condition, IExpressionNode trueExpr
     }
 
     /// <inheritdoc/>
-    public bool RequiresMultipleLines(ASTPrinter printer)
+    public bool RequiresMultipleLines(ASTPrinter printer, bool isStatementLHS)
     {
-        return Condition.RequiresMultipleLines(printer) || 
-               True.RequiresMultipleLines(printer) || 
-               False.RequiresMultipleLines(printer);
+        if (isStatementLHS && Group)
+        {
+            return true;
+        }
+        return Condition.RequiresMultipleLines(printer, isStatementLHS) ||
+               True.RequiresMultipleLines(printer, false) ||
+               False.RequiresMultipleLines(printer, false);
     }
 
     /// <inheritdoc/>
@@ -116,7 +120,7 @@ public class ConditionalNode(IExpressionNode condition, IExpressionNode trueExpr
 
         bool didAnything = false;
 
-        if (True is IMacroResolvableNode trueResolvable && 
+        if (True is IMacroResolvableNode trueResolvable &&
             trueResolvable.ResolveMacroType(cleaner, type) is IExpressionNode trueResolved)
         {
             True = trueResolved;

@@ -1,10 +1,9 @@
-﻿/*
+/*
   This Source Code Form is subject to the terms of the Mozilla Public
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
 */
 
-using System;
 using System.Collections.Generic;
 using Underanalyzer.Compiler.Bytecode;
 using Underanalyzer.Compiler.Lexer;
@@ -44,14 +43,14 @@ internal sealed class FunctionCallNode : IMaybeStatementASTNode
         Expression = expression;
         Arguments = Functions.ParseCallArguments(context, 2047 /* TODO: change based on gamemaker version? */);
     }
-    
+
     /// <summary>
     /// Creates a function call node with the given token, expression, and arguments.
     /// </summary>
     public FunctionCallNode(IToken? nearbyToken, IASTNode expression, List<IASTNode> arguments)
     {
         NearbyToken = nearbyToken;
-        Expression = expression; 
+        Expression = expression;
         Arguments = arguments;
     }
 
@@ -101,9 +100,9 @@ internal sealed class FunctionCallNode : IMaybeStatementASTNode
         while (true)
         {
             // Check if left expression is immediately a function call
-            if (node.LeftExpression is FunctionCallNode { Expression: SimpleVariableNode { CollapsedFromDot: false } or 
+            if (node.LeftExpression is FunctionCallNode { Expression: SimpleVariableNode { CollapsedFromDot: false } or
                                                                       FunctionCallNode or SimpleFunctionCallNode or
-                                                                      AccessorNode } or 
+                                                                      AccessorNode } or
                                        SimpleFunctionCallNode)
             {
                 return true;
@@ -192,7 +191,7 @@ internal sealed class FunctionCallNode : IMaybeStatementASTNode
         {
             // Handle pretty strange compiler quirk with no dup swaps being performed (if no dot on left side of this dot)
             // (until a new dup swap mode was added in 2024.14.4, also handled by this logic)
-            if (!inChain && FunctionCallNodeOnLeftmostSide(dotVar))
+            if (!inChain && !dotVar.LeftExpressionGrouped && FunctionCallNodeOnLeftmostSide(dotVar))
             {
                 inChain = true;
 

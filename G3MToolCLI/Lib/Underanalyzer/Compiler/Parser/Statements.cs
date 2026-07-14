@@ -1,11 +1,10 @@
-﻿/*
+/*
   This Source Code Form is subject to the terms of the Mozilla Public
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
 */
 
 using System;
-using System.Xml.Linq;
 using Underanalyzer.Compiler.Lexer;
 using Underanalyzer.Compiler.Nodes;
 
@@ -17,7 +16,7 @@ namespace Underanalyzer.Compiler.Parser;
 internal static class Statements
 {
     /// <summary>
-    /// Attempts to parse a statement from the current parse position of the 
+    /// Attempts to parse a statement from the current parse position of the
     /// context, returning the root node of the statement.
     /// </summary>
     public static IASTNode? ParseStatement(ParseContext context)
@@ -151,7 +150,7 @@ internal static class Statements
         }
 
         // Check for assignment
-        if (expr is IAssignableASTNode assignable && !context.EndOfCode && 
+        if (expr is IAssignableASTNode assignable && !context.EndOfCode &&
             context.Tokens[context.Position] is TokenOperator
             {
                 Kind: OperatorKind.Assign                   or OperatorKind.Assign2             or
@@ -160,7 +159,7 @@ internal static class Statements
                       OperatorKind.CompoundMod              or OperatorKind.CompoundBitwiseAnd  or
                       OperatorKind.CompoundBitwiseOr        or OperatorKind.CompoundBitwiseXor  or
                       OperatorKind.CompoundNullishCoalesce
-            } 
+            }
             tokenOperator)
         {
             context.Position++;
@@ -199,7 +198,7 @@ internal static class Statements
             }
             return null;
         }
-        
+
         if (expr is IMaybeStatementASTNode statement)
         {
             // This is an expression that can also be a standalone statement, so mark it as such and return it

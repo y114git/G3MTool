@@ -1,4 +1,4 @@
-﻿/*
+/*
   This Source Code Form is subject to the terms of the Mozilla Public
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -12,7 +12,7 @@ namespace Underanalyzer.Decompiler.AST;
 /// <summary>
 /// Represents the "new" keyword being used to instantiate an object in the AST.
 /// </summary>
-public class NewObjectNode(IExpressionNode function, List<IExpressionNode> arguments) 
+public class NewObjectNode(IExpressionNode function, List<IExpressionNode> arguments)
     : IExpressionNode, IStatementNode, IConditionalValueNode, IFunctionCallNode
 {
     /// <summary>
@@ -145,15 +145,19 @@ public class NewObjectNode(IExpressionNode function, List<IExpressionNode> argum
     }
 
     /// <inheritdoc/>
-    public bool RequiresMultipleLines(ASTPrinter printer)
+    public bool RequiresMultipleLines(ASTPrinter printer, bool isStatementLHS)
     {
-        if (Function.RequiresMultipleLines(printer))
+        if (isStatementLHS && Group)
+        {
+            return true;
+        }
+        if (Function.RequiresMultipleLines(printer, false))
         {
             return true;
         }
         foreach (IExpressionNode arg in Arguments)
         {
-            if (arg.RequiresMultipleLines(printer))
+            if (arg.RequiresMultipleLines(printer, false))
             {
                 return true;
             }

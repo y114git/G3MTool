@@ -1,4 +1,4 @@
-﻿/*
+/*
   This Source Code Form is subject to the terms of the Mozilla Public
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -257,6 +257,27 @@ public class CodeBuilderMock(GameContextMock gameContext) : ICodeBuilder
     }
 
     /// <inheritdoc/>
+    public void PatchVariableHashInstruction(IGMInstruction instruction, string variableName, bool isBuiltin)
+    {
+        if (instruction is GMInstruction mockInstruction)
+        {
+            if (gameContext.MockVariables.TryGetValue((variableName, InstanceType.Self), out GMVariable? existingVariable))
+            {
+                mockInstruction.ResolvedVariable = existingVariable;
+            }
+            else
+            {
+                GMVariable newVariable = new(new GMString(variableName))
+                {
+                    InstanceType = InstanceType.Self
+                };
+                mockInstruction.ResolvedVariable = newVariable;
+                gameContext.MockVariables.Add((variableName, InstanceType.Self), newVariable);
+            }
+        }
+    }
+
+    /// <inheritdoc/>
     public void PatchInstruction(IGMInstruction instruction, FunctionScope scope, string functionName, IBuiltinFunction? builtinFunction)
     {
         if (instruction is GMInstruction mockInstruction)
@@ -264,7 +285,7 @@ public class CodeBuilderMock(GameContextMock gameContext) : ICodeBuilder
             if (scope.TryGetDeclaredFunction(gameContext, functionName, out FunctionEntry? entry))
             {
                 mockInstruction.ResolvedFunction = entry.Function ?? throw new InvalidOperationException("Function not resolved for function entry");
-            }    
+            }
             else if (gameContext.Builtins.LookupBuiltinFunction(functionName) is not null)
             {
                 mockInstruction.ResolvedFunction = new GMFunction(functionName);

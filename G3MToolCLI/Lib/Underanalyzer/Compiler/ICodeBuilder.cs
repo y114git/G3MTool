@@ -1,4 +1,4 @@
-﻿/*
+/*
   This Source Code Form is subject to the terms of the Mozilla Public
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -123,6 +123,11 @@ public interface ICodeBuilder
     public void PatchInstruction(IGMInstruction instruction, string variableName, InstanceType variableInstanceType, InstanceType instructionInstanceType, VariableType variableType, bool isBuiltin, bool keepInstanceType);
 
     /// <summary>
+    /// Patches an existing variable hash instruction with a variable reference.
+    /// </summary>
+    public void PatchVariableHashInstruction(IGMInstruction instruction, string variableName, bool isBuiltin);
+
+    /// <summary>
     /// Patches an existing instruction with a function reference.
     /// </summary>
     public void PatchInstruction(IGMInstruction instruction, FunctionScope scope, string functionName, IBuiltinFunction? builtinFunction);
@@ -154,8 +159,8 @@ public interface ICodeBuilder
     /// Generates an ID to be used for local variable names used by a try statement.
     /// </summary>
     /// <remarks>
-    /// These IDs should be non-negative and unique. The supplied <paramref name="internalIndex"/> 
-    /// (guaranteed to be unique per each try statement being compiled by a single context) 
+    /// These IDs should be non-negative and unique. The supplied <paramref name="internalIndex"/>
+    /// (guaranteed to be unique per each try statement being compiled by a single context)
     /// may be returned directly as well, if desired.
     /// </remarks>
     public int GenerateTryVariableID(int internalIndex);

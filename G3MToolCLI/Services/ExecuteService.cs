@@ -95,6 +95,18 @@ public class ExecuteService
 
                 using var stream = new FileStream(outputPath, FileMode.Create, FileAccess.Write);
                 UndertaleIO.Write(stream, data!);
+                stream.Flush(true);
+                stream.Close();
+                try
+                {
+                    using var verify = new FileStream(outputPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    _ = UndertaleIO.Read(verify);
+                }
+                catch (Exception ex)
+                {
+                    try { File.Delete(outputPath); } catch { }
+                    return new ScriptResult { Success = false, Error = $"Saved data validation failed: {ex.Message}" };
+                }
             }
 
             LogService.Log("[ScriptExecutor] Script executed successfully");

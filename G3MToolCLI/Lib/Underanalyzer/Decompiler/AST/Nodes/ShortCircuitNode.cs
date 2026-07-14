@@ -1,4 +1,4 @@
-﻿/*
+/*
   This Source Code Form is subject to the terms of the Mozilla Public
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -85,14 +85,19 @@ public class ShortCircuitNode(List<IExpressionNode> conditions, ShortCircuitType
     }
 
     /// <inheritdoc/>
-    public bool RequiresMultipleLines(ASTPrinter printer)
+    public bool RequiresMultipleLines(ASTPrinter printer, bool isStatementLHS)
     {
+        if (isStatementLHS && Group)
+        {
+            return true;
+        }
         foreach (IExpressionNode condition in Conditions)
         {
-            if (condition.RequiresMultipleLines(printer))
+            if (condition.RequiresMultipleLines(printer, isStatementLHS))
             {
                 return true;
             }
+            isStatementLHS = false;
         }
         return false;
     }

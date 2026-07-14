@@ -1,4 +1,4 @@
-﻿/*
+/*
   This Source Code Form is subject to the terms of the Mozilla Public
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -45,9 +45,14 @@ internal sealed class ParseContext : ISubCompileContext
     public HashSet<string>? ParseGlobalFunctions { get; } = null;
 
     /// <summary>
-    /// List of tokens to be parsed by this context.
-    /// </summary>
+    /// The position of the current token being parsed by this context.
+    /// /// </summary>
     public int Position { get; set; } = 0;
+
+    /// <summary>
+    /// The current token being parsed by this context.
+    /// </summary>
+    public IToken CurrentToken => Tokens[Position];
 
     /// <summary>
     /// True if reached the end of code; false otherwise.
@@ -108,7 +113,7 @@ internal sealed class ParseContext : ISubCompileContext
     }
 
     /// <summary>
-    /// Performs a full parse of the list of tokens, returning the root block 
+    /// Performs a full parse of the list of tokens, returning the root block
     /// node of the resulting AST.
     /// </summary>
     public void Parse()
@@ -124,7 +129,7 @@ internal sealed class ParseContext : ISubCompileContext
     {
         // Resolve enum declaration values
         EnumDeclaration.ResolveValues(this);
-        
+
         // General post-processing and optimization
         Root = Root?.PostProcess(this);
     }

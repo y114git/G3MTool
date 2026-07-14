@@ -1,4 +1,4 @@
-﻿/*
+/*
   This Source Code Form is subject to the terms of the Mozilla Public
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -59,7 +59,7 @@ internal sealed class BytecodeContext : ISubCompileContext
     /// Function to call before any exit/return instructions, as part of their cleanup.
     /// </summary>
     /// <remarks>
-    /// Yes, due to not being attached to function scopes, this results in bugged code generation, 
+    /// Yes, due to not being attached to function scopes, this results in bugged code generation,
     /// but this mimics official GML compiler behavior.
     /// </remarks>
     public string? FunctionCallBeforeExit { get; set; } = null;
@@ -131,7 +131,7 @@ internal sealed class BytecodeContext : ISubCompileContext
         // Resolve variable patches
         foreach (VariablePatch variablePatch in patches.VariablePatches!)
         {
-            codeBuilder.PatchInstruction(variablePatch.Instruction!, variablePatch.Name, variablePatch.InstanceType, variablePatch.InstructionInstanceType, 
+            codeBuilder.PatchInstruction(variablePatch.Instruction!, variablePatch.Name, variablePatch.InstanceType, variablePatch.InstructionInstanceType,
                                          variablePatch.VariableType, variablePatch.IsBuiltin, variablePatch.KeepInstanceType);
         }
 
@@ -163,8 +163,14 @@ internal sealed class BytecodeContext : ISubCompileContext
         // Resolve struct variable patches
         foreach (StructVariablePatch variablePatch in patches.StructVariablePatches!)
         {
-            codeBuilder.PatchInstruction(variablePatch.Instruction!, variablePatch.FunctionEntry.StructName ?? throw new InvalidOperationException("Struct name not resolved on function entry"), 
+            codeBuilder.PatchInstruction(variablePatch.Instruction!, variablePatch.FunctionEntry.StructName ?? throw new InvalidOperationException("Struct name not resolved on function entry"),
                                          variablePatch.InstanceType, variablePatch.InstructionInstanceType, variablePatch.VariableType, false, true);
+        }
+
+        // Resolve variable hash patches
+        foreach (VariableHashPatch variableHashPatch in patches.VariableHashPatches!)
+        {
+            codeBuilder.PatchVariableHashInstruction(variableHashPatch.Instruction!, variableHashPatch.Name, variableHashPatch.IsBuiltin);
         }
 
         // Resolve string patches
@@ -427,6 +433,21 @@ internal sealed class BytecodeContext : ISubCompileContext
     }
 
     /// <summary>
+    /// Emits a <see cref="Opcode.Push"/> instruction with the given variable hash (reference), at the current position.
+    /// </summary>
+    public IGMInstruction EmitPushVariableHash(VariableHashPatch variableHash)
+    {
+        IGMInstruction instr = _codeBuilder.CreateInstruction(Position, Opcode.Push, DataType.Int32);
+        Instructions.Add(instr);
+        Position += 8;
+
+        variableHash.Instruction = instr;
+        Patches.VariableHashPatches!.Add(variableHash);
+
+        return instr;
+    }
+
+    /// <summary>
     /// Emits a <see cref="Opcode.Call"/> instruction with the given argument count, and given function, at the current position.
     /// </summary>
     public IGMInstruction EmitCall(FunctionPatch function, int argumentCount)
@@ -508,7 +529,7 @@ internal sealed class BytecodeContext : ISubCompileContext
     }
 
     /// <summary>
-    /// Emits a <see cref="Opcode.Convert"/> instruction from the current type at the 
+    /// Emits a <see cref="Opcode.Convert"/> instruction from the current type at the
     /// top of the data type stack, to the destination data type.
     /// </summary>
     /// <remarks>Pops the data type at the top of the stack, and does not push anything back.</remarks>
@@ -684,7 +705,7 @@ internal sealed class BytecodeContext : ISubCompileContext
         // If currently generating a function declaration header (arguments, inheritance calls),
         // use the outer scope for function resolution. Otherwise, use current scope.
         FunctionScope scope = CurrentScope.GeneratingFunctionDeclHeader ? CurrentScope.Parent! : CurrentScope;
- 
+
         switch (CompileContext.ScriptKind)
         {
             case CompileScriptKind.GlobalScript:

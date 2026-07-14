@@ -1,4 +1,4 @@
-﻿/*
+/*
   This Source Code Form is subject to the terms of the Mozilla Public
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -14,8 +14,8 @@ namespace Underanalyzer.Decompiler.AST;
 /// <summary>
 /// Represents a variable reference in the AST.
 /// </summary>
-public class VariableNode(IGMVariable variable, VariableType referenceType, IExpressionNode left, 
-                          List<IExpressionNode>? arrayIndices = null, bool regularPush = false) 
+public class VariableNode(IGMVariable variable, VariableType referenceType, IExpressionNode left,
+                          List<IExpressionNode>? arrayIndices = null, bool regularPush = false)
     : IExpressionNode, IMacroTypeNode, IConditionalValueNode
 {
     /// <summary>
@@ -240,7 +240,7 @@ public class VariableNode(IGMVariable variable, VariableType referenceType, IExp
         }
 
         // Determine if Left needs to be grouped
-        if (Left is IMultiExpressionNode)
+        if (Left is IMultiExpressionNode or UnaryNode)
         {
             Left.Group = true;
         }
@@ -317,7 +317,7 @@ public class VariableNode(IGMVariable variable, VariableType referenceType, IExp
                     // Parent scope of the hoist is where the local is actually declared.
                     hoistScope.Parent?.DeclaredLocals?.Add(localName);
                 }
-            }    
+            }
         }
 
         return this;
@@ -352,7 +352,7 @@ public class VariableNode(IGMVariable variable, VariableType referenceType, IExp
                 {
                     case (int)InstanceType.Self:
                     case (int)InstanceType.Builtin:
-                        if (ForceSelf || 
+                        if (ForceSelf ||
                             (value == (int)InstanceType.Self && ArrayIndices is null && printer.Context.GameContext.UsingSelfToBuiltin) ||
                             leftInstType is { FromBuiltinFunction: true } ||
                             printer.LocalVariableNames.Contains(Variable.Name.Content) ||
@@ -479,9 +479,42 @@ public class VariableNode(IGMVariable variable, VariableType referenceType, IExp
     }
 
     /// <inheritdoc/>
-    public bool RequiresMultipleLines(ASTPrinter printer)
+    public bool RequiresMultipleLines(ASTPrinter printer, bool isStatementLHS)
     {
-        if (Left.RequiresMultipleLines(printer))
+        if (isStatementLHS)
+        {
+            // Check if left side has parentheses...
+            Int16Node? leftI16 = Left as Int16Node;
+            InstanceTypeNode? leftInstType = Left as InstanceTypeNode;
+            if (leftI16 is not null || leftInstType is not null)
+            {
+                // Basic numerical instance type
+                int value = leftI16?.Value ?? (int)leftInstType!.InstanceType;
+                if (ReferenceType == VariableType.Instance)
+                {
+                    return true;
+                }
+                else if (value >= 0)
+                {
+                    // Check if we have an object asset name to use
+                    string? objectName = printer.Context.GameContext.GetAssetName(AssetType.Object, value);
+                    if (objectName is null)
+                    {
+                        return true;
+                    }
+                }
+            }
+            else
+            {
+                // Some expression on the left
+                if (Left is Int32Node)
+                {
+                    // Room instance IDs, in certain cases on some versions
+                    return true;
+                }
+            }
+        }
+        if (Left.RequiresMultipleLines(printer, isStatementLHS))
         {
             return true;
         }
@@ -489,7 +522,7 @@ public class VariableNode(IGMVariable variable, VariableType referenceType, IExp
         {
             foreach (IExpressionNode index in ArrayIndices)
             {
-                if (index.RequiresMultipleLines(printer))
+                if (index.RequiresMultipleLines(printer, false))
                 {
                     return true;
                 }
@@ -564,7 +597,7 @@ public class VariableNode(IGMVariable variable, VariableType referenceType, IExp
     }
 
     /// <summary>
-    /// Returns true if the variable is "simple," meaning that it can be referenced with 
+    /// Returns true if the variable is "simple," meaning that it can be referenced with
     /// one instruction, or false otherwise.
     /// </summary>
     /// <remarks>

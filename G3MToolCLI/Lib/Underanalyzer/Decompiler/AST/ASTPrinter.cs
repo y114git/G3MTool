@@ -1,4 +1,4 @@
-﻿/*
+/*
   This Source Code Form is subject to the terms of the Mozilla Public
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -48,11 +48,6 @@ public sealed class ASTPrinter(DecompileContext context)
     /// The current/top fragment context.
     /// </summary>
     internal ASTFragmentContext? TopFragmentContext { get; private set; }
-
-    /// <summary>
-    /// If true, semicolon output is manually disabled.
-    /// </summary>
-    internal bool OverrideDisableSemicolons { get; set; } = false;
 
     /// <summary>
     /// The first warning index that has not yet been printed by this printer.

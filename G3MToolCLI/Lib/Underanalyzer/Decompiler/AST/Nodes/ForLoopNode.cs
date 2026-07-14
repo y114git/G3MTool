@@ -1,4 +1,4 @@
-﻿/*
+/*
   This Source Code Form is subject to the terms of the Mozilla Public
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -11,7 +11,7 @@ namespace Underanalyzer.Decompiler.AST;
 /// <summary>
 /// Represents a for loop in the AST.
 /// </summary>
-public class ForLoopNode(IStatementNode? initializer, IExpressionNode? condition, BlockNode? incrementor, BlockNode body) 
+public class ForLoopNode(IStatementNode? initializer, IExpressionNode? condition, BlockNode? incrementor, BlockNode body)
     : IStatementNode, IBlockCleanupNode
 {
     /// <summary>
@@ -175,7 +175,7 @@ public class ForLoopNode(IStatementNode? initializer, IExpressionNode? condition
         }
         printer.Write(')');
 
-        if (printer.Context.Settings.RemoveSingleLineBlockBraces && !Body.RequiresMultipleLines(printer))
+        if (printer.Context.Settings.RemoveSingleLineBlockBraces && !Body.RequiresMultipleLines(printer, false))
         {
             Body.PrintSingleLine(printer);
         }
@@ -190,7 +190,7 @@ public class ForLoopNode(IStatementNode? initializer, IExpressionNode? condition
     }
 
     /// <inheritdoc/>
-    public bool RequiresMultipleLines(ASTPrinter printer)
+    public bool RequiresMultipleLines(ASTPrinter printer, bool isStatementLHS)
     {
         return true;
     }

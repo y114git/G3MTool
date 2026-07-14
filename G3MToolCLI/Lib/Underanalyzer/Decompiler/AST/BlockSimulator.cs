@@ -1,4 +1,4 @@
-﻿/*
+/*
   This Source Code Form is subject to the terms of the Mozilla Public
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -27,7 +27,7 @@ internal sealed class BlockSimulator
         Type typeDataType = typeof(DataType);
         foreach (DataType dataType in Enum.GetValues(typeDataType))
         {
-            var field = typeDataType.GetField(Enum.GetName(typeDataType, dataType) ?? throw new NullReferenceException()) 
+            var field = typeDataType.GetField(Enum.GetName(typeDataType, dataType) ?? throw new NullReferenceException())
                                                                                    ?? throw new NullReferenceException();
             var info = field.GetCustomAttribute<DataTypeInfo>() ?? throw new NullReferenceException();
             DataTypeToSize[(int)dataType] = info.Size;
@@ -109,6 +109,12 @@ internal sealed class BlockSimulator
         int dupSize = instr.DuplicationSize;
         int dupSwapSize = instr.DuplicationSize2;
 
+        if (dupType == DataType.Int16)
+        {
+            // This is actually a dup.v with reversed instruction encoding (to support larger bottom data sizes)
+            dupTypeSize = DataTypeToSize[(int)DataType.Variable];
+            (dupSize, dupSwapSize) = (dupSwapSize, dupSize);
+        }
         if (dupSwapSize != 0)
         {
             // "Dup Swap" mode (GMLv2 version of "Pop Swap" mode)
@@ -116,12 +122,6 @@ internal sealed class BlockSimulator
             {
                 // Exit early; basically a no-op instruction
                 return;
-            }
-            if (dupType == DataType.Int16)
-            {
-                // This is actually a dup.v with reversed instruction encoding (to support larger bottom data sizes)
-                dupTypeSize = DataTypeToSize[(int)DataType.Variable];
-                (dupSize, dupSwapSize) = (dupSwapSize, dupSize);
             }
 
             // Load top data from stack
@@ -271,7 +271,22 @@ internal sealed class BlockSimulator
         // Update left side of the variable
         IExpressionNode left;
         List<IExpressionNode>? arrayIndices = null;
-        if (instr.InstType == InstanceType.StackTop || instr.ReferenceVarType == VariableType.StackTop)
+        if (instr.InstType == InstanceType.StackTop)
+        {
+            // Left side is just on the top of the stack
+            left = builder.ExpressionStack.Pop();
+
+            // With this code generation, the left side should be grouped if it's a simple function call
+            if (left is FunctionCallNode or VariableCallNode
+                {
+                    Instance: FunctionCallNode { FunctionName: VMConstants.SelfFunction } or null,
+                    Function: VariableNode { Left: InstanceTypeNode or null }
+                })
+            {
+                left.Group = true;
+            }
+        }
+        else if (instr.ReferenceVarType == VariableType.StackTop)
         {
             // Left side is just on the top of the stack
             left = builder.ExpressionStack.Pop();
@@ -416,7 +431,7 @@ internal sealed class BlockSimulator
                 }
                 if (binary.Left.Duplicated && builder.ExpressionStack.Count > 0 && builder.ExpressionStack.Peek() == binary.Left)
                 {
-                    // Postfix detected - pop off duplicate value, as we don't 
+                    // Postfix detected - pop off duplicate value, as we don't
                     // TODO: do we need to verify "binary.Left" is the same as "variable"?
 
                     // Pop off duplicate value (should be copy of "binary.Left"), as we don't need it
@@ -428,7 +443,7 @@ internal sealed class BlockSimulator
             }
 
             // Check for compound assignment (also check for quirk with division converting to double when NOT a compound assignment)
-            if (variable.Left.Duplicated && binary is { Left: VariableNode } && 
+            if (variable.Left.Duplicated && binary is { Left: VariableNode } &&
                 (binary.Instruction.Kind != Opcode.Divide || binary.Right is DoubleNode || binary.Right.StackType != DataType.Double))
             {
                 // Compound detected
@@ -465,7 +480,7 @@ internal sealed class BlockSimulator
         }
 
         // Check if this is a 2D array index
-        if (index is BinaryNode binary && 
+        if (index is BinaryNode binary &&
             binary is { Instruction.Kind: Opcode.Add, Left: BinaryNode binary2 } &&
             binary2 is { Instruction.Kind: Opcode.Multiply, Right: Int32Node int32 } &&
             int32.Value == VMConstants.OldArrayLimit)
@@ -753,7 +768,7 @@ internal sealed class BlockSimulator
                 }
                 if (binary.Left.Duplicated && builder.ExpressionStack.Count > 0 && builder.ExpressionStack.Peek() == binary.Left)
                 {
-                    // Postfix detected - pop off duplicate value, as we don't 
+                    // Postfix detected - pop off duplicate value, as we don't
                     // TODO: do we need to verify "binary.Left" is the same as "extendedVariable"?
 
                     // Pop off duplicate value (should be copy of "binary.Left"), as we don't need it

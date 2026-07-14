@@ -20,6 +20,9 @@ public static class PatchCommand
         var xdeltaFallbackOption = new Option<bool>(
             name: "--xdelta-fallback",
             description: "Store an xdelta fallback. Disabled by default to keep .g3mpatch smaller.");
+        var createXdeltaOption = new Option<bool>(
+            name: "--xdelta",
+            description: "Create an xdelta patch instead of a .g3mpatch.");
         var createCacheOption = new Option<DirectoryInfo?>(
             name: "--cache",
             description: "Read and write reusable .g3mcache analysis files in this directory.");
@@ -28,13 +31,25 @@ public static class PatchCommand
         createCommand.AddArgument(modifiedArg);
         createCommand.AddArgument(outputArg);
         createCommand.AddOption(xdeltaFallbackOption);
+        createCommand.AddOption(createXdeltaOption);
         createCommand.AddOption(createCacheOption);
 
-        createCommand.SetHandler(async (original, modified, output, xdeltaFallback, cacheDir) =>
+        createCommand.SetHandler(async (original, modified, output, xdeltaFallback, xdeltaOutput, cacheDir) =>
         {
+            if (xdeltaFallback && xdeltaOutput)
+            {
+                WriteErrorJsonOrText("patch create", "--xdelta and --xdelta-fallback are mutually exclusive.");
+                Environment.ExitCode = 1;
+                return;
+            }
             var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-            var defaultOutput = Path.Combine(PlatformUtil.GetExecutableDirectory(), $"patch_{timestamp}.g3mpatch");
+            var defaultOutput = Path.Combine(PlatformUtil.GetExecutableDirectory(), $"patch_{timestamp}{(xdeltaOutput ? ".xdelta" : ".g3mpatch")}");
             var outputPath = output?.FullName ?? defaultOutput;
+            var tempDir = Path.Combine(Path.GetTempPath(), $"g3mtool_create_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(tempDir);
+            string materialized;
+            try { materialized = await PatchInputService.MaterializeDataAsync(original.FullName, modified.FullName, tempDir); }
+            catch (Exception ex) { WriteErrorJsonOrText("patch create", ex.Message); Environment.ExitCode = 1; return; }
 
             LogService.Log($"Creating G3M patch...");
             LogService.Log($"  Original: {original.FullName}");
@@ -44,9 +59,17 @@ public static class PatchCommand
             if (cacheDir != null)
                 LogService.Log($"  Cache:    {cacheDir.FullName}");
 
+            if (xdeltaOutput)
+            {
+                var xresult = await new XDeltaService().CreatePatchAsync(original.FullName, materialized, outputPath);
+                if (!xresult.Success) { WriteErrorJsonOrText("patch create", xresult.Error); Environment.ExitCode = 1; }
+                else WriteSuccessJsonOrText("patch create", outputPath, new { format = "xdelta" });
+                try { Directory.Delete(tempDir, true); } catch { }
+                return;
+            }
             var result = await PatchService.CreatePatchAsync(
                 original.FullName,
-                modified.FullName,
+                materialized,
                 outputPath,
                 includeXdeltaFallback: xdeltaFallback,
                 cacheOptions: G3MCacheOptions.FromDirectory(cacheDir?.FullName));
@@ -88,7 +111,8 @@ public static class PatchCommand
                 WriteErrorJsonOrText("patch create", result.Error);
                 Environment.ExitCode = 1;
             }
-        }, originalArg, modifiedArg, outputArg, xdeltaFallbackOption, createCacheOption);
+            try { Directory.Delete(tempDir, true); } catch { }
+        }, originalArg, modifiedArg, outputArg, xdeltaFallbackOption, createXdeltaOption, createCacheOption);
 
         var applyCommand = new Command("apply", "Apply a .g3mpatch to a data file. .xdelta input is applied directly; data-file input is converted first.\n  Usage: patch apply <data> <patch> [output] [--xdelta-fallback] [--cache <dir>] [--xdelta-path <path>]");
         var dataArg = new Argument<FileInfo>("data", "Path to original data file (.win/.ios/.droid/.unx)");

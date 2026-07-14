@@ -1,4 +1,4 @@
-﻿/*
+/*
   This Source Code Form is subject to the terms of the Mozilla Public
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -60,7 +60,7 @@ public class DoUntilLoopNode(BlockNode body, IExpressionNode condition) : IState
     public void Print(ASTPrinter printer)
     {
         printer.Write("do");
-        if (printer.Context.Settings.RemoveSingleLineBlockBraces && !Body.RequiresMultipleLines(printer))
+        if (printer.Context.Settings.RemoveSingleLineBlockBraces && !Body.RequiresMultipleLines(printer, false))
         {
             Body.PrintSingleLine(printer);
             printer.EndLine();
@@ -87,7 +87,7 @@ public class DoUntilLoopNode(BlockNode body, IExpressionNode condition) : IState
     }
 
     /// <inheritdoc/>
-    public bool RequiresMultipleLines(ASTPrinter printer)
+    public bool RequiresMultipleLines(ASTPrinter printer, bool isStatementLHS)
     {
         return true;
     }

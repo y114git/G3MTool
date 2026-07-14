@@ -1,4 +1,4 @@
-﻿/*
+/*
   This Source Code Form is subject to the terms of the Mozilla Public
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -61,7 +61,7 @@ public class DoubleNode(double value) : IConstantNode<double>, IConditionalValue
     public void Print(ASTPrinter printer)
     {
         ReadOnlySpan<char> str = Value.ToString("R", CultureInfo.InvariantCulture);
-        
+
         // Check if there's an exponent in the result
         int exponentIndex = str.IndexOf('E');
         if (exponentIndex == -1)
@@ -135,7 +135,7 @@ public class DoubleNode(double value) : IConstantNode<double>, IConditionalValue
     }
 
     /// <inheritdoc/>
-    public bool RequiresMultipleLines(ASTPrinter printer)
+    public bool RequiresMultipleLines(ASTPrinter printer, bool isStatementLHS)
     {
         return false;
     }

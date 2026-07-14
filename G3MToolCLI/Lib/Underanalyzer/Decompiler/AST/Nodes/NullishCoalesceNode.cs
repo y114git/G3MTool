@@ -1,4 +1,4 @@
-﻿/*
+/*
   This Source Code Form is subject to the terms of the Mozilla Public
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -84,9 +84,13 @@ public class NullishCoalesceNode(IExpressionNode left, IExpressionNode right) : 
     }
 
     /// <inheritdoc/>
-    public bool RequiresMultipleLines(ASTPrinter printer)
+    public bool RequiresMultipleLines(ASTPrinter printer, bool isStatementLHS)
     {
-        return Left.RequiresMultipleLines(printer) || Right.RequiresMultipleLines(printer);
+        if (isStatementLHS && Group)
+        {
+            return true;
+        }
+        return Left.RequiresMultipleLines(printer, isStatementLHS) || Right.RequiresMultipleLines(printer, false);
     }
 
     /// <inheritdoc/>

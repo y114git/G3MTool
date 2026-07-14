@@ -1,4 +1,4 @@
-﻿/*
+/*
   This Source Code Form is subject to the terms of the Mozilla Public
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -65,9 +65,9 @@ public class ReturnNode(IExpressionNode value) : IStatementNode, IBlockCleanupNo
     }
 
     /// <inheritdoc/>
-    public bool RequiresMultipleLines(ASTPrinter printer)
+    public bool RequiresMultipleLines(ASTPrinter printer, bool isStatementLHS)
     {
-        return Value.RequiresMultipleLines(printer);
+        return Value.RequiresMultipleLines(printer, false);
     }
 
     /// <inheritdoc/>
@@ -77,7 +77,7 @@ public class ReturnNode(IExpressionNode value) : IStatementNode, IBlockCleanupNo
         if (i > 0 && Value is VariableNode returnVariable &&
             returnVariable is { Variable.Name.Content: VMConstants.TempReturnVariable })
         {
-            if (block.Children[i - 1] is AssignNode { Value: not null, AssignKind: AssignNode.AssignType.Normal } assign && 
+            if (block.Children[i - 1] is AssignNode { Value: not null, AssignKind: AssignNode.AssignType.Normal } assign &&
                 assign.Variable is VariableNode { Variable.Name.Content: VMConstants.TempReturnVariable })
             {
                 // We found one - rewrite it as a normal return
@@ -102,7 +102,7 @@ public class ReturnNode(IExpressionNode value) : IStatementNode, IBlockCleanupNo
                 // Additionally remove temporary variable, if it exists
                 if (i - count - 1 >= 0 &&
                     block.Children[i - count - 1] is AssignNode { Value: not null, AssignKind: AssignNode.AssignType.Normal } assign &&
-                    assign.Variable is VariableNode { Variable.Name.Content: VMConstants.TryCopyVariable, 
+                    assign.Variable is VariableNode { Variable.Name.Content: VMConstants.TryCopyVariable,
                                                       Variable.InstanceType: IGMInstruction.InstanceType.Local })
                 {
                     block.Children[i - count - 1] = new ReturnNode(assign.Value);

@@ -1,4 +1,4 @@
-﻿/*
+/*
   This Source Code Form is subject to the terms of the Mozilla Public
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -205,7 +205,7 @@ public class TryCatchNode(BlockNode tryBlock, BlockNode? catchBlock, VariableNod
     }
 
     /// <inheritdoc/>
-    public bool RequiresMultipleLines(ASTPrinter printer)
+    public bool RequiresMultipleLines(ASTPrinter printer, bool isStatementLHS)
     {
         return true;
     }
@@ -313,7 +313,7 @@ public class TryCatchNode(BlockNode tryBlock, BlockNode? catchBlock, VariableNod
         }
 
         /// <inheritdoc/>
-        public bool RequiresMultipleLines(ASTPrinter printer)
+        public bool RequiresMultipleLines(ASTPrinter printer, bool isStatementLHS)
         {
             return false;
         }

@@ -1,4 +1,4 @@
-﻿/*
+/*
   This Source Code Form is subject to the terms of the Mozilla Public
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -48,6 +48,10 @@ internal static class VMConstants
     // Function name used to throw an object/exception
     public const string ThrowFunction = "@@throw@@";
 
+    // Function names for template strings
+    public const string TemplateStringFunction = "string";
+    public const string ModernTemplateStringFunction = "@@string@@";
+
     // Variable names used by compiler to rewrite try/catch/finally
     public const string TryBreakVariable = "__yy_breakEx";
     public const string TryContinueVariable = "__yy_continueEx";
@@ -55,6 +59,9 @@ internal static class VMConstants
 
     // Function name used to set struct variables (used to de-optimize to be closer to source code)
     public const string StructGetFromHashFunction = "struct_get_from_hash";
+
+    // Function name used to set a variable on a struct directly, by string name
+    public const string StructSetFunction = "variable_struct_set";
 
     // Special-case GML functions used during macro resolution
     public const string ChooseFunction = "choose";
@@ -64,7 +71,7 @@ internal static class VMConstants
     public const string StaticGetFunction = "static_get";
 
     // Builtin array variables (some of which don't exist past GMS2, but are still recognized by the compiler apparently)
-    public static readonly HashSet<string> BuiltinArrayVariables = 
+    public static readonly HashSet<string> BuiltinArrayVariables =
     [
         "view_xview",
         "view_yview",
@@ -86,5 +93,57 @@ internal static class VMConstants
         "phy_collision_y",
         "phy_col_normal_x",
         "phy_col_normal_y"
+    ];
+
+    // Keywords disallowed to be directly used in structs, without quotes (in older versions)
+    public static readonly HashSet<string> OldDisallowedStructKeywords =
+    [
+        "if",
+        "then",
+        "else",
+        "begin",
+        "end",
+        "for",
+        "while",
+        "do",
+        "until",
+        "repeat",
+        "switch",
+        "case",
+        "default",
+        "break",
+        "continue",
+        "with",
+        "new",
+        "function",
+        "return",
+        "exit",
+        "var",
+        "not",
+        "and",
+        "or",
+        "xor",
+        "mod",
+        "div",
+        "throw",
+        "static",
+        "try",
+        "catch",
+        "finally",
+        "enum"
+    ];
+
+    // Keywords disallowed to be directly used in structs, without quotes (in newer versions)
+    public static readonly HashSet<string> ModernDisallowedStructKeywords =
+    [
+        "end",
+        "not",
+        "and",
+        "or",
+        "xor",
+        "mod",
+        "div",
+        "enum",
+        "function"
     ];
 }

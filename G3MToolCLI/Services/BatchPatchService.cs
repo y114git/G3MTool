@@ -211,31 +211,16 @@ public static class BatchPatchService
         {
             string input = job.Inputs[0];
             string output = job.Outputs[0];
-            var ext = Path.GetExtension(input);
-            if (ext.Equals(".xdelta", StringComparison.OrdinalIgnoreCase))
+            string? tempDir = null;
+            try
             {
-                var xdelta = new XDeltaService();
-                var xdeltaResult = await xdelta.ApplyPatchAsync(options.OriginalPath, input, output);
-                if (!xdeltaResult.Success)
-                    return Failed(job, xdeltaResult.Error ?? "xdelta apply failed", sw.Elapsed.TotalSeconds);
+                tempDir = Path.Combine(Path.GetTempPath(), $"g3mtool_batch_apply_{Guid.NewGuid():N}");
+                var materialized = await PatchInputService.MaterializeDataAsync(options.OriginalPath, input, tempDir);
+                File.Copy(materialized, output, true);
             }
-            else
+            finally
             {
-                string? tempDir = null;
-                string patchPath;
-                try
-                {
-                    tempDir = Path.Combine(Path.GetTempPath(), $"g3mtool_batch_apply_{Guid.NewGuid():N}");
-                    Directory.CreateDirectory(tempDir);
-                    patchPath = await PatchService.EnsureG3MPatchAsync(options.OriginalPath, input, tempDir, cacheOptions: options.CacheOptions);
-                    var applyResult = await PatchService.ApplyPatchAsync(options.OriginalPath, patchPath, output, options.XdeltaFallback);
-                    if (!applyResult.Success)
-                        return Failed(job, applyResult.Error ?? "patch apply failed", sw.Elapsed.TotalSeconds);
-                }
-                finally
-                {
-                    TryDeleteDirectory(tempDir);
-                }
+                TryDeleteDirectory(tempDir);
             }
 
             return Succeeded(job, sw.Elapsed.TotalSeconds);
@@ -251,12 +236,16 @@ public static class BatchPatchService
         var sw = Stopwatch.StartNew();
         try
         {
+            string? tempDir = Path.Combine(Path.GetTempPath(), $"g3mtool_batch_create_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(tempDir);
+            var materialized = await PatchInputService.MaterializeDataAsync(options.OriginalPath, job.Inputs[0], tempDir);
             var createResult = await PatchService.CreatePatchAsync(
                 options.OriginalPath,
-                job.Inputs[0],
+                materialized,
                 job.Outputs[0],
                 includeXdeltaFallback: options.IncludeXdeltaFallback,
                 cacheOptions: options.CacheOptions);
+            TryDeleteDirectory(tempDir);
             return createResult.Success
                 ? Succeeded(job, sw.Elapsed.TotalSeconds)
                 : Failed(job, createResult.Error ?? "patch create failed", sw.Elapsed.TotalSeconds);

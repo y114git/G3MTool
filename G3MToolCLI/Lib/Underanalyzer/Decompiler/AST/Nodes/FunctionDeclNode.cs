@@ -1,4 +1,4 @@
-﻿/*
+/*
   This Source Code Form is subject to the terms of the Mozilla Public
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -12,7 +12,7 @@ namespace Underanalyzer.Decompiler.AST;
 /// <summary>
 /// A function declaration within the AST.
 /// </summary>
-public class FunctionDeclNode(string? name, bool isConstructor, BlockNode body, ASTFragmentContext fragmentContext) 
+public class FunctionDeclNode(string? name, bool isConstructor, BlockNode body, ASTFragmentContext fragmentContext)
     : IFragmentNode, IMultiExpressionNode, IConditionalValueNode
 {
     /// <summary>
@@ -134,7 +134,7 @@ public class FunctionDeclNode(string? name, bool isConstructor, BlockNode body, 
             }
 
             // Verify the if condition is an == comparison of two simple variables
-            if (ifNode.Condition is not BinaryNode 
+            if (ifNode.Condition is not BinaryNode
                     { Instruction: { Kind: IGMInstruction.Opcode.Compare, ComparisonKind: IGMInstruction.ComparisonType.EqualTo },
                       Left: VariableNode argumentVariable, Right: VariableNode undefinedVariable })
             {
@@ -292,7 +292,7 @@ public class FunctionDeclNode(string? name, bool isConstructor, BlockNode body, 
     }
 
     /// <inheritdoc/>
-    public bool RequiresMultipleLines(ASTPrinter printer)
+    public bool RequiresMultipleLines(ASTPrinter printer, bool isStatementLHS)
     {
         return true;
     }

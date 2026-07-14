@@ -1,4 +1,4 @@
-﻿/*
+/*
   This Source Code Form is subject to the terms of the Mozilla Public
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -24,7 +24,7 @@ public class BinaryNode : IMultiExpressionNode, IMacroResolvableNode, ICondition
     /// Right side of the binary operation.
     /// </summary>
     public IExpressionNode Right { get; private set; }
-    
+
     /// <summary>
     /// The instruction that performs this operation, as in the code.
     /// </summary>
@@ -48,7 +48,7 @@ public class BinaryNode : IMultiExpressionNode, IMacroResolvableNode, ICondition
     public BinaryNode(IExpressionNode left, IExpressionNode right, IGMInstruction instruction)
     {
         Left = left;
-        Right = right;  
+        Right = right;
         Instruction = instruction;
 
         // Get resulting stack type depending on instruction's opcode and types for Left and Right
@@ -56,7 +56,7 @@ public class BinaryNode : IMultiExpressionNode, IMacroResolvableNode, ICondition
     }
 
     /// <summary>
-    /// Checks whether the given expression node needs to be grouped, and 
+    /// Checks whether the given expression node needs to be grouped, and
     /// sets <see cref="IExpressionNode.Group"/> accordingly if required.
     /// </summary>
     private void CheckGroup(IExpressionNode node)
@@ -107,6 +107,13 @@ public class BinaryNode : IMultiExpressionNode, IMacroResolvableNode, ICondition
         if (Right is BinaryNode)
         {
             Right.Group = true;
+        }
+
+        // Check for a special case of grouping on Left, with division of an integer type (caused by boolean conversions)
+        if (Instruction is { Kind: Opcode.Divide, Type1: DataType.Double, Type2: DataType.Int32 } &&
+            Left is BinaryNode { Instruction.Kind: Opcode.Multiply })
+        {
+            Left.Group = false;
         }
 
         return this;
@@ -165,9 +172,13 @@ public class BinaryNode : IMultiExpressionNode, IMacroResolvableNode, ICondition
     }
 
     /// <inheritdoc/>
-    public bool RequiresMultipleLines(ASTPrinter printer)
+    public bool RequiresMultipleLines(ASTPrinter printer, bool isStatementLHS)
     {
-        return Left.RequiresMultipleLines(printer) || Right.RequiresMultipleLines(printer);
+        if (isStatementLHS && Group)
+        {
+            return true;
+        }
+        return Left.RequiresMultipleLines(printer, isStatementLHS) || Right.RequiresMultipleLines(printer, false);
     }
 
     /// <inheritdoc/>

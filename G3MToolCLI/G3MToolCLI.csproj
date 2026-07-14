@@ -12,7 +12,7 @@
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
 
     <!-- Publish settings -->
-    <Version>1.2.1</Version>
+    <Version>1.2.2</Version>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
     <PublishTrimmed>false</PublishTrimmed>
@@ -28,7 +28,7 @@
     <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
 
     <!-- Roslyn scripting -->
-    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Scripting" Version="5.3.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Scripting" Version="5.6.0" />
 
     <!-- System.Text.Json is included in .NET 10 by default -->
 

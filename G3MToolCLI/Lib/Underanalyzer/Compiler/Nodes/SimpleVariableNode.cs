@@ -1,11 +1,10 @@
-﻿/*
+/*
   This Source Code Form is subject to the terms of the Mozilla Public
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
 */
 
 using System.Collections.Generic;
-using System.Xml.Linq;
 using Underanalyzer.Compiler.Bytecode;
 using Underanalyzer.Compiler.Lexer;
 using Underanalyzer.Compiler.Parser;
@@ -135,9 +134,9 @@ internal sealed class SimpleVariableNode : IAssignableASTNode, IVariableASTNode
     private VariablePatch CreateVariablePatch(BytecodeContext context)
     {
         VariablePatch varPatch = new(
-            VariableName, 
-            ExplicitInstanceType, 
-            RoomInstanceVariable ? VariableType.Instance : VariableType.Normal, 
+            VariableName,
+            ExplicitInstanceType,
+            RoomInstanceVariable ? VariableType.Instance : VariableType.Normal,
             BuiltinVariable is not null
         );
 
@@ -352,7 +351,7 @@ internal sealed class SimpleVariableNode : IAssignableASTNode, IVariableASTNode
     }
 
     /// <summary>
-    /// Resolves the final variable type (and scope in general) for a variable, given the current context, 
+    /// Resolves the final variable type (and scope in general) for a variable, given the current context,
     /// the variable's name, and builtin variable information.
     /// </summary>
     public IAssignableASTNode ResolveStandaloneType(ISubCompileContext context)
@@ -391,8 +390,8 @@ internal sealed class SimpleVariableNode : IAssignableASTNode, IVariableASTNode
             if (BuiltinArgumentVariables.Contains(VariableName))
             {
                 SetExplicitInstanceType(
-                    context.CompileContext.GameContext.UsingSelfToBuiltin && context.CurrentScope == context.RootScope ? 
-                    InstanceType.Argument : 
+                    context.CompileContext.GameContext.UsingSelfToBuiltin && context.CurrentScope == context.RootScope ?
+                    InstanceType.Argument :
                     InstanceType.Builtin);
                 return this;
             }

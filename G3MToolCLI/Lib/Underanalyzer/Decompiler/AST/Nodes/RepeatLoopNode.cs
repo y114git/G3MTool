@@ -1,4 +1,4 @@
-﻿/*
+/*
   This Source Code Form is subject to the terms of the Mozilla Public
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -62,7 +62,7 @@ public class RepeatLoopNode(IExpressionNode timesToRepeat, BlockNode body) : ISt
         printer.Write("repeat (");
         TimesToRepeat.Print(printer);
         printer.Write(')');
-        if (printer.Context.Settings.RemoveSingleLineBlockBraces && !Body.RequiresMultipleLines(printer))
+        if (printer.Context.Settings.RemoveSingleLineBlockBraces && !Body.RequiresMultipleLines(printer, false))
         {
             Body.PrintSingleLine(printer);
         }
@@ -77,7 +77,7 @@ public class RepeatLoopNode(IExpressionNode timesToRepeat, BlockNode body) : ISt
     }
 
     /// <inheritdoc/>
-    public bool RequiresMultipleLines(ASTPrinter printer)
+    public bool RequiresMultipleLines(ASTPrinter printer, bool isStatementLHS)
     {
         return true;
     }

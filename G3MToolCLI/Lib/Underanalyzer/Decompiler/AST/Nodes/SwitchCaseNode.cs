@@ -1,4 +1,4 @@
-﻿/*
+/*
   This Source Code Form is subject to the terms of the Mozilla Public
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -78,9 +78,9 @@ public class SwitchCaseNode(IExpressionNode? expression) : IStatementNode, IBloc
     }
 
     /// <inheritdoc/>
-    public bool RequiresMultipleLines(ASTPrinter printer)
+    public bool RequiresMultipleLines(ASTPrinter printer, bool isStatementLHS)
     {
-        return Expression?.RequiresMultipleLines(printer) ?? false;
+        return Expression?.RequiresMultipleLines(printer, false) ?? false;
     }
 
     /// <inheritdoc/>

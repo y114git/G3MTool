@@ -6214,7 +6214,7 @@ public partial class PatchService
 
         string dataFilePath;
 
-        if (ext == ".xdelta")
+        if (PatchInputService.IsXDelta(inputPath))
         {
             LogService.Warning($"Input '{Path.GetFileName(inputPath)}' is xdelta, converting to .g3mpatch...");
             var xdelta = new XDeltaService();
@@ -6228,10 +6228,13 @@ public partial class PatchService
             LogService.Warning($"Input '{Path.GetFileName(inputPath)}' is a data file, converting to .g3mpatch...");
             dataFilePath = inputPath;
         }
-        else
+        else if (ext == ".csx")
         {
-            return inputPath;
+            LogService.Warning($"Input '{Path.GetFileName(inputPath)}' is a CSX script, executing against the original data...");
+            dataFilePath = await PatchInputService.MaterializeDataAsync(originalPath, inputPath, tempDir ?? Path.GetTempPath());
         }
+        else
+            throw new NotSupportedException($"Unsupported patch input '{Path.GetFileName(inputPath)}'.");
 
         var outputZip = Path.Combine(tempDir ?? Path.GetTempPath(), $"g3mtool_conv_{Guid.NewGuid():N}.g3mpatch");
         var result = await CreatePatchAsync(
@@ -6249,7 +6252,7 @@ public partial class PatchService
             throw new Exception($"Failed to create .g3mpatch from '{Path.GetFileName(inputPath)}': {result.Error}");
 
         // Clean up temp data file if we created one from xdelta
-        if (ext == ".xdelta" && dataFilePath != inputPath)
+        if ((PatchInputService.IsXDelta(inputPath) || ext == ".csx") && dataFilePath != inputPath)
             try { File.Delete(dataFilePath); } catch { }
 
         return outputZip;

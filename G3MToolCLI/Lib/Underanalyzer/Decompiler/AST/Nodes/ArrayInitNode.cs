@@ -1,4 +1,4 @@
-﻿/*
+/*
   This Source Code Form is subject to the terms of the Mozilla Public
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -70,11 +70,11 @@ public class ArrayInitNode(List<IExpressionNode> elements) : IExpressionNode, IM
     }
 
     /// <inheritdoc/>
-    public bool RequiresMultipleLines(ASTPrinter printer)
+    public bool RequiresMultipleLines(ASTPrinter printer, bool isStatementLHS)
     {
         for (int i = 0; i < Elements.Count; i++)
         {
-            if (Elements[i].RequiresMultipleLines(printer))
+            if (Elements[i].RequiresMultipleLines(printer, false))
             {
                 return true;
             }

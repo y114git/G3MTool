@@ -1,6 +1,6 @@
 # G3MTool
 
-G3MTool is the command-line tool and reference implementation for the `.g3mpatch` format. It works with GameMaker data files, creates and applies `.g3mpatch` patches, batch-processes patch jobs, merges patches, inspects files, compares files, runs bundled/import scripts, and works with xdelta patches.
+G3MTool is the command-line tool and reference implementation for the `.g3mpatch` format. It works with GameMaker data files, creates and applies `.g3mpatch` patches, batch-processes patch jobs, merges patches, inspects files, compares files, runs bundled/import scripts, and works with xdelta/csx patches.
 
 Supported data-file extensions are `.win`, `.ios`, `.droid`, and `.unx`.
 
@@ -28,12 +28,12 @@ Create, apply, validate, or merge `.g3mpatch` files.
 ### patch create
 
 ```bash
-G3MTool patch create <original> <modified> [output] [--xdelta-fallback] [--cache <dir>] [--xdelta-path <path>]
+G3MTool patch create <original> <input> [output] [--xdelta] [--xdelta-fallback] [--cache <dir>] [--xdelta-path <path>]
 ```
 
-`original` is the source data file. `modified` can be a modified data file or an `.xdelta` patch; `.xdelta` input is applied to the original first and then converted to `.g3mpatch`.
+`input` can be `.g3mpatch`, `.xdelta`, `.vcdiff`, `.csx`, or a data file. G3MTool materializes the input against `original` and validates the resulting data before creating the patch.
 
-By default, the patch stores G3MTool resource changes and does not embed xdelta data. `--xdelta-fallback` also stores an xdelta fallback built from `original` and the modified data file. This increases `.g3mpatch` size.
+The default output is `.g3mpatch`. `--xdelta` creates `.xdelta` instead. `--xdelta-fallback` embeds an xdelta fallback inside `.g3mpatch`; it cannot be combined with `--xdelta`.
 
 `--cache <dir>` reads and writes `.g3mcache` analysis files for real data-file inputs. The cache stores reusable metadata, resource hashes, duplicate-name counts, and order-sensitive resource names. It does not replace resource payloads and is ignored when the source file size or stored MD5 no longer matches.
 
@@ -43,7 +43,7 @@ By default, the patch stores G3MTool resource changes and does not embed xdelta 
 G3MTool patch apply <data> <patch> [output] [--xdelta-fallback] [--xdelta-path <path>]
 ```
 
-`patch` can be `.g3mpatch`, `.xdelta`, or a data file. `.xdelta` input is applied directly. Data-file input is converted to `.g3mpatch` using `data` as the reference.
+`patch` can be `.g3mpatch`, `.xdelta`, `.vcdiff`, `.csx`, or a data file. A `.csx` script receives `data` through `ScriptGlobals.Data`. G3MTool saves and reopens the script result before using it.
 
 For `.g3mpatch` input, the default order is normal `.g3mpatch` apply first, then the embedded xdelta copy if normal apply fails and the patch contains one. With `--xdelta-fallback`, G3MTool tries the embedded xdelta copy first; if that fails, it continues with normal `.g3mpatch` apply.
 
@@ -62,7 +62,7 @@ Validates the `.g3mpatch` file and manifest. With `--data`, also checks compatib
 G3MTool patch merge <original> <patch1> <patch2> [patch3...] [options]
 ```
 
-Merges two or more patches using `original` as context. Patch order is low to high priority. Inputs can be `.g3mpatch`, `.xdelta`, or data files.
+Merges two or more inputs using `original` as context. Input order is low to high priority. Every input is derived independently from the same original before resource merge.
 
 Options:
 
@@ -87,7 +87,7 @@ G3MTool patch batch create <original> <modified...> --out-dir <dir> [--cache <di
 G3MTool patch batch merge <original> <sets...> [--apply <data-dir>] [--out <patch-dir>] [--cache <dir>] [--continue-on-error] [--code] [--properties] [--report]
 ```
 
-`batch apply` applies each patch independently to the original data file. `batch create` creates one `.g3mpatch` per modified input. `batch merge` runs multiple independent merge jobs; each set is a quoted comma-separated list of patches in low-to-high priority order:
+`batch apply` applies each supported input independently to the original data file. `batch create` creates one `.g3mpatch` per input. `batch merge` runs independent mixed-format merge jobs; each set is a quoted comma-separated list in low-to-high priority order:
 
 ```bash
 G3MTool patch batch merge game.win "base_patch.xdelta,ui_patch.g3mpatch" "mod_a.win,mod_b.xdelta,mod_c.g3mpatch" --apply data --out patches

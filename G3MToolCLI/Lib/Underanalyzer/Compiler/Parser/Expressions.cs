@@ -1,4 +1,4 @@
-﻿/*
+/*
   This Source Code Form is subject to the terms of the Mozilla Public
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -37,7 +37,7 @@ internal static class Expressions
         }
 
         // Check for "?"
-        if (!context.EndOfCode && 
+        if (!context.EndOfCode &&
             context.Tokens[context.Position] is TokenOperator { Kind: OperatorKind.Conditional } tokenConditional)
         {
             context.Position++;
@@ -72,7 +72,7 @@ internal static class Expressions
         }
 
         // Check for "??"
-        if (!context.EndOfCode && 
+        if (!context.EndOfCode &&
             context.Tokens[context.Position] is TokenOperator { Kind: OperatorKind.NullishCoalesce } tokenNullishCoalesce)
         {
             context.Position++;
@@ -295,7 +295,7 @@ internal static class Expressions
                                  OperatorKind.CompareNotEqual or OperatorKind.CompareNotEqual2 or
                                  OperatorKind.CompareGreater or OperatorKind.CompareGreaterEqual or
                                  OperatorKind.CompareLesser or OperatorKind.CompareLesserEqual
-                       } 
+                       }
                        tokenNextOperator)
                 {
                     context.Position++;
@@ -507,9 +507,9 @@ internal static class Expressions
 
         // Check for "*", "/", "%", "mod", "div"
         if (!context.EndOfCode &&
-            context.Tokens[context.Position] is 
+            context.Tokens[context.Position] is
             TokenOperator { Kind: OperatorKind.Times or OperatorKind.Divide or OperatorKind.Mod } or
-            TokenKeyword { Kind: KeywordKind.Mod or KeywordKind.Div }) 
+            TokenKeyword { Kind: KeywordKind.Mod or KeywordKind.Div })
         {
             IToken tokenOperator = context.Tokens[context.Position];
             context.Position++;
@@ -556,6 +556,10 @@ internal static class Expressions
     /// </summary>
     public static IASTNode? ParseChainExpression(ParseContext context, bool stopAtFunctionCall = false)
     {
+        // Before checking leftmost expression, check if it's grouped
+        bool lhsGrouped = context.IsCurrentToken(SeparatorKind.GroupOpen);
+
+        // Parse leftmost expression
         IASTNode? lhs = ParseLeftmostExpression(context);
         if (lhs is null)
         {
@@ -608,6 +612,7 @@ internal static class Expressions
 
                 // This accessor is now the left side of the chain
                 lhs = accessor;
+                lhsGrouped = false;
                 continue;
             }
 
@@ -617,6 +622,7 @@ internal static class Expressions
             {
                 // Parse function call, which becomes left side of chain
                 lhs = new FunctionCallNode(context, tokenOpen, lhs);
+                lhsGrouped = false;
                 continue;
             }
 
@@ -636,22 +642,22 @@ internal static class Expressions
                 if (nextToken is TokenVariable tokenVariable)
                 {
                     context.Position++;
-                    lhs = new DotVariableNode(lhs, tokenVariable);
+                    lhs = new DotVariableNode(lhs, lhsGrouped, tokenVariable);
                 }
                 else if (nextToken is TokenAssetReference tokenAssetReference)
                 {
                     context.Position++;
-                    lhs = new DotVariableNode(lhs, new TokenVariable(tokenAssetReference));
+                    lhs = new DotVariableNode(lhs, lhsGrouped, new TokenVariable(tokenAssetReference));
                 }
                 else if (nextToken is TokenNumber { IsConstant: true } tokenNumber)
                 {
                     context.Position++;
-                    lhs = new DotVariableNode(lhs, new TokenVariable(tokenNumber));
+                    lhs = new DotVariableNode(lhs, lhsGrouped, new TokenVariable(tokenNumber));
                 }
                 else if (nextToken is TokenFunction tokenFunction)
                 {
                     context.Position++;
-                    lhs = new DotVariableNode(lhs, tokenFunction);
+                    lhs = new DotVariableNode(lhs, lhsGrouped, tokenFunction);
 
                     if (!stopAtFunctionCall)
                     {
@@ -672,6 +678,8 @@ internal static class Expressions
                     context.CompileContext.PushError("Expected variable or function call after dot", tokenDot);
                     break;
                 }
+
+                lhsGrouped = false;
                 continue;
             }
 
@@ -683,19 +691,19 @@ internal static class Expressions
         if (lhs is SimpleVariableNode { BuiltinVariable.IsAutomaticArray: true } simpleVariable)
         {
             lhs = new AccessorNode(
-                simpleVariable.NearbyToken, 
-                simpleVariable, 
-                AccessorNode.AccessorKind.Array, 
+                simpleVariable.NearbyToken,
+                simpleVariable,
+                AccessorNode.AccessorKind.Array,
                 new Int64Node(0, simpleVariable.NearbyToken)
             );
         }
 
         // Check for and parse postfix
-        if (!context.EndOfCode && lhs is IAssignableASTNode lhsAssignable && 
-            context.Tokens[context.Position] is TokenOperator 
-            { 
-                Kind: OperatorKind.Increment or OperatorKind.Decrement 
-            } 
+        if (!context.EndOfCode && lhs is IAssignableASTNode lhsAssignable &&
+            context.Tokens[context.Position] is TokenOperator
+            {
+                Kind: OperatorKind.Increment or OperatorKind.Decrement
+            }
             tokenPostfix)
         {
             context.Position++;
@@ -729,6 +737,14 @@ internal static class Expressions
             case TokenString tokenString:
                 context.Position++;
                 return new StringNode(tokenString);
+            case TokenTemplateStringStart:
+                context.Position++;
+                if (context.CompileContext.GameContext.UsingTemplateStrings)
+                {
+                    return SimpleFunctionCallNode.ParseTemplateString(context);
+                }
+                context.CompileContext.PushError("Cannot use template strings in this GameMaker version", token);
+                return null;
             case TokenBoolean tokenBoolean:
                 context.Position++;
                 return new BooleanNode(tokenBoolean);
@@ -759,7 +775,7 @@ internal static class Expressions
             case TokenOperator { Kind: OperatorKind.Increment or OperatorKind.Decrement } tokenPrefix:
                 context.Position++;
                 return PrefixNode.Parse(context, tokenPrefix, tokenPrefix.Kind == OperatorKind.Increment);
-            case TokenOperator { Kind: OperatorKind.Not or OperatorKind.BitwiseNegate or 
+            case TokenOperator { Kind: OperatorKind.Not or OperatorKind.BitwiseNegate or
                                        OperatorKind.Plus or OperatorKind.Minus } tokenUnary:
                 context.Position++;
                 return UnaryNode.Parse(context, tokenUnary, tokenUnary.Kind switch
@@ -805,7 +821,7 @@ internal static class Expressions
                 context.CompileContext.PushError("Cannot use new before GMLv2 (GameMaker 2.3+)", token);
                 return null;
         }
-                
+
         context.Position++;
         context.CompileContext.PushError("Failed to find a valid expression", token);
         return null;
