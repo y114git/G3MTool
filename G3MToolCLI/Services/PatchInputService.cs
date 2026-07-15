@@ -41,7 +41,7 @@ public static class PatchInputService
         try
         {
             using var stream = new FileStream(output, FileMode.Open, FileAccess.Read, FileShare.Read);
-            _ = UndertaleIO.Read(stream);
+            using var data = UndertaleIO.Read(stream);
         }
         catch (Exception ex)
         {

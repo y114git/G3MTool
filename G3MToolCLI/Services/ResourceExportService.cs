@@ -728,14 +728,28 @@ public static class ResourceExportService
         if (data.Sprites == null || data.Sprites.Count == 0) return;
         var dir = EnsureDir(outputDir, "Sprites");
 
-        using var worker = new TextureWorker();
-        Parallel.ForEach(data.Sprites.ToList(), sprite =>
+        var sprites = data.Sprites
+            .Select((sprite, index) => (Sprite: sprite, Index: index))
+            .Where(item => item.Sprite?.Name?.Content != null &&
+                        (filter == null || filter.Contains(item.Sprite.Name.Content)))
+            .ToArray();
+        if (sprites.Length == 0) return;
+
+        var texturePageIndexes = new Dictionary<UndertaleEmbeddedTexture, int>(ReferenceEqualityComparer.Instance);
+        for (int i = 0; i < (data.EmbeddedTextures?.Count ?? 0); i++)
         {
-            if (sprite?.Name?.Content == null) return;
-            if (filter != null && !filter.Contains(sprite.Name.Content)) return;
+            var texture = data.EmbeddedTextures![i];
+            if (texture != null)
+                texturePageIndexes[texture] = i;
+        }
+
+        using var worker = new TextureWorker();
+        Parallel.ForEach(sprites, item =>
+        {
+            var sprite = item.Sprite!;
             try
             {
-                int idx = data.Sprites.IndexOf(sprite);
+                int idx = item.Index;
                 var spriteName = SafeName(sprite.Name.Content);
                 var folderName = string.IsNullOrEmpty(spriteName) ? $"__unnamed_sprite__idx{idx}" : spriteName;
                 var spriteDir = Path.Combine(dir, folderName);
@@ -769,7 +783,9 @@ public static class ResourceExportService
                     if (sprite.Textures[i]?.Texture != null)
                     {
                         var tex = sprite.Textures[i].Texture;
-                        int tpi = tex.TexturePage != null ? data.EmbeddedTextures.IndexOf(tex.TexturePage) : -1;
+                        int tpi = tex.TexturePage != null && texturePageIndexes.TryGetValue(tex.TexturePage, out int textureIndex)
+                            ? textureIndex
+                            : -1;
                         frames.Add(new Dictionary<string, object>
                         {
                             ["frameIndex"] = i,

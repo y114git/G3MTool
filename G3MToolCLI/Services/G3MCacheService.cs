@@ -152,14 +152,13 @@ public static class G3MCacheService
         if (options?.CanWrite != true)
             return;
 
+        string? tempPath = null;
         try
         {
             Directory.CreateDirectory(options.WriteDirectory!);
             var cachePath = GetCachePath(options.WriteDirectory!, sourcePath);
             infoSnapshot ??= TryReadDataInfoSnapshot(sourcePath, options);
-            var tempPath = cachePath + ".tmp";
-            if (File.Exists(tempPath))
-                File.Delete(tempPath);
+            tempPath = $"{cachePath}.{Environment.ProcessId}.{Guid.NewGuid():N}.tmp";
 
             var info = new FileInfo(sourcePath);
             var manifest = new G3MCacheManifest
@@ -189,15 +188,18 @@ public static class G3MCacheService
                 WriteJson(zip, "data_analysis.json", analysis);
             }
 
-            if (File.Exists(cachePath))
-                File.Delete(cachePath);
-            File.Move(tempPath, cachePath);
+            File.Move(tempPath, cachePath, overwrite: true);
             await Task.CompletedTask;
             LogService.Log($"[Cache] Wrote analysis cache for {Path.GetFileName(sourcePath)}");
         }
         catch (Exception ex)
         {
             LogService.Log($"[Cache] Could not write cache for {Path.GetFileName(sourcePath)}: {ex.Message}");
+        }
+        finally
+        {
+            if (tempPath != null)
+                try { File.Delete(tempPath); } catch { }
         }
     }
 

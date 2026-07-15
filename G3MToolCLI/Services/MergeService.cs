@@ -1350,6 +1350,7 @@ public static partial class MergeService
             UndertaleData originalData;
             using (var stream = OpenDataReadStream(originalPath))
                 originalData = UndertaleIO.Read(stream);
+            using var originalDataLifetime = originalData;
 
             var originalAssetOrder = ExtractAssetOrder(originalData);
             int originalEmbeddedTextureCount = originalData.EmbeddedTextures?.Count ?? 0;
@@ -1403,9 +1404,11 @@ public static partial class MergeService
             // Suppress sub-operation output during parallel normalization
             if (!LogService.Verbose) LogService.Suppress = true;
 
-            // Limit concurrent normalizations to avoid overloading the system
-            const int maxConcurrent = 5;
-            using var normSemaphore = new SemaphoreSlim(maxConcurrent);
+            // DATA/xdelta normalization is memory-heavy. Keep enough parallelism on
+            // larger systems without allowing a multi-patch merge to exhaust RAM.
+            long memoryBudget = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
+            int maxConcurrentConversions = memoryBudget >= 8L * 1024 * 1024 * 1024 ? 2 : 1;
+            using var conversionSemaphore = new SemaphoreSlim(maxConcurrentConversions);
             var normalizeTasks = new Task<string>[patchPaths.Count];
             for (int i = 0; i < patchPaths.Count; i++)
             {
@@ -1413,9 +1416,15 @@ public static partial class MergeService
                 var path = patchPaths[idx];
                 normalizeTasks[idx] = Task.Run(async () =>
                 {
-                    await normSemaphore.WaitAsync();
+                    bool requiresConversion = RequiresPatchConversion(path);
+                    if (requiresConversion)
+                        await conversionSemaphore.WaitAsync();
                     try { return await PatchService.EnsureG3MPatchAsync(originalPath, path, null, sharedOriginalHashes, sharedOriginalInfo, sharedOriginalNameCounts, sharedOriginalOrderedNames, options.CacheOptions); }
-                    finally { normSemaphore.Release(); }
+                    finally
+                    {
+                        if (requiresConversion)
+                            conversionSemaphore.Release();
+                    }
                 });
             }
 
@@ -1424,10 +1433,18 @@ public static partial class MergeService
             LogService.Suppress = false;
             LogService.SetOperation("Merging");
 
+            await Parallel.ForEachAsync(
+                Enumerable.Range(0, patchPaths.Count),
+                new ParallelOptions { MaxDegreeOfParallelism = maxConcurrentConversions },
+                (i, _) =>
+                {
+                    patchFileSystems[i] = PatchFileSystem.LoadFromZip(zipPaths[i], loadExactPayloads: false);
+                    return ValueTask.CompletedTask;
+                });
+
             for (int i = 0; i < patchPaths.Count; i++)
             {
                 if (zipPaths[i] != patchPaths[i]) tempFiles.Add(zipPaths[i]);
-                patchFileSystems[i] = PatchFileSystem.LoadFromZip(zipPaths[i], loadExactPayloads: false);
                 LogService.Log($"[Bench] Patch {i + 1}/{patchPaths.Count} ({patchNames[i]}): " +
                     $"{patchFileSystems[i].FileCount} files + {patchFileSystems[i].GmlEntries.Count} GML + {patchFileSystems[i].AsmEntries.Count} ASM");
             }

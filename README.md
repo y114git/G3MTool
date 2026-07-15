@@ -89,6 +89,8 @@ G3MTool patch batch merge <original> <sets...> [--apply <data-dir>] [--out <patc
 
 `batch apply` applies each supported input independently to the original data file. `batch create` creates one `.g3mpatch` per input. `batch merge` runs independent mixed-format merge jobs; each set is a quoted comma-separated list in low-to-high priority order:
 
+Independent batch jobs run in isolated processes with automatic CPU and memory limits. Hashing, patch normalization, and patch-container loading also use bounded parallelism; priority-dependent merge and DATA mutation remain ordered.
+
 ```bash
 G3MTool patch batch merge game.win "base_patch.xdelta,ui_patch.g3mpatch" "mod_a.win,mod_b.xdelta,mod_c.g3mpatch" --apply data --out patches
 ```

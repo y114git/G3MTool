@@ -51,10 +51,9 @@ public class ExecuteService
         if (!string.IsNullOrEmpty(dataPath) && !hasData)
             return new ScriptResult { Success = false, Error = $"Data file not found: {dataPath}" };
 
+        UndertaleData? data = null;
         try
         {
-            UndertaleData? data = null;
-
             if (hasData)
             {
                 LogService.Log($"[ScriptExecutor] Loading data file: {dataPath}");
@@ -100,7 +99,7 @@ public class ExecuteService
                 try
                 {
                     using var verify = new FileStream(outputPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                    _ = UndertaleIO.Read(verify);
+                    using var verifiedData = UndertaleIO.Read(verify);
                 }
                 catch (Exception ex)
                 {
@@ -115,6 +114,10 @@ public class ExecuteService
         catch (Exception ex)
         {
             return new ScriptResult { Success = false, Error = $"Script execution failed: {ex.Message}" };
+        }
+        finally
+        {
+            data?.Dispose();
         }
     }
 

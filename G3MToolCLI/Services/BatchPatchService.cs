@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Reflection;
 using System.Text;
 using G3MToolCLI.Models;
 
@@ -49,8 +51,8 @@ public static class BatchPatchService
         Directory.CreateDirectory(outDir);
         ValidateOriginal(options.OriginalPath);
         var inputs = NormalizeExistingFiles(patchPaths, "patch");
-        var hashCache = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var originalHash = await GetFileHashCachedAsync(options.OriginalPath, hashCache);
+        var hashes = await ComputeFileHashesAsync([options.OriginalPath, .. inputs]);
+        var originalHash = hashes[Path.GetFullPath(options.OriginalPath)];
         var originalStem = Path.GetFileNameWithoutExtension(options.OriginalPath);
         var dataOutputExtension = GetDataOutputExtension(options.OriginalPath);
         var outputPaths = BuildUniqueOutputPaths(inputs.Select(path =>
@@ -59,7 +61,7 @@ public static class BatchPatchService
         var jobs = new List<BatchJob>();
         for (int i = 0; i < inputs.Count; i++)
         {
-            var inputHash = await GetFileHashCachedAsync(inputs[i], hashCache);
+            var inputHash = hashes[inputs[i]];
             string key = BuildKey("apply", originalHash, inputHash, options.XdeltaFallback.ToString());
             jobs.Add(new BatchJob(i + 1, "apply", key, [inputs[i]], [outputPaths[i]]));
         }
@@ -73,15 +75,15 @@ public static class BatchPatchService
         Directory.CreateDirectory(outDir);
         ValidateOriginal(options.OriginalPath);
         var inputs = NormalizeExistingFiles(modifiedPaths, "modified");
-        var hashCache = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var originalHash = await GetFileHashCachedAsync(options.OriginalPath, hashCache);
+        var hashes = await ComputeFileHashesAsync([options.OriginalPath, .. inputs]);
+        var originalHash = hashes[Path.GetFullPath(options.OriginalPath)];
         var outputPaths = BuildUniqueOutputPaths(inputs.Select(path =>
             Path.Combine(outDir, $"{SanitizeFileName(Path.GetFileNameWithoutExtension(path))}.g3mpatch")));
 
         var jobs = new List<BatchJob>();
         for (int i = 0; i < inputs.Count; i++)
         {
-            var inputHash = await GetFileHashCachedAsync(inputs[i], hashCache);
+            var inputHash = hashes[inputs[i]];
             string key = BuildKey("create", originalHash, inputHash, options.IncludeXdeltaFallback.ToString());
             jobs.Add(new BatchJob(i + 1, "create", key, [inputs[i]], [outputPaths[i]]));
         }
@@ -102,24 +104,23 @@ public static class BatchPatchService
             Directory.CreateDirectory(patchDir);
         ValidateOriginal(options.OriginalPath);
         var sets = ParseMergeSets(setSpecs);
-        var hashCache = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var originalHash = await GetFileHashCachedAsync(options.OriginalPath, hashCache);
+        var normalizedSets = sets.Select(set => NormalizeExistingFiles(set, "merge patch")).ToArray();
+        var hashes = await ComputeFileHashesAsync([options.OriginalPath, .. normalizedSets.SelectMany(set => set)]);
+        var originalHash = hashes[Path.GetFullPath(options.OriginalPath)];
         var dataOutputExtension = GetDataOutputExtension(options.OriginalPath);
         var jobs = new List<BatchJob>();
         var patchOutputCandidates = new List<string>();
         var dataOutputCandidates = new List<string>();
 
-        for (int i = 0; i < sets.Count; i++)
+        for (int i = 0; i < normalizedSets.Length; i++)
         {
-            var set = NormalizeExistingFiles(sets[i], "merge patch");
+            var set = normalizedSets[i];
             var setName = BuildMergeSetName(i + 1, set);
             dataOutputCandidates.Add(Path.Combine(applyDir, $"{setName}{dataOutputExtension}"));
             if (patchDir is not null)
                 patchOutputCandidates.Add(Path.Combine(patchDir, $"{setName}.g3mpatch"));
 
-            var inputHashes = new List<string>();
-            foreach (var path in set)
-                inputHashes.Add(await GetFileHashCachedAsync(path, hashCache));
+            var inputHashes = set.Select(path => hashes[path]);
 
             string key = BuildKey(
                 "merge",
@@ -148,6 +149,10 @@ public static class BatchPatchService
         BatchOptions options,
         Func<BatchJob, BatchOptions, Task<BatchItemResult>> executor)
     {
+        int concurrency = GetSafeConcurrency();
+        if (concurrency > 1 && jobs.Count > 1)
+            return await RunIsolatedParallelAsync(jobs, options, concurrency);
+
         var result = new BatchResult { Total = jobs.Count };
         var completedByKey = new Dictionary<string, BatchItemResult>(StringComparer.Ordinal);
 
@@ -202,6 +207,230 @@ public static class BatchPatchService
         }
 
         return result;
+    }
+
+    private static int GetSafeConcurrency()
+    {
+        int cpuLimit = Math.Max(1, Environment.ProcessorCount / 2);
+        long memoryBudget = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
+        int memoryLimit = Math.Max(1, (int)(memoryBudget / (4L * 1024 * 1024 * 1024)));
+        return Math.Min(4, Math.Min(cpuLimit, memoryLimit));
+    }
+
+    private static async Task<BatchResult> RunIsolatedParallelAsync(
+        IReadOnlyList<BatchJob> jobs,
+        BatchOptions options,
+        int concurrency)
+    {
+        var uniqueJobs = jobs
+            .GroupBy(job => job.Key, StringComparer.Ordinal)
+            .Select(group => group.First())
+            .ToArray();
+        var completed = new ConcurrentDictionary<int, BatchItemResult>();
+        int nextIndex = -1;
+        int stopRequested = 0;
+
+        LogService.Info($"[Batch] Running up to {concurrency} isolated jobs in parallel");
+        var workers = Enumerable.Range(0, Math.Min(concurrency, uniqueJobs.Length)).Select(async _ =>
+        {
+            while (options.ContinueOnError || Volatile.Read(ref stopRequested) == 0)
+            {
+                int index = Interlocked.Increment(ref nextIndex);
+                if (index >= uniqueJobs.Length)
+                    break;
+
+                var job = uniqueJobs[index];
+                var item = await ExecuteJobInChildProcessAsync(job, options);
+                completed[job.Index] = item;
+                if (!item.Success && !options.ContinueOnError)
+                    Interlocked.Exchange(ref stopRequested, 1);
+            }
+        });
+        await Task.WhenAll(workers);
+
+        var result = new BatchResult { Total = jobs.Count };
+        var completedByKey = new Dictionary<string, BatchItemResult>(StringComparer.Ordinal);
+        foreach (var job in jobs)
+        {
+            if (completedByKey.TryGetValue(job.Key, out var source))
+            {
+                try
+                {
+                    var outputs = CopyOutputs(source.Outputs, job.Outputs);
+                    result.Items.Add(new BatchItemResult
+                    {
+                        Index = job.Index,
+                        Kind = job.Kind,
+                        Key = job.Key,
+                        Inputs = job.Inputs,
+                        Outputs = outputs,
+                        Success = true,
+                        Deduplicated = true
+                    });
+                    result.Completed++;
+                    result.Deduplicated++;
+                }
+                catch (Exception ex)
+                {
+                    result.Items.Add(Failed(job, ex.Message, 0, deduplicated: true));
+                    result.Failed++;
+                    if (!options.ContinueOnError)
+                        break;
+                }
+                continue;
+            }
+
+            if (!completed.TryGetValue(job.Index, out var item))
+            {
+                if (!options.ContinueOnError)
+                    break;
+                item = await ExecuteJobInChildProcessAsync(job, options);
+            }
+
+            result.Items.Add(item);
+            if (item.Success)
+            {
+                completedByKey[job.Key] = item;
+                result.Completed++;
+            }
+            else
+            {
+                result.Failed++;
+                if (!options.ContinueOnError)
+                    break;
+            }
+        }
+
+        if (!options.ContinueOnError && result.Failed > 0)
+        {
+            var reported = result.Items.Select(item => item.Index).ToHashSet();
+            foreach (var item in completed.Values.Where(item => !reported.Contains(item.Index)))
+            {
+                foreach (string output in item.Outputs)
+                    try { File.Delete(output); } catch { }
+            }
+        }
+
+        return result;
+    }
+
+    private static async Task<BatchItemResult> ExecuteJobInChildProcessAsync(BatchJob job, BatchOptions options)
+    {
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            var startInfo = CreateChildStartInfo();
+            foreach (string argument in BuildChildArguments(job, options))
+                startInfo.ArgumentList.Add(argument);
+
+            using var process = Process.Start(startInfo)
+                ?? throw new InvalidOperationException("Failed to start isolated G3MTool process");
+            var outputTask = process.StandardOutput.ReadToEndAsync();
+            var errorTask = process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+            string output = await outputTask;
+            string error = await errorTask;
+
+            if (process.ExitCode != 0)
+            {
+                string message = string.IsNullOrWhiteSpace(error) ? output : error;
+                return Failed(job, message.Trim(), sw.Elapsed.TotalSeconds);
+            }
+
+            foreach (string path in job.Outputs)
+            {
+                if (!File.Exists(path))
+                    return Failed(job, $"Expected output was not created: {path}", sw.Elapsed.TotalSeconds);
+            }
+
+            var outputs = job.Outputs;
+            string? report = GetReportPath(job, options);
+            if (report != null && File.Exists(report))
+                outputs = [.. outputs, report];
+            return Succeeded(job with { Outputs = outputs }, sw.Elapsed.TotalSeconds);
+        }
+        catch (Exception ex)
+        {
+            return Failed(job, ex.Message, sw.Elapsed.TotalSeconds);
+        }
+    }
+
+    private static ProcessStartInfo CreateChildStartInfo()
+    {
+        string processPath = Environment.ProcessPath
+            ?? throw new InvalidOperationException("Unable to locate the G3MTool executable");
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = processPath,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+        if (Path.GetFileNameWithoutExtension(processPath).Equals("dotnet", StringComparison.OrdinalIgnoreCase))
+        {
+            string assemblyPath = Assembly.GetEntryAssembly()?.Location
+                ?? throw new InvalidOperationException("Unable to locate the G3MTool assembly");
+            startInfo.ArgumentList.Add(assemblyPath);
+        }
+        return startInfo;
+    }
+
+    private static IEnumerable<string> BuildChildArguments(BatchJob job, BatchOptions options)
+    {
+        var args = new List<string> { "patch", job.Kind, options.OriginalPath };
+        args.AddRange(job.Inputs);
+        switch (job.Kind)
+        {
+            case "apply":
+            case "create":
+                args.Add(job.Outputs[0]);
+                if ((job.Kind == "apply" && options.XdeltaFallback) ||
+                    (job.Kind == "create" && options.IncludeXdeltaFallback))
+                    args.Add("--xdelta-fallback");
+                break;
+            case "merge":
+                string? patchOutput = job.Outputs.FirstOrDefault(IsG3MPatchPath);
+                string? dataOutput = job.Outputs.FirstOrDefault(path => !IsG3MPatchPath(path));
+                if (patchOutput != null)
+                {
+                    args.Add("--out");
+                    args.Add(patchOutput);
+                }
+                if (dataOutput != null)
+                {
+                    args.Add("--apply");
+                    args.Add(dataOutput);
+                }
+                if (options.UseCodeMerge) args.Add("--code");
+                if (options.UsePropertyMerge) args.Add("--properties");
+                string? report = GetReportPath(job, options);
+                if (report != null)
+                {
+                    args.Add("--report");
+                    args.Add(report);
+                }
+                break;
+        }
+
+        string? cacheDirectory = options.CacheOptions?.ReadDirectory;
+        if (!string.IsNullOrWhiteSpace(cacheDirectory) &&
+            string.Equals(cacheDirectory, options.CacheOptions?.WriteDirectory, StringComparison.OrdinalIgnoreCase))
+        {
+            args.Add("--cache");
+            args.Add(cacheDirectory);
+        }
+        return args;
+    }
+
+    private static string? GetReportPath(BatchJob job, BatchOptions options)
+    {
+        if (job.Kind != "merge" || !options.WriteReports)
+            return null;
+        string reportBase = job.Outputs.FirstOrDefault(IsG3MPatchPath)
+            ?? job.Outputs.FirstOrDefault()
+            ?? "merge";
+        return Path.ChangeExtension(reportBase, ".merge_log.md");
     }
 
     private static async Task<BatchItemResult> ExecuteApplyJobAsync(BatchJob job, BatchOptions options)
@@ -427,15 +656,18 @@ public static class BatchPatchService
     private static string BuildKey(params string[] parts) =>
         string.Join("|", parts.Select(part => part.Replace("|", "||", StringComparison.Ordinal)));
 
-    private static async Task<string> GetFileHashCachedAsync(string path, Dictionary<string, string> cache)
+    private static async Task<Dictionary<string, string>> ComputeFileHashesAsync(IEnumerable<string> paths)
     {
-        var fullPath = Path.GetFullPath(path);
-        if (cache.TryGetValue(fullPath, out var hash))
-            return hash;
-
-        hash = await HashService.ComputeFileHashAsync(fullPath);
-        cache[fullPath] = hash;
-        return hash;
+        var uniquePaths = paths
+            .Select(Path.GetFullPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var hashes = new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        await Parallel.ForEachAsync(
+            uniquePaths,
+            new ParallelOptions { MaxDegreeOfParallelism = Math.Min(4, Math.Max(1, Environment.ProcessorCount / 2)) },
+            async (path, _) => hashes[path] = await HashService.ComputeFileHashAsync(path));
+        return new Dictionary<string, string>(hashes, StringComparer.OrdinalIgnoreCase);
     }
 
     private static string[] CopyOutputs(IReadOnlyList<string> sourceOutputs, IReadOnlyList<string> targetOutputs)

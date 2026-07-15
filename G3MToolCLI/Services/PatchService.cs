@@ -197,7 +197,7 @@ public partial class PatchService
                     phaseSw.Restart();
                     LogService.Log("[PatchService] Loading original data file...");
                     using var stream = OpenDataReadStream(originalPath);
-                    var originalData = UndertaleIO.Read(stream);
+                    using var originalData = UndertaleIO.Read(stream);
                     var originalLoadTime = phaseSw.Elapsed;
                     LogService.Log($"[PatchService] Original: {originalData.GeneralInfo?.DisplayName?.Content ?? "Unknown"}");
                     originalInfo = new DataFileInfo
@@ -351,7 +351,7 @@ public partial class PatchService
             {
                 using (var stream = OpenDataReadStream(modifiedPath))
                 {
-                    var modifiedData = UndertaleIO.Read(stream);
+                    using var modifiedData = UndertaleIO.Read(stream);
                     var loadTime = phaseSw.Elapsed;
                     LogService.Log($"[PatchService] Modified: {modifiedData.GeneralInfo?.DisplayName?.Content ?? "Unknown"}");
                     var cachedModified = G3MCacheService.TryReadDataCache(modifiedPath, modifiedCacheOptions);
@@ -685,7 +685,7 @@ public partial class PatchService
     private static Dictionary<string, Dictionary<string, int>> ReadResourceNameCounts(string dataPath)
     {
         using var stream = OpenDataReadStream(dataPath);
-        var data = UndertaleIO.Read(stream);
+        using var data = UndertaleIO.Read(stream);
         return GetResourceNameCounts(data);
     }
 
@@ -922,7 +922,7 @@ public partial class PatchService
     private static Dictionary<string, IReadOnlyList<string>> ReadOrderSensitiveResourceNames(string dataPath)
     {
         using var stream = OpenDataReadStream(dataPath);
-        var data = UndertaleIO.Read(stream);
+        using var data = UndertaleIO.Read(stream);
         return GetOrderSensitiveResourceNames(data);
     }
 
@@ -1926,6 +1926,9 @@ public partial class PatchService
             finally
             {
                 ResourceImportService.SetPatchFileSystem(null);
+                pfs.ReleaseFileData();
+                pfs.ReleaseCodeEntries();
+                data.Dispose();
             }
         }
         catch (Exception ex)
