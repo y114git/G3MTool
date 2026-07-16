@@ -15,6 +15,7 @@ public sealed class BatchOptions
     public bool ContinueOnError { get; init; }
     public bool XdeltaFallback { get; init; }
     public bool IncludeXdeltaFallback { get; init; }
+    public bool CreateXdelta { get; init; }
     public bool UseCodeMerge { get; init; }
     public bool UsePropertyMerge { get; init; }
     public bool WriteReports { get; init; }
@@ -77,14 +78,20 @@ public static class BatchPatchService
         var inputs = NormalizeExistingFiles(modifiedPaths, "modified");
         var hashes = await ComputeFileHashesAsync([options.OriginalPath, .. inputs]);
         var originalHash = hashes[Path.GetFullPath(options.OriginalPath)];
+        var outputExtension = options.CreateXdelta ? ".xdelta" : ".g3mpatch";
         var outputPaths = BuildUniqueOutputPaths(inputs.Select(path =>
-            Path.Combine(outDir, $"{SanitizeFileName(Path.GetFileNameWithoutExtension(path))}.g3mpatch")));
+            Path.Combine(outDir, $"{SanitizeFileName(Path.GetFileNameWithoutExtension(path))}{outputExtension}")));
 
         var jobs = new List<BatchJob>();
         for (int i = 0; i < inputs.Count; i++)
         {
             var inputHash = hashes[inputs[i]];
-            string key = BuildKey("create", originalHash, inputHash, options.IncludeXdeltaFallback.ToString());
+            string key = BuildKey(
+                "create",
+                originalHash,
+                inputHash,
+                options.CreateXdelta.ToString(),
+                options.IncludeXdeltaFallback.ToString());
             jobs.Add(new BatchJob(i + 1, "create", key, [inputs[i]], [outputPaths[i]]));
         }
 
@@ -388,6 +395,8 @@ public static class BatchPatchService
                 if ((job.Kind == "apply" && options.XdeltaFallback) ||
                     (job.Kind == "create" && options.IncludeXdeltaFallback))
                     args.Add("--xdelta-fallback");
+                if (job.Kind == "create" && options.CreateXdelta)
+                    args.Add("--xdelta");
                 break;
             case "merge":
                 string? patchOutput = job.Outputs.FirstOrDefault(IsG3MPatchPath);
@@ -463,18 +472,29 @@ public static class BatchPatchService
     private static async Task<BatchItemResult> ExecuteCreateJobAsync(BatchJob job, BatchOptions options)
     {
         var sw = Stopwatch.StartNew();
+        string? tempDir = null;
         try
         {
-            string? tempDir = Path.Combine(Path.GetTempPath(), $"g3mtool_batch_create_{Guid.NewGuid():N}");
+            tempDir = Path.Combine(Path.GetTempPath(), $"g3mtool_batch_create_{Guid.NewGuid():N}");
             Directory.CreateDirectory(tempDir);
             var materialized = await PatchInputService.MaterializeDataAsync(options.OriginalPath, job.Inputs[0], tempDir);
+            if (options.CreateXdelta)
+            {
+                var xdeltaResult = await new XDeltaService().CreatePatchAsync(
+                    options.OriginalPath,
+                    materialized,
+                    job.Outputs[0]);
+                return xdeltaResult.Success
+                    ? Succeeded(job, sw.Elapsed.TotalSeconds)
+                    : Failed(job, xdeltaResult.Error ?? "xdelta create failed", sw.Elapsed.TotalSeconds);
+            }
+
             var createResult = await PatchService.CreatePatchAsync(
                 options.OriginalPath,
                 materialized,
                 job.Outputs[0],
                 includeXdeltaFallback: options.IncludeXdeltaFallback,
                 cacheOptions: options.CacheOptions);
-            TryDeleteDirectory(tempDir);
             return createResult.Success
                 ? Succeeded(job, sw.Elapsed.TotalSeconds)
                 : Failed(job, createResult.Error ?? "patch create failed", sw.Elapsed.TotalSeconds);
@@ -482,6 +502,10 @@ public static class BatchPatchService
         catch (Exception ex)
         {
             return Failed(job, ex.Message, sw.Elapsed.TotalSeconds);
+        }
+        finally
+        {
+            TryDeleteDirectory(tempDir);
         }
     }
 

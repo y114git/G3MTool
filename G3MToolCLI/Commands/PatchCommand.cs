@@ -13,9 +13,9 @@ public static class PatchCommand
     {
         var command = new Command("patch", "Create, apply, validate, or merge .g3mpatch files.");
 
-        var createCommand = new Command("create", "Create a .g3mpatch from an original data file and a modified data file or .xdelta patch.\n  Usage: patch create <original> <modified> [output] [--xdelta-fallback] [--cache <dir>] [--xdelta-path <path>]");
+        var createCommand = new Command("create", "Create a .g3mpatch or xdelta patch from an original data file and a supported input.\n  Usage: patch create <original> <input> [output] [--xdelta] [--xdelta-fallback] [--cache <dir>] [--xdelta-path <path>]");
         var originalArg = new Argument<FileInfo>("original", "Path to original data file (.win/.ios/.droid/.unx)");
-        var modifiedArg = new Argument<FileInfo>("modified", "Path to modified data file or .xdelta patch");
+        var modifiedArg = new Argument<FileInfo>("modified", "Data file, .g3mpatch, .xdelta, .vcdiff, or .csx input");
         var outputArg = new Argument<FileInfo?>("output", () => null, "Output patch file (optional). Default: next to G3MTool executable");
         var xdeltaFallbackOption = new Option<bool>(
             name: "--xdelta-fallback",
@@ -334,16 +334,19 @@ public static class PatchCommand
         }, batchApplyOriginalArg, batchApplyPatchesArg, batchApplyOutDirOption, batchApplyCacheOption, batchApplyContinueOnErrorOption, batchApplyXdeltaFallbackOption);
 
         var batchCreateCommand = new Command("create",
-            "Create one .g3mpatch for each modified input against the same original data file.\n" +
-            "  Usage: patch batch create <original> <modified...> --out-dir <dir> [--cache <dir>] [--continue-on-error] [--xdelta-fallback]");
+            "Create one .g3mpatch or xdelta patch for each input against the same original data file.\n" +
+            "  Usage: patch batch create <original> <modified...> --out-dir <dir> [--xdelta] [--cache <dir>] [--continue-on-error] [--xdelta-fallback]");
         var batchCreateOriginalArg = new Argument<FileInfo>("original", "Path to original data file (.win/.ios/.droid/.unx)");
-        var batchCreateModifiedArg = new Argument<FileInfo[]>("modified", "Modified data files or .xdelta patches")
+        var batchCreateModifiedArg = new Argument<FileInfo[]>("modified", "Data files, .g3mpatch, .xdelta, .vcdiff, or .csx inputs")
         {
             Arity = new ArgumentArity(1, 1000)
         };
         var batchCreateXdeltaFallbackOption = new Option<bool>(
             name: "--xdelta-fallback",
             description: "Store xdelta fallback in created .g3mpatch files.");
+        var batchCreateXdeltaOption = new Option<bool>(
+            name: "--xdelta",
+            description: "Create xdelta patches instead of .g3mpatch files.");
         var batchCreateOutDirOption = BatchOutDirOption();
         var batchCreateCacheOption = BatchCacheOption();
         var batchCreateContinueOnErrorOption = ContinueOnErrorOption();
@@ -353,8 +356,15 @@ public static class PatchCommand
         batchCreateCommand.AddOption(batchCreateCacheOption);
         batchCreateCommand.AddOption(batchCreateContinueOnErrorOption);
         batchCreateCommand.AddOption(batchCreateXdeltaFallbackOption);
-        batchCreateCommand.SetHandler(async (original, modified, outDir, cacheDir, continueOnError, xdeltaFallback) =>
+        batchCreateCommand.AddOption(batchCreateXdeltaOption);
+        batchCreateCommand.SetHandler(async (original, modified, outDir, cacheDir, continueOnError, xdeltaFallback, xdeltaOutput) =>
         {
+            if (xdeltaFallback && xdeltaOutput)
+            {
+                WriteErrorJsonOrText("patch batch create", "--xdelta and --xdelta-fallback are mutually exclusive.");
+                Environment.ExitCode = 1;
+                return;
+            }
             var result = await BatchPatchService.CreateBatchAsync(
                 modified.Select(p => p.FullName).ToArray(),
                 new BatchOptions
@@ -363,12 +373,13 @@ public static class PatchCommand
                     OutDir = outDir.FullName,
                     CacheOptions = G3MCacheOptions.FromDirectory(cacheDir?.FullName),
                     ContinueOnError = continueOnError,
-                    IncludeXdeltaFallback = xdeltaFallback
+                    IncludeXdeltaFallback = xdeltaFallback,
+                    CreateXdelta = xdeltaOutput
                 });
             WriteBatchResult("patch batch create", result);
             if (!result.Success)
                 Environment.ExitCode = 1;
-        }, batchCreateOriginalArg, batchCreateModifiedArg, batchCreateOutDirOption, batchCreateCacheOption, batchCreateContinueOnErrorOption, batchCreateXdeltaFallbackOption);
+        }, batchCreateOriginalArg, batchCreateModifiedArg, batchCreateOutDirOption, batchCreateCacheOption, batchCreateContinueOnErrorOption, batchCreateXdeltaFallbackOption, batchCreateXdeltaOption);
 
         var batchMergeCommand = new Command("merge",
             "Run multiple independent patch merges. Each set is a quoted comma-separated patch list.\n" +

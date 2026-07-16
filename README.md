@@ -83,11 +83,11 @@ Batch commands run multiple independent patch jobs against the same original dat
 
 ```bash
 G3MTool patch batch apply <original> <patches...> --out-dir <dir> [--cache <dir>] [--continue-on-error] [--xdelta-fallback]
-G3MTool patch batch create <original> <modified...> --out-dir <dir> [--cache <dir>] [--continue-on-error] [--xdelta-fallback]
+G3MTool patch batch create <original> <modified...> --out-dir <dir> [--xdelta] [--cache <dir>] [--continue-on-error] [--xdelta-fallback]
 G3MTool patch batch merge <original> <sets...> [--apply <data-dir>] [--out <patch-dir>] [--cache <dir>] [--continue-on-error] [--code] [--properties] [--report]
 ```
 
-`batch apply` applies each supported input independently to the original data file. `batch create` creates one `.g3mpatch` per input. `batch merge` runs independent mixed-format merge jobs; each set is a quoted comma-separated list in low-to-high priority order:
+`batch apply` applies each supported input independently to the original data file. `batch create` creates one `.g3mpatch` per input, or one `.xdelta` per input with `--xdelta`. `batch merge` runs independent mixed-format merge jobs; each set is a quoted comma-separated list in low-to-high priority order:
 
 Independent batch jobs run in isolated processes with automatic CPU and memory limits. Hashing, patch normalization, and patch-container loading also use bounded parallelism; priority-dependent merge and DATA mutation remain ordered.
 
