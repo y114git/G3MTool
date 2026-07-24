@@ -18,6 +18,7 @@ public static partial class DataIntegrityService
         var result = new DataIntegrityResult();
         RepairScripts(data, result);
         RepairCodeParentLinks(data, result);
+        RepairCodeSerializationOrder(data, result);
         RepairRoomCodeReferences(data, result);
         RepairGeneralInfoBranch(data, result);
         RepairLocalChildFunctionReferences(data, result);
@@ -446,6 +447,52 @@ public static partial class DataIntegrityService
             result.Repairs.Add($"restored {addedChildren} missing CodeEntry parent child links");
     }
 
+    private static void RepairCodeSerializationOrder(UndertaleData data, DataIntegrityResult result)
+    {
+        if (data.Code.Count < 2)
+            return;
+
+        List<UndertaleCode> original = [.. data.Code];
+        var position = new Dictionary<UndertaleCode, int>(ReferenceEqualityComparer.Instance);
+        for (int index = 0; index < original.Count; index++)
+            position[original[index]] = index;
+        var ordered = new List<UndertaleCode>(original.Count);
+        var visited = new HashSet<UndertaleCode>(ReferenceEqualityComparer.Instance);
+
+        void AddTree(UndertaleCode code)
+        {
+            if (!visited.Add(code))
+                return;
+
+            ordered.Add(code);
+            foreach (var child in code.ChildEntries
+                         .Where(child => child != null && ReferenceEquals(child.ParentEntry, code))
+                         .OrderBy(child => position.GetValueOrDefault(child, int.MaxValue)))
+            {
+                AddTree(child);
+            }
+        }
+
+        foreach (var code in original)
+        {
+            if (code.ParentEntry == null)
+                AddTree(code);
+        }
+        foreach (var code in original)
+            AddTree(code);
+
+        if (ordered.Count != original.Count ||
+            ordered.Select((code, index) => ReferenceEquals(code, original[index])).All(equal => equal))
+        {
+            return;
+        }
+
+        data.Code.Clear();
+        foreach (var code in ordered)
+            data.Code.Add(code);
+        result.Repairs.Add("restored parent-before-child CodeEntry serialization order");
+    }
+
     private static UndertaleCode? LiveCode(
         Dictionary<string, UndertaleCode> byName,
         HashSet<UndertaleCode> codeSet,
@@ -549,15 +596,24 @@ public static partial class DataIntegrityService
         {
             var codeName = code?.Name?.Content;
             if (string.IsNullOrEmpty(codeName) ||
+                code!.ParentEntry != null ||
                 !codeName.StartsWith("gml_Script_", StringComparison.Ordinal) ||
-                !scriptNames.Add(codeName))
+                codeName.StartsWith("gml_Script_anon_", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var scriptName = codeName["gml_Script_".Length..];
+            if (string.IsNullOrEmpty(scriptName) ||
+                scriptNames.Contains(codeName) ||
+                !scriptNames.Add(scriptName))
             {
                 continue;
             }
 
             data.Scripts.Add(new UndertaleScript
             {
-                Name = data.Strings.MakeString(codeName),
+                Name = data.Strings.MakeString(scriptName),
                 Code = code
             });
             created++;

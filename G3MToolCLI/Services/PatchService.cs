@@ -40,6 +40,34 @@ public partial class PatchService
     private static FileStream OpenDataWriteStream(string path) =>
         new(path, FileMode.Create, FileAccess.Write, FileShare.None, DataFileBufferSize);
 
+    internal static string? ValidateSavedDataFile(string path)
+    {
+        try
+        {
+            using var stream = OpenDataReadStream(path);
+            using var savedData = UndertaleIO.Read(stream);
+            var integrity = DataIntegrityService.ValidateOnly(savedData);
+            return integrity.Success
+                ? null
+                : string.Join("; ", integrity.Errors.Take(20));
+        }
+        catch (Exception ex)
+        {
+            return ex.Message;
+        }
+    }
+
+    private static void DeleteInvalidOutput(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception ex)
+        {
+            LogService.Warning($"[PatchService] Could not remove invalid output '{path}': {ex.Message}");
+        }
+    }
 
     private static List<string> BuildResourceTypesToProcess(PatchFileSystem pfs, G3MPatchManifest? manifest)
     {
@@ -1298,7 +1326,7 @@ public partial class PatchService
             patchLoadSw.Start();
             phaseSw.Restart();
             LogService.Log("[PatchService] Loading .g3mpatch file into memory...");
-            var pfs = await Task.Run(() => PatchFileSystem.LoadFromZip(patchPath, loadExactPayloads: allowXdeltaFallback, skipAsmBackedGml: true));
+            var pfs = await Task.Run(() => PatchFileSystem.LoadFromZip(patchPath, loadExactPayloads: allowXdeltaFallback, skipAsmBackedGml: false));
             G3MPatchManifest? manifest = pfs.Manifest;
             patchLoadSw.Stop();
 
@@ -1410,6 +1438,17 @@ public partial class PatchService
                     using (var outStream = OpenDataWriteStream(outputPath))
                         UndertaleIO.Write(outStream, data);
                     saveSw.Stop();
+
+                    var minimalValidationError = ValidateSavedDataFile(outputPath);
+                    if (minimalValidationError != null)
+                    {
+                        DeleteInvalidOutput(outputPath);
+                        return new PatchApplyResult
+                        {
+                            Success = false,
+                            Error = $"Saved data validation failed: {minimalValidationError}"
+                        };
+                    }
 
                     totalSw.Stop();
                     LogService.Log($"[Timing] Minimal apply total: {totalSw.Elapsed.TotalSeconds:F1}s");
@@ -1878,6 +1917,22 @@ public partial class PatchService
                     UndertaleIO.Write(outStream, data);
                 }
                 saveSw.Stop();
+
+                var savedValidationError = ValidateSavedDataFile(outputPath);
+                if (savedValidationError != null)
+                {
+                    DeleteInvalidOutput(outputPath);
+                    finalizeSw.Stop();
+                    if (await TryApplyXdeltaFallbackFromPatchAsync(dataPath, outputPath, patchPath, pfs, manifest))
+                        return new PatchApplyResult { Success = true };
+
+                    return new PatchApplyResult
+                    {
+                        Success = false,
+                        Error = $"Saved data validation failed: {savedValidationError}"
+                    };
+                }
+
                 finalizeSw.Stop();
                 LogService.Log($"[Timing] Final save: {phaseSw.Elapsed.TotalSeconds:F1}s, RAM: {Process.GetCurrentProcess().WorkingSet64 / 1024 / 1024}MB");
                 LogService.Progress(100, 100);
@@ -1980,7 +2035,7 @@ public partial class PatchService
             patchLoadSw.Start();
             phaseSw.Restart();
             LogService.Log("[PatchService] Loading .g3mpatch file into memory for in-memory apply...");
-            var pfs = await Task.Run(() => PatchFileSystem.LoadFromZip(patchPath, loadExactPayloads: false, skipAsmBackedGml: true));
+            var pfs = await Task.Run(() => PatchFileSystem.LoadFromZip(patchPath, loadExactPayloads: false, skipAsmBackedGml: false));
             G3MPatchManifest? manifest = pfs.Manifest;
             var applyPlan = manifest?.ApplyPlan ?? BuildPatchApplyPlan(manifest?.Resources ?? new Dictionary<string, ResourceTypeChanges>(StringComparer.OrdinalIgnoreCase));
             patchLoadSw.Stop();
@@ -2736,15 +2791,24 @@ public partial class PatchService
             {
                 var codeName = code?.Name?.Content;
                 if (string.IsNullOrEmpty(codeName) ||
+                    code!.ParentEntry != null ||
                     !codeName.StartsWith("gml_Script_", StringComparison.Ordinal) ||
-                    !scriptNames.Add(codeName))
+                    codeName.StartsWith("gml_Script_anon_", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                var scriptName = codeName["gml_Script_".Length..];
+                if (string.IsNullOrEmpty(scriptName) ||
+                    scriptNames.Contains(codeName) ||
+                    !scriptNames.Add(scriptName))
                 {
                     continue;
                 }
 
                 data.Scripts.Add(new UndertaleScript
                 {
-                    Name = data.Strings.MakeString(codeName),
+                    Name = data.Strings.MakeString(scriptName),
                     Code = code
                 });
                 created++;
@@ -3055,8 +3119,13 @@ public partial class PatchService
             var scriptName = script?.Name?.Content;
             if (string.IsNullOrWhiteSpace(scriptName))
                 continue;
+            // GameMaker data can legitimately contain script resources without
+            // an attached code entry. Only repair or prune a reference that
+            // previously pointed at code which is no longer live.
+            if (script?.Code == null)
+                continue;
 
-            var liveCode = ScriptCodeResolver.Resolve(data, scriptName, script?.Code?.Name?.Content);
+            var liveCode = ScriptCodeResolver.Resolve(data, scriptName, script.Code.Name?.Content);
             if (liveCode != null)
             {
                 if (!ReferenceEquals(script!.Code, liveCode))
@@ -4758,7 +4827,15 @@ public partial class PatchService
             if (!compileResult.Successful)
             {
                 LogService.Log($"[ImportCodeEntries] Compilation warning: {compileResult.PrintAllErrors(true)}");
-                RetryGmlOnlyCodeEntriesIndividually(data, gmlOnlyEntries, collisionTargetsByCode);
+                int retryFailures = RetryGmlOnlyCodeEntriesIndividually(
+                    data,
+                    gmlOnlyEntries,
+                    collisionTargetsByCode);
+                if (retryFailures > 0)
+                {
+                    throw new InvalidDataException(
+                        $"{retryFailures} GML code entr{(retryFailures == 1 ? "y" : "ies")} could not be compiled");
+                }
             }
         }
         else
@@ -5154,6 +5231,7 @@ public partial class PatchService
         var stripStringIdxRegex = StripStringIdxRegex();
         int reassembled = 0;
         int asmFailed = 0;
+        var asmGmlFallbackEntries = new List<(string CodeName, string GmlCode, bool IsCollision)>();
 
         var archiveLookupSw = Stopwatch.StartNew();
         archiveCodeLookup = BuildArchiveCodeLookup(data);
@@ -5438,6 +5516,13 @@ public partial class PatchService
                 catch (Exception ex)
                 {
                     asmFailed++;
+                    if (gmlEntries.TryGetValue(entryKey, out var fallbackGml))
+                    {
+                        asmGmlFallbackEntries.Add((
+                            codeName,
+                            fallbackGml,
+                            codeName.Contains("_Collision_", StringComparison.Ordinal)));
+                    }
                     if (asmFailed <= 5)
                         LogService.Log($"[ImportCodeEntries] ASM error for {codeName}: {ex.Message}");
                 }
@@ -5449,6 +5534,19 @@ public partial class PatchService
             Assembler.ClearLookupCaches();
         }
         asmLoopSw.Stop();
+
+        if (asmGmlFallbackEntries.Count > 0)
+        {
+            int fallbackFailed = RetryGmlOnlyCodeEntriesIndividually(
+                data,
+                asmGmlFallbackEntries,
+                collisionTargetsByCode);
+            int recovered = asmGmlFallbackEntries.Count - fallbackFailed;
+            asmFailed -= recovered;
+            reassembled += recovered;
+            LogService.Log(
+                $"[ImportCodeEntries] Recovered {recovered}/{asmGmlFallbackEntries.Count} failed ASM entries from GML");
+        }
 
         var postAsmTopologySw = Stopwatch.StartNew();
         if (pendingChildReattachments.Count > 0)
@@ -5538,18 +5636,23 @@ public partial class PatchService
         LogService.Log(
             $"[ImportCodeEntries] ASM timings: funcs={functionReconcileSw.Elapsed.TotalSeconds:F2}s, vars={variableReconcileSw.Elapsed.TotalSeconds:F2}s, localvars={localVarLookupSw.Elapsed.TotalSeconds:F2}s, codeLookup={archiveLookupSw.Elapsed.TotalSeconds:F2}s, skeletons={skeletonSw.Elapsed.TotalSeconds:F2}s, cache={assemblerCacheSw.Elapsed.TotalSeconds:F2}s, loop={asmLoopSw.Elapsed.TotalSeconds:F2}s, child={childDirectiveSw.Elapsed.TotalSeconds:F2}s/{childDirectiveEntries}, preprocess={asmPreprocessSw.Elapsed.TotalSeconds:F2}s/{preprocessedAsmEntries}, assemble={assembleOnlySw.Elapsed.TotalSeconds:F2}s, replace={replaceInstructionsSw.Elapsed.TotalSeconds:F2}s, topology={postAsmTopologySw.Elapsed.TotalSeconds:F2}s");
         LogService.Log($"[ImportCodeEntries] Reassembled {reassembled}/{reassembled + asmFailed} entries in {phaseSw.Elapsed.TotalSeconds:F1}s");
+        if (asmFailed > 0)
+        {
+            throw new InvalidDataException(
+                $"{asmFailed} code entr{(asmFailed == 1 ? "y" : "ies")} could not be imported from ASM or GML");
+        }
 
         sw.Stop();
         LogService.Log($"[ImportCodeEntries] Hybrid import complete in {sw.Elapsed.TotalSeconds:F1}s");
     }
 
-    private static void RetryGmlOnlyCodeEntriesIndividually(
+    private static int RetryGmlOnlyCodeEntriesIndividually(
         UndertaleData data,
         List<(string CodeName, string GmlCode, bool IsCollision)> gmlOnlyEntries,
         Dictionary<string, string> collisionTargetsByCode)
     {
         if (gmlOnlyEntries.Count == 0)
-            return;
+            return 0;
 
         var phaseSw = Stopwatch.StartNew();
         LogService.Log($"[ImportCodeEntries] Retrying {gmlOnlyEntries.Count} GML-only entries individually after group compile failure...");
@@ -5618,6 +5721,7 @@ public partial class PatchService
         }
 
         LogService.Log($"[ImportCodeEntries] GML-only retry applied {applied}/{gmlOnlyEntries.Count}, failed {failed}, in {phaseSw.Elapsed.TotalSeconds:F1}s");
+        return failed;
     }
 
     private static void ApplyTargetFunctionVariableTables(UndertaleData data, JsonElement root, string phase)

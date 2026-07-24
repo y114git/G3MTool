@@ -91,7 +91,20 @@ public static class LogService
             if (string.IsNullOrWhiteSpace(path))
                 return;
 
-            _fileWriter = new FileLogWriter(path);
+            try
+            {
+                _fileWriter = new FileLogWriter(path);
+            }
+            catch (IOException exception)
+            {
+                Console.Error.WriteLine(
+                    $"Warning: Could not open log file '{path}': {exception.Message}");
+            }
+            catch (UnauthorizedAccessException exception)
+            {
+                Console.Error.WriteLine(
+                    $"Warning: Could not open log file '{path}': {exception.Message}");
+            }
         }
     }
 

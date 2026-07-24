@@ -272,22 +272,6 @@ public static partial class MergeService
             using (var baseStream = OpenDataReadStream(baseDataPath))
                 baseData = UndertaleIO.Read(baseStream);
 
-            var baseResourceNormalizationPfs = BuildExactBaseResourceNormalizationPatch(normalizedPatchFileSystems[basePatchIndex]);
-            if (baseResourceNormalizationPfs.FileCount > 0)
-            {
-                string baseNormalizationPatchPath = Path.Combine(tempRoot, "base_normalize.g3mpatch");
-                baseResourceNormalizationPfs.SaveToZip(baseNormalizationPatchPath, manifest: null);
-                var baseNormalizationResult = await PatchService.ApplyPatchInMemoryAsync(baseData, baseNormalizationPatchPath, baseDataPath);
-                if (!baseNormalizationResult.Success)
-                {
-                    return new ExactCodeBaseFinalizeResult
-                    {
-                        Success = false,
-                        Error = $"Exact code-base resource normalization failed: {baseNormalizationResult.Error}"
-                    };
-                }
-            }
-
             var overlayPfs = BuildOverlayAgainstExactCodeBase(
                 finalPfs,
                 normalizedPatchFileSystems[basePatchIndex],
@@ -353,6 +337,17 @@ public static partial class MergeService
             using (var outStream = OpenDataWriteStream(mergedDataPath))
                 UndertaleIO.Write(outStream, baseData);
 
+            var savedValidationError = PatchService.ValidateSavedDataFile(mergedDataPath);
+            if (savedValidationError != null)
+            {
+                TryDeleteFile(mergedDataPath);
+                return new ExactCodeBaseFinalizeResult
+                {
+                    Success = false,
+                    Error = $"Saved merged data validation failed: {savedValidationError}"
+                };
+            }
+
             if (saveZip)
             {
                 var createResult = await PatchService.CreatePatchAsync(
@@ -394,36 +389,6 @@ public static partial class MergeService
             {
             }
         }
-    }
-
-    private static PatchFileSystem BuildExactBaseResourceNormalizationPatch(PatchFileSystem basePatchPfs)
-    {
-        var normalization = new PatchFileSystem();
-        var normalizedResourceTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "AudioGroups",
-            "EmbeddedAudio",
-            "EmbeddedImages",
-            "EmbeddedTextures",
-            "Fonts",
-            "Sounds",
-            "Sprites",
-            "TextureGroupInfo",
-            "TexturePageItems"
-        };
-
-        foreach (var (path, data) in basePatchPfs.GetAllFiles())
-        {
-            string resourceType = GetTopLevelFolder(path);
-            bool isTextureHelper =
-                path.EndsWith("texture_page_items.json", StringComparison.OrdinalIgnoreCase) ||
-                path.EndsWith("sprite_frame_map.json", StringComparison.OrdinalIgnoreCase);
-
-            if (isTextureHelper || normalizedResourceTypes.Contains(resourceType))
-                normalization.AddFile(path, data);
-        }
-
-        return normalization;
     }
 
     private static void RepairExactMergedChildCodeOffsetsFromAsm(
@@ -1585,7 +1550,7 @@ public static partial class MergeService
                 {
                     string logicalCodeName = pfs.CodeEntryLogicalNames.GetValueOrDefault(codeName) ?? codeName;
                     var gmlCode = RemapAssetIndicesGml(rawGmlCode, assetRemap);
-                    bool canPreserveAsm = false;
+                    bool canPreserveAsm = pfs.AsmEntries.ContainsKey(codeName);
                     codeIdx++;
                     if (codeIdx % 100 == 0)
                     {
@@ -1666,7 +1631,7 @@ public static partial class MergeService
                         if (baseGml != null)
                         {
                             var (merged, hasConflicts) = ThreeWayMerge(baseGml, existingGml, gmlCode);
-                            if (merged != null)
+                            if (merged != null && !hasConflicts)
                             {
                                 finalPfs.AddGmlEntry(codeName, merged, logicalCodeName);
                                 finalPfs.RemoveAsmEntry(codeName);
@@ -1676,12 +1641,10 @@ public static partial class MergeService
                                 var mergeDiff = GenerateThreeWayDiff(baseGml, merged, prevCodeOwner, patchName);
                                 conflicts.Add(new ConflictEntry(
                                     $"CodeEntries/{codeName}",
-                                    hasConflicts ? "Conflict" : "Resolved",
-                                    hasConflicts ? "Code Merge (partial)" : "Code Merge",
-                                    hasConflicts
-                                        ? $"{patchName} over {prevCodeOwner}"
-                                        : $"{prevCodeOwner} + {patchName}",
-                                    hasConflicts ? "Overlapping changes resolved with higher priority" : null,
+                                    "Resolved",
+                                    "Code Merge",
+                                    $"{prevCodeOwner} + {patchName}",
+                                    null,
                                     mergeDiff));
                                 continue;
                             }
@@ -1708,9 +1671,9 @@ public static partial class MergeService
                 }
 
                 // ASM-only entries have no GML source to recompile, so keep
-                // them. Paired ASM for GML entries stays disabled above to
-                // avoid overwriting freshly compiled bytecode with source
-                // VARI/FUNC indices from another data file.
+                // them. Paired ASM is retained above whenever one patch owns
+                // the final code; symbolic references and asset IDs are
+                // remapped against the merged target during application.
                 foreach (var (codeName, asmCode) in pfs.AsmEntries)
                 {
                     if (!pfs.GmlEntries.ContainsKey(codeName) &&
@@ -3086,9 +3049,9 @@ public static partial class MergeService
 
     private static string? MergeVariablesFunctions(UndertaleData originalData, PatchFileSystem[] patches)
     {
-        // Variables/Functions are index-sensitive for bytecode. Preserve a full
-        // table order from the most complete code-bearing patch, then append
-        // entries only present in other patches.
+        // Variables and functions are index-sensitive for bytecode. Keep the
+        // original table as a stable prefix and append only genuinely new
+        // entries from patches in priority order.
         var variables = new List<(string name, int instType, int varId)>();
         var variableKeys = new HashSet<(string name, int instType)>();
         var functions = new List<string>();
@@ -3109,7 +3072,7 @@ public static partial class MergeService
             using var doc = JsonDocument.Parse(pfs.ReadAllText(vfPath));
             var root = doc.RootElement;
 
-            // Variables: union by (name, instanceType), later patch wins on VarID conflict
+            // Variables: union by (name, instanceType), preserving stable indices.
             if (root.TryGetProperty("variables", out var varArray))
             {
                 var patchVariables = new List<(string name, int instType, int varId)>();
@@ -3122,18 +3085,10 @@ public static partial class MergeService
                         patchVariables.Add((name, instType, varId));
                 }
 
-                if (patchVariables.Count > variables.Count)
+                foreach (var variable in patchVariables)
                 {
-                    variables = patchVariables;
-                    variableKeys = [.. patchVariables.Select(v => (v.name, v.instType))];
-                }
-                else
-                {
-                    foreach (var variable in patchVariables)
-                    {
-                        if (variableKeys.Add((variable.name, variable.instType)))
-                            variables.Add(variable);
-                    }
+                    if (variableKeys.Add((variable.name, variable.instType)))
+                        variables.Add(variable);
                 }
             }
 
@@ -3151,18 +3106,10 @@ public static partial class MergeService
                     }
                 }
 
-                if (patchFunctions.Count > functions.Count)
+                foreach (var function in patchFunctions)
                 {
-                    functions = patchFunctions;
-                    functionKeys = patchFunctions.ToHashSet(StringComparer.OrdinalIgnoreCase);
-                }
-                else
-                {
-                    foreach (var function in patchFunctions)
-                    {
-                        if (functionKeys.Add(function))
-                            functions.Add(function);
-                    }
+                    if (functionKeys.Add(function))
+                        functions.Add(function);
                 }
             }
 
@@ -3682,7 +3629,7 @@ public static partial class MergeService
 
     private static bool PatchHasResourcePayload(PatchFileSystem pfs, string resourceRoot, string resourceName)
     {
-        string prefix = $"{resourceRoot}/{resourceName}/";
+        string prefix = $"{resourceRoot}/{ResourceExportService.SafeName(resourceName)}/";
         return pfs.GetAllFilePaths().Any(path => path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
     }
 

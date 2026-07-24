@@ -400,7 +400,12 @@ public static partial class ResourceImportService
         }
         else
         {
-            DoTextureRepack(data, spritesPath, foldersWithPngs, LoadMeta, LoadFrameData, ApplyFrameProps, FindSprite, MakeSpriteString, spritesByName);
+            var logicalNamesByFolder = importDataList.ToDictionary(
+                data => Path.GetFullPath(data.FolderPath),
+                data => data.Name,
+                StringComparer.OrdinalIgnoreCase);
+            DoTextureRepack(data, spritesPath, foldersWithPngs, logicalNamesByFolder,
+                LoadMeta, LoadFrameData, ApplyFrameProps, FindSprite, MakeSpriteString, spritesByName);
         }
     }
 
@@ -551,6 +556,7 @@ public static partial class ResourceImportService
     private static void DoTextureRepack(UndertaleData data, string spritesPath,
 #pragma warning restore IDE0060
         List<string> newSpriteFolders,
+        IReadOnlyDictionary<string, string> logicalNamesByFolder,
         Func<string, JsonElement?> loadMeta,
         Func<string, List<Dictionary<string, object>>?> loadFrameData,
         Action<UndertaleTexturePageItem, List<Dictionary<string, object>>, int> applyFrameProps,
@@ -615,12 +621,19 @@ public static partial class ResourceImportService
                     if (n.Texture == null) continue;
 
                     string stripped = Path.GetFileNameWithoutExtension(Path.GetFileName(n.Texture.Source));
-                    string spriteName;
+                    string? sourceFolder = Path.GetDirectoryName(n.Texture.Source);
+                    string? logicalName = null;
+                    bool hasLogicalName = sourceFolder != null &&
+                                          logicalNamesByFolder.TryGetValue(Path.GetFullPath(sourceFolder), out logicalName);
+                    string spriteName = hasLogicalName ? logicalName! : string.Empty;
                     int frame = 0;
                     try
                     {
                         var match = SprFrameRegex().Match(stripped);
-                        spriteName = match.Groups[1].Value;
+                        if (!match.Success)
+                            continue;
+                        if (!hasLogicalName)
+                            spriteName = match.Groups[1].Value;
                         if (!int.TryParse(match.Groups[2].Value, out frame))
                             frame = 0;
                     }
