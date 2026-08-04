@@ -135,7 +135,7 @@ var codeMetadata = new Dictionary<string, int[]>();
 foreach (var code in Data.Code)
 {
     if (code?.Name?.Content != null && code.ParentEntry == null)
-        codeMetadata[code.Name.Content] = new int[] { code.LocalsCount, code.ArgumentsCount };
+        codeMetadata[code.Name.Content] = new int[] { (int)code.LocalsCount, code.ArgumentsCount };
 }
 
 var exportData = new Dictionary<string, object> {

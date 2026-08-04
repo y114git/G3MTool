@@ -733,11 +733,17 @@ namespace UndertaleModLib
                 if (length != expectedLength)
                 {
                     int diff = (int)expectedLength - (int)length;
-                    reader.SubmitWarning("WARNING: File specified length " + expectedLength + ", but read only " + length + " (" + diff + " padding?)");
                     if (diff > 0)
+                    {
+                        // Some platform ports pad known chunk payloads to the declared
+                        // chunk length. Skip that padding without treating it as data loss.
                         reader.Position += (uint)diff;
+                    }
                     else
+                    {
+                        reader.SubmitWarning("WARNING: File specified length " + expectedLength + ", but read " + length + " bytes.");
                         throw new IOException("Read underflow");
+                    }
                 }
             }
         }
