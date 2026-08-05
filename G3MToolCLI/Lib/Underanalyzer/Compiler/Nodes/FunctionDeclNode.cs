@@ -287,7 +287,6 @@ internal sealed class FunctionDeclNode : IMaybeStatementASTNode
         // Read assignments from struct literal
         while (!context.EndOfCode && !context.IsCurrentToken(SeparatorKind.BlockClose, KeywordKind.End))
         {
-            bool parsedStringName = false;
             if (context.Tokens[context.Position] is not TokenVariable variable)
             {
                 // Failed to find a variable here... check if a constant/asset reference, string, or keyword
@@ -302,7 +301,6 @@ internal sealed class FunctionDeclNode : IMaybeStatementASTNode
                 else if (context.Tokens[context.Position] is TokenString str)
                 {
                     variable = new TokenVariable(str);
-                    parsedStringName = true;
                 }
                 else if (context.Tokens[context.Position] is TokenKeyword keyword)
                 {
@@ -394,23 +392,16 @@ internal sealed class FunctionDeclNode : IMaybeStatementASTNode
                     context.CompileContext.PushError("Struct field name must start with a-z, A-Z, or _ in this GameMaker version", variable);
                 }
             }
-            else if (modernSpecialCaseNames && !parsedStringName && VMConstants.ModernDisallowedStructKeywords.Contains(variableName))
-            {
-                context.CompileContext.PushError("Invalid keyword used for struct field name, must surround with quotes", variable);
-            }
+            // Reserved field names are valid here; the decompiler emits them as quoted struct keys.
             else if (modernSpecialCaseNames && (variableName == "self" || variableName == "other"))
             {
                 DotVariableNode destination = new(
                     new SimpleFunctionCallNode(VMConstants.SelfFunction,
-                                               context.CompileContext.GameContext.Builtins.LookupBuiltinFunction(VMConstants.SelfFunction),
-                                               []),
+                                            context.CompileContext.GameContext.Builtins.LookupBuiltinFunction(VMConstants.SelfFunction),
+                                            []),
                     false,
                     variable);
                 block.Children.Add(new AssignNode(AssignNode.AssignKind.Normal, destination, value));
-            }
-            else if (!modernSpecialCaseNames && !parsedStringName && VMConstants.OldDisallowedStructKeywords.Contains(variableName))
-            {
-                context.CompileContext.PushError("Invalid keyword used for struct field name in this GameMaker version, must surround with quotes", variable);
             }
             else
             {

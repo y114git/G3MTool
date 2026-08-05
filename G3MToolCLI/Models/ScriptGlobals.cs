@@ -1,5 +1,7 @@
 using G3MToolCLI.Services;
 using UndertaleModLib;
+using UndertaleModLib.Decompiler;
+using UndertaleModLib.Models;
 
 namespace G3MToolCLI.Models;
 
@@ -13,6 +15,7 @@ public class ScriptGlobals
     public UndertaleData Data { get; set; } = null!;
     public string FilePath { get; set; } = string.Empty;
     public string? ScriptPath { get; set; }
+    internal string ScriptRootPath { get; set; } = Environment.CurrentDirectory;
 
     // Path to the data.win file being processed
     public string DataFilePath { get; set; } = string.Empty;
@@ -20,6 +23,8 @@ public class ScriptGlobals
     // Directories for export/import scripts - thread-safe, no environment variables
     public string OutputDir { get; set; } = string.Empty;
     public string InputDir { get; set; } = string.Empty;
+    public string ExePath => Path.GetDirectoryName(ScriptPath) ?? Environment.CurrentDirectory;
+    internal Func<string, bool>? ScriptRunner { get; set; }
 
     // Verbose mode for detailed output
     public bool Verbose => LogService.Verbose;
@@ -36,7 +41,7 @@ public class ScriptGlobals
             throw new ScriptException("Data is not loaded. Call this after loading a data file.");
     }
 
-    public void ScriptError(string message, string? title = null)
+    public void ScriptError(string message, string? title = null, bool setConsoleText = true)
     {
         throw new ScriptException($"{title ?? "Script Error"}: {message}");
     }
@@ -44,6 +49,36 @@ public class ScriptGlobals
     public void ScriptMessage(string message)
     {
         LogService.Log($"[Script] {message}");
+    }
+
+    public void ScriptWarning(string message)
+    {
+        LogService.Log($"[Script Warning] {message}");
+    }
+
+    public bool RunUMTScript(string path)
+    {
+        return ScriptRunner?.Invoke(path) ?? throw new ScriptException("Nested script execution is unavailable.");
+    }
+
+    public string GetDisassemblyText(string codeName)
+    {
+        return GetDisassemblyText(Data.Code.ByName(codeName));
+    }
+
+    public string GetDisassemblyText(UndertaleCode code)
+    {
+        if (code?.ParentEntry is not null)
+            return $"; This code entry belongs to \"{code.ParentEntry.Name.Content}\".";
+        try
+        {
+            return code?.Disassemble(Data.Variables, Data.CodeLocals?.For(code), Data.CodeLocals is null) ?? "";
+        }
+        catch (Exception)
+        {
+            LogService.Log("[Script Warning] Disassembly failed.");
+            return "/* DISASSEMBLY FAILED */";
+        }
     }
 
     public bool ScriptQuestion(string message)

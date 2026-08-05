@@ -11,7 +11,9 @@ public class ExecuteService
 {
     private static readonly ConcurrentDictionary<string, Script<object>> _scriptCache = new();
 
-    private static ScriptOptions GetDefaultOptions() => ScriptOptions.Default
+    private static ScriptOptions GetDefaultOptions(string? scriptPath = null)
+    {
+        var options = ScriptOptions.Default
         .AddImports(DefaultImports)
         .AddReferences(
             typeof(UndertaleData).Assembly,
@@ -19,6 +21,16 @@ public class ExecuteService
             typeof(System.Text.Json.JsonSerializer).Assembly
         )
         .WithOptimizationLevel(OptimizationLevel.Release);
+        if (!string.IsNullOrWhiteSpace(scriptPath))
+        {
+            var scriptDirectory = Path.GetDirectoryName(Path.GetFullPath(scriptPath));
+            options = options
+                .WithFilePath(Path.GetFullPath(scriptPath))
+                .WithSourceResolver(ScriptSourceResolver.Default.WithBaseDirectory(scriptDirectory!))
+                .WithMetadataResolver(ScriptMetadataResolver.Default.WithBaseDirectory(scriptDirectory!));
+        }
+        return options;
+    }
 
     private static readonly string[] DefaultImports =
     [
@@ -26,6 +38,7 @@ public class ExecuteService
         "System.IO",
         "System.Text",
         "System.Text.Json",
+        "System.Text.RegularExpressions",
         "System.Linq",
         "System.Threading.Tasks",
         "System.Collections.Generic",
@@ -34,6 +47,7 @@ public class ExecuteService
         "UndertaleModLib.Util",
         "UndertaleModLib.Decompiler",
         "UndertaleModLib.Compiler",
+        "UndertaleModLib.Scripting",
         "ImageMagick"
     ];
 
@@ -136,16 +150,21 @@ public class ExecuteService
                 Data = data,
                 FilePath = dataFilePath ?? scriptPath ?? "inline",
                 ScriptPath = scriptPath,
+                ScriptRootPath = scriptPath is null
+                    ? Environment.CurrentDirectory
+                    : Path.GetDirectoryName(Path.GetFullPath(scriptPath))
+                        ?? Environment.CurrentDirectory,
                 DataFilePath = dataFilePath ?? string.Empty,
                 OutputDir = outputDir ?? string.Empty,
                 InputDir = inputDir ?? string.Empty
             };
+            globals.ScriptRunner = path => ExecuteNestedScriptAsync(path, globals).GetAwaiter().GetResult();
 
             // Use cached compiled script if available, otherwise compile and cache
             var cacheKey = scriptPath ?? scriptContent;
             var script = _scriptCache.GetOrAdd(cacheKey, _ =>
             {
-                var s = CSharpScript.Create(scriptContent, GetDefaultOptions(), typeof(ScriptGlobals));
+                var s = CSharpScript.Create(scriptContent, GetDefaultOptions(scriptPath), typeof(ScriptGlobals));
                 s.Compile();
                 return s;
             });
@@ -159,7 +178,7 @@ public class ExecuteService
             }
             try
             {
-                await script.RunAsync(globals);
+                await script.RunAsync(globals).ConfigureAwait(false);
             }
             finally
             {
@@ -181,6 +200,39 @@ public class ExecuteService
         catch (Exception ex)
         {
             return new ScriptResult { Success = false, Error = $"Runtime error: {ex.Message}" };
+        }
+    }
+
+    private static async Task<bool> ExecuteNestedScriptAsync(string path, ScriptGlobals globals)
+    {
+        var scriptDirectory =
+            Path.GetDirectoryName(globals.ScriptPath) ?? globals.ScriptRootPath;
+        path = Path.GetFullPath(
+            path,
+            scriptDirectory
+        );
+        var relativePath = Path.GetRelativePath(globals.ScriptRootPath, path);
+        if (
+            Path.IsPathRooted(relativePath)
+            || relativePath.Equals("..", StringComparison.Ordinal)
+            || relativePath.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+        )
+            throw new ScriptException("Nested script path escapes the mod directory.");
+        if (!File.Exists(path))
+            throw new ScriptException($"Script not found: {path}");
+        var previousPath = globals.ScriptPath;
+        try
+        {
+            globals.ScriptPath = path;
+            var content = await File.ReadAllTextAsync(path).ConfigureAwait(false);
+            await CSharpScript
+                .EvaluateAsync(content, GetDefaultOptions(path), globals, typeof(ScriptGlobals))
+                .ConfigureAwait(false);
+            return true;
+        }
+        finally
+        {
+            globals.ScriptPath = previousPath;
         }
     }
 
