@@ -1,6 +1,6 @@
 using UndertaleModLib;
 using UndertaleModLib.Models;
-using System.Text.RegularExpressions;
+using static G3MToolCLI.Utils.FunctionNameUtil;
 
 namespace G3MToolCLI.Services;
 
@@ -343,57 +343,6 @@ public static partial class DataIntegrityService
 
         if (repaired > 0)
             result.Repairs.Add($"relinked {repaired} local child Function references to their owning CodeEntry");
-    }
-
-    private static bool IsLocalChildFunctionName(string functionName) =>
-        functionName.Contains("____struct___", StringComparison.Ordinal) ||
-        functionName.StartsWith("gml_Script_anon_", StringComparison.Ordinal);
-
-    private static string NormalizeLocalChildFunctionName(string functionName)
-    {
-        functionName = LocalStructOrdinalRegex().Replace(functionName, "____struct___#");
-        return LocalAnonymousOrdinalRegex().Replace(functionName, "$1_#_$2");
-    }
-
-    [GeneratedRegex("____struct___\\d+")]
-    private static partial Regex LocalStructOrdinalRegex();
-
-    [GeneratedRegex(@"^(gml_Script_anon_.+)_\d+_([^_].*)$")]
-    private static partial Regex LocalAnonymousOrdinalRegex();
-
-    private static bool TryGetLocalChildOrdinalFamily(string functionName, out string family, out int ordinal)
-    {
-        var structMatch = LocalStructOrdinalFamilyRegex().Match(functionName);
-        if (structMatch.Success && int.TryParse(structMatch.Groups["ordinal"].Value, out ordinal))
-        {
-            family = structMatch.Groups["prefix"].Value + "#" + structMatch.Groups["suffix"].Value;
-            return true;
-        }
-
-        var anonMatch = LocalAnonymousOrdinalFamilyRegex().Match(functionName);
-        if (anonMatch.Success && int.TryParse(anonMatch.Groups["ordinal"].Value, out ordinal))
-        {
-            family = anonMatch.Groups["prefix"].Value + "_#_" + anonMatch.Groups["suffix"].Value;
-            return true;
-        }
-
-        family = string.Empty;
-        ordinal = 0;
-        return false;
-    }
-
-    [GeneratedRegex(@"^(?<prefix>gml_Script____struct___)(?<ordinal>\d+)(?<suffix>_.+)$")]
-    private static partial Regex LocalStructOrdinalFamilyRegex();
-
-    [GeneratedRegex(@"^(?<prefix>gml_Script_anon_.+)_(?<ordinal>\d+)_(?<suffix>[^_].*)$")]
-    private static partial Regex LocalAnonymousOrdinalFamilyRegex();
-
-    private static string CanonicalizeFunctionName(string functionName)
-    {
-        const string nestedGlobalScriptPrefix = "gml_Script_gml_GlobalScript_";
-        if (functionName.StartsWith(nestedGlobalScriptPrefix, StringComparison.Ordinal))
-            return "gml_Script_" + functionName[nestedGlobalScriptPrefix.Length..];
-        return functionName;
     }
 
     private static Dictionary<string, UndertaleCode> BuildCodeByName(UndertaleData data)

@@ -34,12 +34,6 @@ public static partial class ResourceImportService
         return false;
     }
 
-    private static bool SupportsLegacyRoomTiles(UndertaleData data)
-    {
-        uint major = data.GeneralInfo?.Major ?? 0;
-        return major < 2023;
-    }
-
     // =========================================================================
     // Rooms
     // =========================================================================

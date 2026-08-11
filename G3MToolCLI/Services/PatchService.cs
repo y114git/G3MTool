@@ -7,6 +7,8 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using G3MToolCLI.Models;
 using G3MToolCLI.Utils;
+using static G3MToolCLI.Utils.FunctionNameUtil;
+using static G3MToolCLI.Utils.ResourceAssetUtil;
 using ImageMagick;
 using Underanalyzer.Decompiler;
 using UndertaleModLib;
@@ -200,6 +202,8 @@ public partial class PatchService
             Dictionary<string, Dictionary<string, string>> originalHashes;
             Dictionary<string, Dictionary<string, int>> originalNameCounts;
             Dictionary<string, IReadOnlyList<string>> originalOrderedNames;
+            int originalCodeEntryCount = -1;
+            bool originalCodeEntryCountRecovered = false;
             if (precomputedOriginalHashes != null && precomputedOriginalInfo != null)
             {
                 originalHashes = precomputedOriginalHashes;
@@ -226,6 +230,7 @@ public partial class PatchService
                     LogService.Log("[PatchService] Loading original data file...");
                     using var stream = OpenDataReadStream(originalPath);
                     using var originalData = UndertaleIO.Read(stream);
+                    originalCodeEntryCount = originalData.Code?.Count ?? 0;
                     var originalLoadTime = phaseSw.Elapsed;
                     LogService.Log($"[PatchService] Original: {originalData.GeneralInfo?.DisplayName?.Content ?? "Unknown"}");
                     originalInfo = new DataFileInfo
@@ -250,6 +255,12 @@ public partial class PatchService
                 GC.Collect();
                 LogService.Log($"[Timing] GC after original: {phaseSw.Elapsed.TotalMilliseconds:F0}ms, RAM after GC: {Process.GetCurrentProcess().WorkingSet64 / 1024 / 1024}MB");
             }
+            if (originalCodeEntryCount < 0 &&
+                originalHashes.TryGetValue("CodeEntries", out var originalCodeHashes))
+            {
+                originalCodeEntryCount = originalCodeHashes.Count;
+                originalCodeEntryCountRecovered = true;
+            }
             LogService.Progress(20, 100);
 
             // --- Load modified, extract manifest info, hash + export, release ---
@@ -264,10 +275,12 @@ public partial class PatchService
             Dictionary<string, HashSet<string>> manifestChangedNamesPerType = [];
             var helperForcedResourceTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             Dictionary<string, (string LogicalName, string? gml, string? asm, Dictionary<string, (string LogicalName, string Asm)>? childAsms)> codeEntriesInMemory = [];
+            int modifiedCodeEntryCount = -1;
 
             if (precomputedModifiedData != null)
             {
                 var modifiedData = precomputedModifiedData;
+                modifiedCodeEntryCount = modifiedData.Code?.Count ?? 0;
                 var loadTime = phaseSw.Elapsed;
                 LogService.Log($"[PatchService] Modified: {modifiedData.GeneralInfo?.DisplayName?.Content ?? "Unknown"}");
                 var cachedModified = G3MCacheService.TryReadDataCache(modifiedPath, modifiedCacheOptions);
@@ -299,9 +312,7 @@ public partial class PatchService
                         modifiedCacheOptions);
                 }
 
-                var compatibilityError = GetCreateCompatibilityError(originalInfo, modifiedInfo);
-                if (compatibilityError != null)
-                    return new PatchCreateResult { Success = false, Error = compatibilityError };
+                LogCreateCompatibilityWarnings(originalInfo, modifiedInfo);
 
                 // Hash modified resources in memory (fast comparison)
                 LogService.Progress(40, 100);
@@ -359,20 +370,17 @@ public partial class PatchService
                 // Export asset order + helpers while data is still in memory
                 phaseSw.Restart();
                 var helpersExportDir = Path.Combine(tempDir, "Helpers");
-                var helperRelevantResourceTypes = GetHelperRelevantResourceTypes(originalHashes, modifiedHashes, changedNamesPerType);
-                foreach (var forcedType in helperForcedResourceTypes)
-                    helperRelevantResourceTypes.Add(forcedType);
-                if (RequiresPatchHelpers(helperRelevantResourceTypes, helperForcedResourceTypes))
-                {
-                    bool includeVariablesFunctions = RequiresVariableFunctionsHelper(helperRelevantResourceTypes);
-                    bool includeTextureHelpers = RequiresTextureMappingHelpers(helperRelevantResourceTypes);
-                    ResourceExportService.ExportAssetOrder(
-                        modifiedData,
-                        helpersExportDir,
-                        includeObjectEvents: RequiresObjectEventsHelper(helperRelevantResourceTypes),
-                        includeVariablesFunctions: includeVariablesFunctions,
-                        includeTextureHelpers: includeTextureHelpers);
-                }
+                ExportPatchHelpers(
+                    modifiedData,
+                    helpersExportDir,
+                    originalHashes,
+                    modifiedHashes,
+                    changedNamesPerType,
+                    helperForcedResourceTypes,
+                    originalCodeEntryCount,
+                    originalCodeEntryCountRecovered,
+                    modifiedCodeEntryCount,
+                    codeEntriesInMemory);
                 LogService.Log($"[Timing] Modified load: {loadTime.TotalSeconds:F1}s, hash: {hashTime.TotalSeconds:F1}s, export: {exportTime.TotalSeconds:F1}s, helpers: {phaseSw.Elapsed.TotalSeconds:F1}s, peak RAM: {Process.GetCurrentProcess().WorkingSet64 / 1024 / 1024}MB");
             }
             else
@@ -380,6 +388,7 @@ public partial class PatchService
                 using (var stream = OpenDataReadStream(modifiedPath))
                 {
                     using var modifiedData = UndertaleIO.Read(stream);
+                    modifiedCodeEntryCount = modifiedData.Code?.Count ?? 0;
                     var loadTime = phaseSw.Elapsed;
                     LogService.Log($"[PatchService] Modified: {modifiedData.GeneralInfo?.DisplayName?.Content ?? "Unknown"}");
                     var cachedModified = G3MCacheService.TryReadDataCache(modifiedPath, modifiedCacheOptions);
@@ -411,9 +420,7 @@ public partial class PatchService
                             modifiedCacheOptions);
                     }
 
-                    var compatibilityError = GetCreateCompatibilityError(originalInfo, modifiedInfo);
-                    if (compatibilityError != null)
-                        return new PatchCreateResult { Success = false, Error = compatibilityError };
+                    LogCreateCompatibilityWarnings(originalInfo, modifiedInfo);
 
                     // Hash modified resources in memory (fast comparison)
                     LogService.Progress(40, 100);
@@ -471,20 +478,17 @@ public partial class PatchService
                     // Export asset order + helpers while data is still in memory
                     phaseSw.Restart();
                     var helpersExportDir = Path.Combine(tempDir, "Helpers");
-                    var helperRelevantResourceTypes = GetHelperRelevantResourceTypes(originalHashes, modifiedHashes, changedNamesPerType);
-                    foreach (var forcedType in helperForcedResourceTypes)
-                        helperRelevantResourceTypes.Add(forcedType);
-                    if (RequiresPatchHelpers(helperRelevantResourceTypes, helperForcedResourceTypes))
-                    {
-                        bool includeVariablesFunctions = RequiresVariableFunctionsHelper(helperRelevantResourceTypes);
-                        bool includeTextureHelpers = RequiresTextureMappingHelpers(helperRelevantResourceTypes);
-                        ResourceExportService.ExportAssetOrder(
-                            modifiedData,
-                            helpersExportDir,
-                            includeObjectEvents: RequiresObjectEventsHelper(helperRelevantResourceTypes),
-                            includeVariablesFunctions: includeVariablesFunctions,
-                            includeTextureHelpers: includeTextureHelpers);
-                    }
+                    ExportPatchHelpers(
+                        modifiedData,
+                        helpersExportDir,
+                        originalHashes,
+                        modifiedHashes,
+                        changedNamesPerType,
+                        helperForcedResourceTypes,
+                        originalCodeEntryCount,
+                        originalCodeEntryCountRecovered,
+                        modifiedCodeEntryCount,
+                        codeEntriesInMemory);
                     LogService.Log($"[Timing] Modified load: {loadTime.TotalSeconds:F1}s, hash: {hashTime.TotalSeconds:F1}s, export: {exportTime.TotalSeconds:F1}s, helpers: {phaseSw.Elapsed.TotalSeconds:F1}s, peak RAM: {Process.GetCurrentProcess().WorkingSet64 / 1024 / 1024}MB");
                 }
                 phaseSw.Restart();
@@ -781,6 +785,101 @@ public partial class PatchService
             StringComparer.OrdinalIgnoreCase);
     }
 
+    private static void ExportPatchHelpers(
+        UndertaleData modifiedData,
+        string helpersExportDir,
+        Dictionary<string, Dictionary<string, string>> originalHashes,
+        Dictionary<string, Dictionary<string, string>> modifiedHashes,
+        Dictionary<string, HashSet<string>> changedNamesPerType,
+        HashSet<string> helperForcedResourceTypes,
+        int originalCodeEntryCount,
+        bool originalCodeEntryCountRecovered,
+        int modifiedCodeEntryCount,
+        Dictionary<string, (string LogicalName, string? gml, string? asm, Dictionary<string, (string LogicalName, string Asm)>? childAsms)> codeEntriesInMemory)
+    {
+        var helperRelevantResourceTypes = GetHelperRelevantResourceTypes(originalHashes, modifiedHashes, changedNamesPerType);
+        foreach (var forcedType in helperForcedResourceTypes)
+            helperRelevantResourceTypes.Add(forcedType);
+        if (!RequiresPatchHelpers(helperRelevantResourceTypes, helperForcedResourceTypes))
+            return;
+
+        var changedCodeNames = changedNamesPerType.GetValueOrDefault("CodeEntries") ?? [];
+        bool compactCodeMetadata = CanUseCompactCodeMetadata(
+            originalHashes,
+            modifiedHashes,
+            helperRelevantResourceTypes,
+            helperForcedResourceTypes,
+            originalCodeEntryCount,
+            originalCodeEntryCountRecovered,
+            modifiedCodeEntryCount,
+            changedCodeNames,
+            codeEntriesInMemory);
+        if (compactCodeMetadata)
+        {
+            bool includeAssetOrder = helperRelevantResourceTypes.Any(type =>
+                !type.Equals("CodeEntries", StringComparison.OrdinalIgnoreCase));
+            ResourceExportService.ExportAssetOrder(
+                modifiedData,
+                helpersExportDir,
+                includeObjectEvents: RequiresObjectEventsHelper(changedNamesPerType),
+                includeVariablesFunctions: false,
+                includeTextureHelpers: RequiresTextureMappingHelpers(helperRelevantResourceTypes),
+                assetOrderSections: includeAssetOrder
+                    ? BuildRelevantAssetOrderSections(helperRelevantResourceTypes, includeScriptsForCodeEntries: true)
+                    : null,
+                includeAssetOrder: includeAssetOrder,
+                codeMetadataEntryNames: changedCodeNames);
+            LogService.Log("[PatchService] Using compact code metadata for index-stable ASM code changes.");
+            return;
+        }
+
+        bool includeVariablesFunctions = RequiresVariableFunctionsHelper(helperRelevantResourceTypes);
+        bool includeTextureHelpers = RequiresTextureMappingHelpers(helperRelevantResourceTypes);
+        var assetOrderSections = BuildRelevantAssetOrderSections(
+            helperRelevantResourceTypes,
+            includeScriptsForCodeEntries: changedCodeNames.Count > 0);
+        ResourceExportService.ExportAssetOrder(
+            modifiedData,
+            helpersExportDir,
+            includeObjectEvents: RequiresObjectEventsHelper(changedNamesPerType),
+            includeVariablesFunctions: includeVariablesFunctions,
+            includeTextureHelpers: includeTextureHelpers,
+            assetOrderSections: assetOrderSections);
+    }
+
+    private static bool CanUseCompactCodeMetadata(
+        Dictionary<string, Dictionary<string, string>> originalHashes,
+        Dictionary<string, Dictionary<string, string>> modifiedHashes,
+        HashSet<string> helperRelevantResourceTypes,
+        HashSet<string> helperForcedResourceTypes,
+        int originalCodeEntryCount,
+        bool originalCodeEntryCountRecovered,
+        int modifiedCodeEntryCount,
+        HashSet<string> changedCodeNames,
+        Dictionary<string, (string LogicalName, string? gml, string? asm, Dictionary<string, (string LogicalName, string Asm)>? childAsms)> codeEntriesInMemory)
+    {
+        if (helperForcedResourceTypes.Count != 0 ||
+            !helperRelevantResourceTypes.Contains("CodeEntries") ||
+            originalCodeEntryCount < 0 ||
+            (!originalCodeEntryCountRecovered && originalCodeEntryCount != modifiedCodeEntryCount) ||
+            changedCodeNames.Count == 0 ||
+            codeEntriesInMemory.Count == 0 ||
+            codeEntriesInMemory.Values.Any(entry => entry.asm == null))
+        {
+            return false;
+        }
+
+        foreach (var resourceType in ResourceTypeRegistry.AllTypes)
+        {
+            var originalNames = originalHashes.GetValueOrDefault(resourceType)?.Keys ?? Enumerable.Empty<string>();
+            var modifiedNames = modifiedHashes.GetValueOrDefault(resourceType)?.Keys ?? Enumerable.Empty<string>();
+            if (!originalNames.ToHashSet(StringComparer.Ordinal).SetEquals(modifiedNames))
+                return false;
+        }
+
+        return true;
+    }
+
     private static void ExpandChangedCodeEntriesForTopology(
         UndertaleData modifiedData,
         Dictionary<string, HashSet<string>> changedNamesPerType)
@@ -968,79 +1067,6 @@ public partial class PatchService
 
     public static Dictionary<string, IReadOnlyList<string>> GetOrderSensitiveResourceNamesForReuse(UndertaleData data) =>
         GetOrderSensitiveResourceNames(data);
-
-    /// <summary>
-    /// Compares two in-memory hash dictionaries (resourceName -> hash) and produces ResourceTypeChanges.
-    /// Uses the exported modified directory to resolve folder names with __idx suffixes.
-    /// </summary>
-    private static ResourceTypeChanges CompareHashDictionaries(
-        Dictionary<string, string> originalHashes,
-        Dictionary<string, string> modifiedHashes,
-        string modifiedExportDir,
-        string resourceType,
-        HashSet<string>? forcedExportNames = null)
-    {
-        var changes = new ResourceTypeChanges
-        {
-            Changed = [],
-            New = [],
-            Deleted = []
-        };
-
-        // Build folder name mapping from exported modified directory
-        // This maps base names to actual folder names (which may include __idx suffixes)
-        var modifiedResDir = Path.Combine(modifiedExportDir, resourceType);
-        var folderMap = BuildBaseNameMap(modifiedResDir);
-
-        var originalNames = originalHashes.Keys.ToHashSet();
-        var modifiedNames = modifiedHashes.Keys.ToHashSet();
-
-        // New resources (in modified but not in original)
-        foreach (var name in modifiedNames.Except(originalNames))
-        {
-            List<string> folderNames = [];
-            if (forcedExportNames?.Contains(name) == true)
-            {
-                if (folderMap.TryGetValue(name, out var mappedFolder))
-                    folderNames.Add(mappedFolder);
-                else
-                    folderNames = GetFolderNamesForBaseName(modifiedResDir, name);
-            }
-            if (folderNames.Count == 0)
-                folderNames.Add(folderMap.GetValueOrDefault(name) ?? name);
-            foreach (var folderName in folderNames)
-                changes.New.Add(CreateResourceChange(modifiedResDir, resourceType, folderName));
-        }
-
-        // Deleted resources (in original but not in modified)
-        foreach (var name in originalNames.Except(modifiedNames))
-        {
-            changes.Deleted.Add(name);
-        }
-
-        // Changed resources (different hashes)
-        foreach (var name in originalNames.Intersect(modifiedNames))
-        {
-            bool forceInclude = forcedExportNames?.Contains(name) == true;
-            if (forceInclude || originalHashes[name] != modifiedHashes[name])
-            {
-                List<string> folderNames = [];
-                if (forceInclude)
-                {
-                    if (folderMap.TryGetValue(name, out var mappedFolder))
-                        folderNames.Add(mappedFolder);
-                    else
-                        folderNames = GetFolderNamesForBaseName(modifiedResDir, name);
-                }
-                if (folderNames.Count == 0)
-                    folderNames.Add(folderMap.GetValueOrDefault(name) ?? name);
-                foreach (var folderName in folderNames)
-                    changes.Changed.Add(CreateResourceChange(modifiedResDir, resourceType, folderName));
-            }
-        }
-
-        return changes;
-    }
 
     private static ResourceTypeChanges BuildResourceTypeChangesFromKnownDifferences(
         Dictionary<string, string> originalHashes,
@@ -1618,11 +1644,10 @@ public partial class PatchService
                     if (resourceType == "CodeEntries")
                     {
                         nonCodeImportSw.Stop();
-                        // Read variables_functions.json from PFS before releasing file data
-                        string? vfContent = null;
-                        var vfPath = Path.Combine(helpersDir, "variables_functions.json");
-                        if (pfs.FileExists(vfPath))
-                            vfContent = capturedVariablesFunctionsContent ?? pfs.ReadAllText(vfPath);
+                        // Read code metadata from PFS before releasing file data.
+                        string? vfContent = ReadCodeMetadataContent(pfs, helpersDir);
+                        if (vfContent != null && pfs.FileExists(Path.Combine(helpersDir, "variables_functions.json")))
+                            vfContent = capturedVariablesFunctionsContent ?? vfContent;
                         codeMetadataForFinalCleanup ??= vfContent;
 
                         string? objectEventsContent = null;
@@ -1852,7 +1877,7 @@ public partial class PatchService
                 }
                 PruneCodeEntriesOutsideTargetMetadata(
                     data,
-                    codeMetadataForFinalCleanup ?? ReadVariablesFunctionsContent(pfs, helpersDir));
+                    codeMetadataForFinalCleanup ?? ReadCodeMetadataContent(pfs, helpersDir));
                 PruneDeletedScriptOrphans(data, manifest);
                 PruneMissingScriptCodeOrphans(data);
                 DataIntegrityResult? integrity = null;
@@ -2251,10 +2276,9 @@ public partial class PatchService
                             assetNamesAtCodeImportStart = CaptureAssetNamesForCodeRemap(data);
 
                         nonCodeImportSw.Stop();
-                        string? vfContent = null;
-                        var vfPath = Path.Combine(helpersDir, "variables_functions.json");
-                        if (pfs.FileExists(vfPath))
-                            vfContent = capturedVariablesFunctionsContent ?? pfs.ReadAllText(vfPath);
+                        string? vfContent = ReadCodeMetadataContent(pfs, helpersDir);
+                        if (vfContent != null && pfs.FileExists(Path.Combine(helpersDir, "variables_functions.json")))
+                            vfContent = capturedVariablesFunctionsContent ?? vfContent;
                         codeMetadataForFinalCleanup ??= vfContent;
 
                         string? objectEventsContent = null;
@@ -2464,7 +2488,7 @@ public partial class PatchService
                 }
                 PruneCodeEntriesOutsideTargetMetadata(
                     data,
-                    codeMetadataForFinalCleanup ?? ReadVariablesFunctionsContent(pfs, helpersDir));
+                    codeMetadataForFinalCleanup ?? ReadCodeMetadataContent(pfs, helpersDir));
                 PruneDeletedScriptOrphans(data, manifest);
                 PruneMissingScriptCodeOrphans(data);
 
@@ -2912,14 +2936,6 @@ public partial class PatchService
 
             return null;
         }
-    }
-
-    private static string CanonicalizeFunctionName(string functionName)
-    {
-        const string nestedGlobalScriptPrefix = "gml_Script_gml_GlobalScript_";
-        if (functionName.StartsWith(nestedGlobalScriptPrefix, StringComparison.Ordinal))
-            return "gml_Script_" + functionName[nestedGlobalScriptPrefix.Length..];
-        return functionName;
     }
 
     private static int ApplyDeletedResources(
@@ -3620,6 +3636,10 @@ public partial class PatchService
         return map;
     }
 
+    private static bool HasCompleteCodeEntryMetadata(JsonElement root) =>
+        !root.TryGetProperty("completeCodeEntries", out var completeElement) ||
+        completeElement.ValueKind != JsonValueKind.False;
+
     private static void ReorderCodeEntriesFromTargetMetadata(
         UndertaleData data,
         Dictionary<string, (string LogicalName, int Occurrence, string? ParentArchiveKey)> targetCodeEntriesByKey)
@@ -3714,6 +3734,8 @@ public partial class PatchService
         try
         {
             using var doc = JsonDocument.Parse(variablesFunctionsJson);
+            if (!HasCompleteCodeEntryMetadata(doc.RootElement))
+                return;
             var targetCodeEntriesByKey = ParseTargetCodeEntryMetadata(doc.RootElement, fallbackLogicalNames: null);
             PruneCodeEntriesOutsideTargetMetadata(data, targetCodeEntriesByKey);
             PruneExcessCodeAndScriptsByTargetNames(data, targetCodeEntriesByKey.Values.Select(x => x.LogicalName));
@@ -3782,10 +3804,14 @@ public partial class PatchService
         }
     }
 
-    private static string? ReadVariablesFunctionsContent(PatchFileSystem pfs, string helpersDir)
+    private static string? ReadCodeMetadataContent(PatchFileSystem pfs, string helpersDir)
     {
-        var path = Path.Combine(helpersDir, "variables_functions.json");
-        return pfs.FileExists(path) ? pfs.ReadAllText(path) : null;
+        var compactPath = Path.Combine(helpersDir, "code_patch_metadata.json");
+        if (pfs.FileExists(compactPath))
+            return pfs.ReadAllText(compactPath);
+
+        var legacyPath = Path.Combine(helpersDir, "variables_functions.json");
+        return pfs.FileExists(legacyPath) ? pfs.ReadAllText(legacyPath) : null;
     }
 
     private static Dictionary<string, List<string>> CaptureAssetNamesForCodeRemap(UndertaleData data) =>
@@ -3969,10 +3995,6 @@ public partial class PatchService
         }
         return result;
     }
-
-    private static bool IsLocaleArtSpriteName(string spriteName) =>
-        spriteName.StartsWith("spr_ja_", StringComparison.OrdinalIgnoreCase) ||
-        spriteName.StartsWith("bg_lang_ja_", StringComparison.OrdinalIgnoreCase);
 
     private static void RepairDetachedFontTexturePageItems(UndertaleData data)
     {
@@ -4233,49 +4255,6 @@ public partial class PatchService
         return removed;
     }
 
-    private static bool IsLocalChildFunctionName(string functionName) =>
-        functionName.Contains("____struct___", StringComparison.Ordinal) ||
-        functionName.StartsWith("gml_Script_anon_", StringComparison.Ordinal);
-
-    private static string NormalizeLocalChildFunctionName(string functionName)
-    {
-        functionName = LocalStructOrdinalRegex().Replace(functionName, "____struct___#");
-        return LocalAnonymousOrdinalRegex().Replace(functionName, "$1_#_$2");
-    }
-
-    [GeneratedRegex("____struct___\\d+")]
-    private static partial Regex LocalStructOrdinalRegex();
-
-    [GeneratedRegex(@"^(gml_Script_anon_.+)_\d+_([^_].*)$")]
-    private static partial Regex LocalAnonymousOrdinalRegex();
-
-    private static bool TryGetLocalChildOrdinalFamily(string functionName, out string family, out int ordinal)
-    {
-        var structMatch = LocalStructOrdinalFamilyRegex().Match(functionName);
-        if (structMatch.Success && int.TryParse(structMatch.Groups["ordinal"].Value, out ordinal))
-        {
-            family = structMatch.Groups["prefix"].Value + "#" + structMatch.Groups["suffix"].Value;
-            return true;
-        }
-
-        var anonMatch = LocalAnonymousOrdinalFamilyRegex().Match(functionName);
-        if (anonMatch.Success && int.TryParse(anonMatch.Groups["ordinal"].Value, out ordinal))
-        {
-            family = anonMatch.Groups["prefix"].Value + "_#_" + anonMatch.Groups["suffix"].Value;
-            return true;
-        }
-
-        family = string.Empty;
-        ordinal = 0;
-        return false;
-    }
-
-    [GeneratedRegex(@"^(?<prefix>gml_Script____struct___)(?<ordinal>\d+)(?<suffix>_.+)$")]
-    private static partial Regex LocalStructOrdinalFamilyRegex();
-
-    [GeneratedRegex(@"^(?<prefix>gml_Script_anon_.+)_(?<ordinal>\d+)_(?<suffix>[^_].*)$")]
-    private static partial Regex LocalAnonymousOrdinalFamilyRegex();
-
     private static Dictionary<string, string> CaptureOriginalCodeGmlForAssetRemap(
         UndertaleData data,
         IReadOnlyCollection<string> resourceTypesToProcess)
@@ -4498,6 +4477,10 @@ public partial class PatchService
         using var vfDoc = JsonDocument.Parse(vfContent);
         var root = vfDoc.RootElement;
         var targetCodeEntriesByKey = ParseTargetCodeEntryMetadata(root, codeEntryLogicalNames);
+        bool hasCompleteCodeEntryMetadata = HasCompleteCodeEntryMetadata(root);
+        bool hasFunctionVariableTables =
+            root.TryGetProperty("functions", out var functionsElement) && functionsElement.ValueKind == JsonValueKind.Array &&
+            root.TryGetProperty("variables", out var variablesElement) && variablesElement.ValueKind == JsonValueKind.Array;
         var targetTopLevelNamesByKey = new Dictionary<string, string>(StringComparer.Ordinal);
         var targetEntryNames = new HashSet<string>(StringComparer.Ordinal);
         var targetEntryCounts = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -4551,12 +4534,14 @@ public partial class PatchService
 
         if (!allGmlCoveredByAsm)
         {
-            ApplyTargetFunctionVariableTables(data, root, "precompile");
+            if (hasFunctionVariableTables)
+                ApplyTargetFunctionVariableTables(data, root, "precompile");
             ctx = new GlobalDecompileContext(data);
             ctx.PrepareForCompilation(true);
 
             importGroup = new CodeImportGroup(data, ctx)
             {
+                AutoCreateGlobalInitScripts = false,
                 AutoCreateAssets = true
             };
 
@@ -4641,7 +4626,7 @@ public partial class PatchService
 
         // === Phase 2: Delete code entries not present in TARGET ===
         phaseSw.Restart();
-        if (targetEntryNames.Count > 0)
+        if (hasCompleteCodeEntryMetadata && targetEntryNames.Count > 0)
         {
             var entriesToDelete = new List<UndertaleCode>();
             var seenCounts = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -5194,7 +5179,8 @@ public partial class PatchService
 
         // === Phase 5: Reconcile functions against TARGET ===
         var functionReconcileSw = Stopwatch.StartNew();
-        ApplyTargetFunctionVariableTables(data, root, "postcompile");
+        if (hasFunctionVariableTables)
+            ApplyTargetFunctionVariableTables(data, root, "postcompile");
         functionReconcileSw.Stop();
         LogService.Log($"[ImportCodeEntries] Function reconciliation phase complete in {functionReconcileSw.Elapsed.TotalSeconds:F2}s");
         Dictionary<string, UndertaleString>? codeImportStringLookup = null;
@@ -5567,7 +5553,7 @@ public partial class PatchService
                 LogService.Log($"[ImportCodeEntries] Reattached {reattachedChildren} restored child entries after ASM reassembly");
         }
 
-        if (targetCodeEntriesByKey.Count > 0)
+        if (hasCompleteCodeEntryMetadata && targetCodeEntriesByKey.Count > 0)
         {
             int canonicalParents = 0;
             int canonicalChildren = 0;
@@ -5624,8 +5610,11 @@ public partial class PatchService
             LogService.Log($"[ImportCodeEntries] Canonicalized code topology from helper metadata: {canonicalParents} parents, {canonicalChildren} child links");
         }
 
-        ReorderCodeEntriesFromTargetMetadata(data, targetCodeEntriesByKey);
-        PruneCodeEntriesOutsideTargetMetadata(data, targetCodeEntriesByKey);
+        if (hasCompleteCodeEntryMetadata)
+        {
+            ReorderCodeEntriesFromTargetMetadata(data, targetCodeEntriesByKey);
+            PruneCodeEntriesOutsideTargetMetadata(data, targetCodeEntriesByKey);
+        }
 
         archiveCodeLookup = BuildArchiveCodeLookup(data);
         LogWatchedArchiveCodeState("post-asm", archiveCodeLookup);
@@ -5686,6 +5675,7 @@ public partial class PatchService
 
                 var singleGroup = new CodeImportGroup(data, ctx)
                 {
+                    AutoCreateGlobalInitScripts = false,
                     AutoCreateAssets = true
                 };
 
@@ -6365,80 +6355,42 @@ public partial class PatchService
         return outputZip;
     }
 
-    public static string? GetCreateCompatibilityError(DataFileInfo original, DataFileInfo modified)
+    public static void LogCreateCompatibilityWarnings(DataFileInfo original, DataFileInfo modified)
     {
         if (original.BytecodeVersion != modified.BytecodeVersion)
         {
-            return $"Incompatible data files: bytecode version differs ({original.BytecodeVersion} vs {modified.BytecodeVersion}). " +
-                   "Use the exact original data file for this modified file.";
+            LogService.Warning(
+                $"Data file bytecode version differs ({original.BytecodeVersion} vs {modified.BytecodeVersion}). " +
+                "The patch will still be created.");
         }
 
-        var originalInfo = original.GeneralInfo;
-        var modifiedInfo = modified.GeneralInfo;
-        if (originalInfo == null || modifiedInfo == null)
-            return null;
+        var originalGeneralInfo = original.GeneralInfo;
+        var modifiedGeneralInfo = modified.GeneralInfo;
+        if (originalGeneralInfo == null || modifiedGeneralInfo == null)
+            return;
 
-        if (!SameText(originalInfo.DisplayName, modifiedInfo.DisplayName) &&
-            IsLikelyChapterMismatch(originalInfo.DisplayName, modifiedInfo.DisplayName))
+        if (!SameText(originalGeneralInfo.DisplayName, modifiedGeneralInfo.DisplayName))
         {
-            return $"Incompatible data files: display name differs ('{originalInfo.DisplayName}' vs '{modifiedInfo.DisplayName}'). " +
-                   "This usually means a different GameMaker game/chapter/build was used as the base.";
+            LogService.Warning(
+                $"Data file display name differs ('{originalGeneralInfo.DisplayName}' vs '{modifiedGeneralInfo.DisplayName}'). " +
+                "The patch will still be created.");
         }
 
-        if (originalInfo.RoomOrderCount > 0 && modifiedInfo.RoomOrderCount > 0)
+        if (originalGeneralInfo.RoomOrderCount > 0 && modifiedGeneralInfo.RoomOrderCount > 0)
         {
-            var smaller = Math.Min(originalInfo.RoomOrderCount, modifiedInfo.RoomOrderCount);
-            var larger = Math.Max(originalInfo.RoomOrderCount, modifiedInfo.RoomOrderCount);
+            var smaller = Math.Min(originalGeneralInfo.RoomOrderCount, modifiedGeneralInfo.RoomOrderCount);
+            var larger = Math.Max(originalGeneralInfo.RoomOrderCount, modifiedGeneralInfo.RoomOrderCount);
             if (larger > smaller * 3)
             {
-                return $"Incompatible data files: room order count differs too much ({originalInfo.RoomOrderCount} vs {modifiedInfo.RoomOrderCount}). " +
-                       "Use the exact original data file for this modified file.";
+                LogService.Warning(
+                    $"Data file room order count differs substantially ({originalGeneralInfo.RoomOrderCount} vs {modifiedGeneralInfo.RoomOrderCount}). " +
+                    "The patch will still be created.");
             }
         }
-
-        return null;
     }
 
     private static bool SameText(string? left, string? right) =>
         string.Equals(left?.Trim(), right?.Trim(), StringComparison.OrdinalIgnoreCase);
-
-    private static bool IsLikelyChapterMismatch(string? left, string? right)
-    {
-        static bool HasChapterMarker(string? value) =>
-            !string.IsNullOrWhiteSpace(value) &&
-            value.Contains("chapter", StringComparison.OrdinalIgnoreCase);
-
-        return HasChapterMarker(left) || HasChapterMarker(right);
-    }
-
-    /// <summary>
-    /// Filter asset_order.txt lines to exclude entire sections and their count lines.
-    /// Sections are matched case-insensitively against @@section@@ headers.
-    /// Count lines like "Sprites=5053" are also filtered if "sprites" is excluded.
-    /// </summary>
-    private static string[] FilterAssetOrderSections(string[] lines, params string[] skipSections)
-    {
-        var skip = new HashSet<string>(skipSections, StringComparer.OrdinalIgnoreCase);
-        var result = new List<string>(lines.Length);
-        bool inSkipped = false;
-        foreach (var line in lines)
-        {
-            if (line.StartsWith("@@") && line.EndsWith("@@") && line.Length > 4)
-            {
-                string sect = line[2..^2];
-                inSkipped = skip.Contains(sect);
-                if (!inSkipped) result.Add(line);
-                continue;
-            }
-            if (inSkipped) continue;
-            // Filter count lines like "Sprites=5053" in @@counts@@ section
-            int eq = line.IndexOf('=');
-            if (eq > 0 && skip.Contains(line[..eq]))
-                continue;
-            result.Add(line);
-        }
-        return [.. result];
-    }
 
     private static HashSet<string> BuildRelevantAssetOrderSections(IEnumerable<string> resourceTypes, bool includeScriptsForCodeEntries)
     {
@@ -6537,12 +6489,19 @@ public partial class PatchService
         return false;
     }
 
-    private static bool RequiresObjectEventsHelper(IEnumerable<string> changedResourceTypes)
+    private static bool RequiresObjectEventsHelper(
+        IReadOnlyDictionary<string, HashSet<string>> changedNamesPerType)
     {
-        foreach (var resourceType in changedResourceTypes)
+        if (!changedNamesPerType.TryGetValue("CodeEntries", out var codeEntries))
+            return false;
+
+        foreach (var codeName in codeEntries)
         {
-            if (resourceType.Equals("CodeEntries", StringComparison.OrdinalIgnoreCase))
+            if (codeName.StartsWith("gml_Object_", StringComparison.Ordinal) ||
+                codeName.Contains("_Collision_", StringComparison.Ordinal))
+            {
                 return true;
+            }
         }
 
         return false;

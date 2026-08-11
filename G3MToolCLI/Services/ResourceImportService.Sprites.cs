@@ -5,6 +5,7 @@ using ImageMagick;
 using UndertaleModLib;
 using UndertaleModLib.Models;
 using UndertaleModLib.Util;
+using static G3MToolCLI.Utils.ResourceAssetUtil;
 
 namespace G3MToolCLI.Services;
 
@@ -790,10 +791,6 @@ public static partial class ResourceImportService
             foreach (var img in imagesToCleanup) img.Dispose();
         }
     }
-
-    private static bool IsLocaleArtSpriteName(string spriteName) =>
-        spriteName.StartsWith("spr_ja_", StringComparison.OrdinalIgnoreCase) ||
-        spriteName.StartsWith("bg_lang_ja_", StringComparison.OrdinalIgnoreCase);
 
     // =========================================================================
     // Texture Packer

@@ -477,6 +477,9 @@ public static class PatchCommand
         var mergePropertiesOption = new Option<bool>(
             name: "--properties",
             description: "Enable deep merge for JSON property files");
+        var mergeSequentialOption = new Option<bool>(
+            name: "--sequential",
+            description: "Use the sequential low-memory merge pipeline (does not support --code or --properties)");
 
         var mergeReportOption = new Option<string?>(
             aliases: ["--report", "-r"],
@@ -491,11 +494,22 @@ public static class PatchCommand
         mergeCommand.AddOption(mergeApplyOption);
         mergeCommand.AddOption(mergeCodeOption);
         mergeCommand.AddOption(mergePropertiesOption);
+        mergeCommand.AddOption(mergeSequentialOption);
         mergeCommand.AddOption(mergeReportOption);
         mergeCommand.AddOption(mergeCacheOption);
 
-        mergeCommand.SetHandler(async (original, patches, outPath, applyPath, code, properties, conflictsLog, cacheDir) =>
+        mergeCommand.SetHandler(async (InvocationContext context) =>
         {
+            var parseResult = context.ParseResult;
+            var original = parseResult.GetValueForArgument(mergeOriginalArg);
+            var patches = parseResult.GetValueForArgument(mergePatchesArg);
+            var outPath = parseResult.GetValueForOption(mergeOutOption);
+            var applyPath = parseResult.GetValueForOption(mergeApplyOption);
+            var code = parseResult.GetValueForOption(mergeCodeOption);
+            var properties = parseResult.GetValueForOption(mergePropertiesOption);
+            var sequential = parseResult.GetValueForOption(mergeSequentialOption);
+            var conflictsLog = parseResult.GetValueForOption(mergeReportOption);
+            var cacheDir = parseResult.GetValueForOption(mergeCacheOption);
             var patchPaths = patches.Select(p => p.FullName).ToList();
             applyPath ??= Path.Combine(
                 Directory.GetCurrentDirectory(),
@@ -507,6 +521,7 @@ public static class PatchCommand
                 ApplyPath = applyPath,
                 UseCodeMerge = code,
                 UsePropertyMerge = properties,
+                UseSequentialMerge = sequential,
                 ReportPath = conflictsLog,
                 CacheOptions = G3MCacheOptions.FromDirectory(cacheDir?.FullName)
             };
@@ -535,8 +550,7 @@ public static class PatchCommand
                         : []
                 });
             }
-        }, mergeOriginalArg, mergePatchesArg, mergeOutOption, mergeApplyOption,
-           mergeCodeOption, mergePropertiesOption, mergeReportOption, mergeCacheOption);
+        });
 
         command.AddCommand(createCommand);
         command.AddCommand(applyCommand);

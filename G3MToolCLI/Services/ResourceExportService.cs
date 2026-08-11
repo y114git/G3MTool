@@ -8,6 +8,7 @@ using UndertaleModLib.Decompiler;
 using UndertaleModLib.Models;
 using UndertaleModLib.Project;
 using UndertaleModLib.Util;
+using static G3MToolCLI.Utils.ResourceAssetUtil;
 
 namespace G3MToolCLI.Services;
 
@@ -491,27 +492,6 @@ public static class ResourceExportService
         int index = type == ResourceType.Script ? rawIndex - 100000 : rawIndex;
         string name = GetAssetNameByTagType(data, type, index) ?? "";
         return (type.ToString(), index, name);
-    }
-
-    private static string? GetAssetNameByTagType(UndertaleData data, ResourceType type, int index)
-    {
-        return type switch
-        {
-            ResourceType.Object when index >= 0 && index < data.GameObjects.Count => data.GameObjects[index]?.Name?.Content,
-            ResourceType.Sprite when index >= 0 && index < data.Sprites.Count => data.Sprites[index]?.Name?.Content,
-            ResourceType.Sound when index >= 0 && index < data.Sounds.Count => data.Sounds[index]?.Name?.Content,
-            ResourceType.Room when index >= 0 && index < data.Rooms.Count => data.Rooms[index]?.Name?.Content,
-            ResourceType.Path when index >= 0 && index < data.Paths.Count => data.Paths[index]?.Name?.Content,
-            ResourceType.Script when index >= 0 && index < data.Scripts.Count => data.Scripts[index]?.Name?.Content,
-            ResourceType.Font when index >= 0 && index < data.Fonts.Count => data.Fonts[index]?.Name?.Content,
-            ResourceType.Timeline when index >= 0 && index < data.Timelines.Count => data.Timelines[index]?.Name?.Content,
-            ResourceType.Background when index >= 0 && index < data.Backgrounds.Count => data.Backgrounds[index]?.Name?.Content,
-            ResourceType.Shader when index >= 0 && index < data.Shaders.Count => data.Shaders[index]?.Name?.Content,
-            ResourceType.Sequence when data.Sequences != null && index >= 0 && index < data.Sequences.Count => data.Sequences[index]?.Name?.Content,
-            ResourceType.AnimCurve when data.AnimationCurves != null && index >= 0 && index < data.AnimationCurves.Count => data.AnimationCurves[index]?.Name?.Content,
-            ResourceType.ParticleSystem when data.ParticleSystems != null && index >= 0 && index < data.ParticleSystems.Count => data.ParticleSystems[index]?.Name?.Content,
-            _ => null
-        };
     }
 
     // ────────────────────────────────────────────────────────────────
@@ -1051,9 +1031,8 @@ public static class ResourceExportService
                     {
                         try
                         {
-                            UndertaleData agData;
                             using (var agStream = new FileStream(agPath, FileMode.Open, FileAccess.Read))
-                                agData = UndertaleIO.Read(agStream);
+                            using (var agData = UndertaleIO.Read(agStream))
                             if (agData.EmbeddedAudio != null && sound.AudioID >= 0 && sound.AudioID < agData.EmbeddedAudio.Count)
                             {
                                 var audio = agData.EmbeddedAudio[sound.AudioID];
@@ -1091,35 +1070,6 @@ public static class ResourceExportService
             }
             catch { }
         });
-    }
-
-    private static string? ResolveAudioGroupPath(UndertaleData data, string dataDir, int groupId)
-    {
-        string relativePath = $"audiogroup{groupId}.dat";
-        if (data.AudioGroups != null &&
-            groupId >= 0 &&
-            groupId < data.AudioGroups.Count &&
-            !string.IsNullOrWhiteSpace(data.AudioGroups[groupId]?.Path?.Content))
-        {
-            relativePath = data.AudioGroups[groupId].Path.Content;
-        }
-
-        try
-        {
-            string baseDir = Path.GetFullPath(dataDir);
-            string fullPath = Path.GetFullPath(Path.Combine(baseDir, relativePath));
-            if (!fullPath.StartsWith(baseDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar,
-                    StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(fullPath, baseDir, StringComparison.OrdinalIgnoreCase))
-            {
-                return null;
-            }
-            return fullPath;
-        }
-        catch
-        {
-            return null;
-        }
     }
 
     public static void ExportEmbeddedAudio(UndertaleData data, string outputDir, HashSet<string>? filter = null)
@@ -1556,16 +1506,6 @@ public static class ResourceExportService
         }
 
         return payload;
-    }
-
-    private static ProjectContext CreateProjectContext(UndertaleData data, string root)
-    {
-        Directory.CreateDirectory(root);
-        string load = Path.Combine(root, "load.win");
-        string save = Path.Combine(root, "save.win");
-        string project = Path.Combine(root, "project", "project.yy");
-        Directory.CreateDirectory(Path.GetDirectoryName(project)!);
-        return new ProjectContext(data, load, save, project, "G3MTool");
     }
 
     private static Dictionary<string, object?> ToAnimationCurvePayload(UndertaleData data, UndertaleAnimationCurve curve)
@@ -2115,13 +2055,16 @@ public static class ResourceExportService
         string outputDir,
         bool includeObjectEvents = true,
         bool includeVariablesFunctions = true,
-        bool includeTextureHelpers = true)
+        bool includeTextureHelpers = true,
+        ISet<string>? assetOrderSections = null,
+        bool includeAssetOrder = true,
+        HashSet<string>? codeMetadataEntryNames = null)
     {
         Directory.CreateDirectory(outputDir);
 
-        // asset_order.txt
-        using (var writer = new StreamWriter(Path.Combine(outputDir, "asset_order.txt")))
+        if (includeAssetOrder)
         {
+            using var writer = new StreamWriter(Path.Combine(outputDir, "asset_order.txt"));
             static void WriteNames<T>(StreamWriter w, IList<T>? assets) where T : UndertaleNamedResource
             {
                 if (assets == null) return;
@@ -2137,35 +2080,50 @@ public static class ResourceExportService
                 }
             }
 
-            writer.WriteLine("@@sounds@@"); WriteNames(writer, data.Sounds);
-            writer.WriteLine("@@sprites@@"); WriteNames(writer, data.Sprites);
-            writer.WriteLine("@@backgrounds@@"); WriteNames(writer, data.Backgrounds);
-            writer.WriteLine("@@paths@@"); WriteNames(writer, data.Paths);
-            writer.WriteLine("@@scripts@@"); WriteNames(writer, data.Scripts);
-            writer.WriteLine("@@fonts@@"); WriteNames(writer, data.Fonts);
-            writer.WriteLine("@@objects@@"); WriteNames(writer, data.GameObjects);
-            writer.WriteLine("@@timelines@@"); WriteNames(writer, data.Timelines);
-            writer.WriteLine("@@rooms@@"); WriteNames(writer, data.Rooms);
-            writer.WriteLine("@@shaders@@"); WriteNames(writer, data.Shaders);
-            writer.WriteLine("@@extensions@@"); WriteNames(writer, data.Extensions);
-            writer.WriteLine("@@audiogroups@@"); WriteNames(writer, data.AudioGroups);
+            void WriteSection<T>(string name, IList<T>? assets) where T : UndertaleNamedResource
+            {
+                if (assetOrderSections != null && !assetOrderSections.Contains(name))
+                    return;
+                writer.WriteLine($"@@{name}@@");
+                WriteNames(writer, assets);
+            }
+
+            WriteSection("sounds", data.Sounds);
+            WriteSection("sprites", data.Sprites);
+            WriteSection("backgrounds", data.Backgrounds);
+            WriteSection("paths", data.Paths);
+            WriteSection("scripts", data.Scripts);
+            WriteSection("fonts", data.Fonts);
+            WriteSection("objects", data.GameObjects);
+            WriteSection("timelines", data.Timelines);
+            WriteSection("rooms", data.Rooms);
+            WriteSection("shaders", data.Shaders);
+            WriteSection("extensions", data.Extensions);
+            WriteSection("audiogroups", data.AudioGroups);
             writer.WriteLine("@@counts@@");
             writer.WriteLine($"EmbeddedTextures={data.EmbeddedTextures.Count}");
             writer.WriteLine($"TexturePageItems={data.TexturePageItems.Count}");
         }
 
-        if (includeVariablesFunctions)
+        if (includeVariablesFunctions || codeMetadataEntryNames != null)
         {
-            var varList = new List<Dictionary<string, object>>();
-            foreach (var v in data.Variables)
-                varList.Add(new Dictionary<string, object> { ["n"] = v.Name?.Content ?? "", ["t"] = (int)v.InstanceType, ["id"] = v.VarID });
+            var metadata = new Dictionary<string, object>();
+            if (includeVariablesFunctions)
+            {
+                var varList = new List<Dictionary<string, object>>();
+                foreach (var v in data.Variables)
+                    varList.Add(new Dictionary<string, object> { ["n"] = v.Name?.Content ?? "", ["t"] = (int)v.InstanceType, ["id"] = v.VarID });
 
-            var funcList = new List<string>();
-            foreach (var f in data.Functions)
-                funcList.Add(f.Name?.Content ?? "");
+                var funcList = new List<string>();
+                foreach (var f in data.Functions)
+                    funcList.Add(f.Name?.Content ?? "");
+
+                metadata["variables"] = varList;
+                metadata["functions"] = funcList;
+            }
 
             var codeEntryList = new List<Dictionary<string, object>>();
-            foreach (var descriptor in CodeEntryArchiveIdentity.DescribeEntries(data))
+            foreach (var descriptor in CodeEntryArchiveIdentity.DescribeEntries(data, codeMetadataEntryNames))
             {
                 var entry = new Dictionary<string, object>
                 {
@@ -2178,8 +2136,12 @@ public static class ResourceExportService
                 codeEntryList.Add(entry);
             }
 
-            File.WriteAllText(Path.Combine(outputDir, "variables_functions.json"),
-                JsonSerializer.Serialize(new Dictionary<string, object> { ["variables"] = varList, ["functions"] = funcList, ["codeEntries"] = codeEntryList }));
+            metadata["codeEntries"] = codeEntryList;
+            metadata["completeCodeEntries"] = codeMetadataEntryNames == null;
+            string metadataFileName = codeMetadataEntryNames == null
+                ? "variables_functions.json"
+                : "code_patch_metadata.json";
+            File.WriteAllText(Path.Combine(outputDir, metadataFileName), JsonSerializer.Serialize(metadata));
         }
 
         if (includeObjectEvents)

@@ -68,7 +68,7 @@ public static class InfoCommand
             }
 
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1024 * 1024, FileOptions.SequentialScan);
-            var data = UndertaleIO.Read(stream);
+            using var data = UndertaleIO.Read(stream);
             var snapshot = G3MCacheService.BuildInfoSnapshot(path, data);
             if (!verbose)
                 await G3MCacheService.WriteDataInfoCacheAsync(path, snapshot, cacheOptions);

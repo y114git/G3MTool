@@ -5,6 +5,7 @@ using UndertaleModLib;
 using UndertaleModLib.Models;
 using UndertaleModLib.Util;
 using static UndertaleModLib.Models.UndertaleSound;
+using static G3MToolCLI.Utils.ResourceAssetUtil;
 
 namespace G3MToolCLI.Services;
 
@@ -514,8 +515,8 @@ public static partial class ResourceImportService
             return false;
         }
 
-        string? loadPath = ResolveAudioGroupPath(data, _loadedDataPath, sound.GroupID);
-        string? savePath = ResolveAudioGroupPath(data, _savingDataPath, sound.GroupID);
+        string? loadPath = ResolveAudioGroupPathFromDataFile(data, _loadedDataPath, sound.GroupID);
+        string? savePath = ResolveAudioGroupPathFromDataFile(data, _savingDataPath, sound.GroupID);
         if (loadPath == null || savePath == null)
             return false;
 
@@ -525,34 +526,32 @@ public static partial class ResourceImportService
 
         try
         {
-            UndertaleData groupData;
-            using (var stream = new FileStream(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read))
-                groupData = UndertaleIO.Read(stream);
-
-            if (groupData.EmbeddedAudio == null)
-                return false;
-
-            int audioId = sound.AudioID;
-            if (audioId < 0 || audioId >= groupData.EmbeddedAudio.Count)
-            {
-                groupData.EmbeddedAudio.Add(new UndertaleEmbeddedAudio());
-                audioId = groupData.EmbeddedAudio.Count - 1;
-                sound.AudioID = audioId;
-            }
-
-            groupData.EmbeddedAudio[audioId].Data = audioData;
-
-            string? outDir = Path.GetDirectoryName(savePath);
-            if (!string.IsNullOrWhiteSpace(outDir))
-                Directory.CreateDirectory(outDir);
-
             string tempPath = savePath + ".g3mtmp";
-            using (var outStream = new FileStream(tempPath, FileMode.Create, FileAccess.Write))
-                UndertaleIO.Write(outStream, groupData);
+            using (var stream = new FileStream(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                using var groupData = UndertaleIO.Read(stream);
 
-            if (File.Exists(savePath))
-                File.Delete(savePath);
-            File.Move(tempPath, savePath);
+                if (groupData.EmbeddedAudio == null)
+                    return false;
+
+                int audioId = sound.AudioID;
+                if (audioId < 0 || audioId >= groupData.EmbeddedAudio.Count)
+                {
+                    groupData.EmbeddedAudio.Add(new UndertaleEmbeddedAudio());
+                    audioId = groupData.EmbeddedAudio.Count - 1;
+                    sound.AudioID = audioId;
+                }
+
+                groupData.EmbeddedAudio[audioId].Data = audioData;
+
+                string? outDir = Path.GetDirectoryName(savePath);
+                if (!string.IsNullOrWhiteSpace(outDir))
+                    Directory.CreateDirectory(outDir);
+
+                using (var outStream = new FileStream(tempPath, FileMode.Create, FileAccess.Write))
+                    UndertaleIO.Write(outStream, groupData);
+            }
+            File.Move(tempPath, savePath, overwrite: true);
 
             if (sound.AudioFile != null && data.EmbeddedAudio?.Contains(sound.AudioFile) == true)
                 data.EmbeddedAudio.Remove(sound.AudioFile);
@@ -563,39 +562,6 @@ public static partial class ResourceImportService
         {
             Log($"[ImportSounds] External audiogroup write skipped for {sound.Name?.Content}: {ex.Message}");
             return false;
-        }
-    }
-
-    private static string? ResolveAudioGroupPath(UndertaleData data, string dataPath, int groupId)
-    {
-        string? baseDir = Path.GetDirectoryName(dataPath);
-        if (string.IsNullOrWhiteSpace(baseDir))
-            return null;
-
-        string relativePath = $"audiogroup{groupId}.dat";
-        if (data.AudioGroups != null &&
-            groupId >= 0 &&
-            groupId < data.AudioGroups.Count &&
-            !string.IsNullOrWhiteSpace(data.AudioGroups[groupId]?.Path?.Content))
-        {
-            relativePath = data.AudioGroups[groupId].Path.Content;
-        }
-
-        try
-        {
-            string fullBase = Path.GetFullPath(baseDir);
-            string fullPath = Path.GetFullPath(Path.Combine(fullBase, relativePath));
-            if (!fullPath.StartsWith(fullBase.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar,
-                    StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(fullPath, fullBase, StringComparison.OrdinalIgnoreCase))
-            {
-                return null;
-            }
-            return fullPath;
-        }
-        catch
-        {
-            return null;
         }
     }
 

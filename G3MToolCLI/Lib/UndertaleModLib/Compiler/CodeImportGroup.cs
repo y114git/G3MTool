@@ -40,6 +40,11 @@ public sealed class CodeImportGroup
     public bool AutoCreateAssets { get; set; } = true;
 
     /// <summary>
+    /// Whether a new global-script code entry should be registered as a global-init script.
+    /// </summary>
+    public bool AutoCreateGlobalInitScripts { get; set; } = true;
+
+    /// <summary>
     /// Whether an exception will be thrown if a find and replace operation is a no-op.
     /// </summary>
     /// <remarks>
@@ -258,9 +263,6 @@ public sealed class CodeImportGroup
         else if (codeEntryName.StartsWith(EventGlobalScriptPrefix, StringComparison.Ordinal))
         {
             // Scan to see if there's a global init script with a matching (and presumably, invalid) code reference.
-            // Important: not every gml_GlobalScript_* code entry is a GlobalInitScript. Creating new
-            // GlobalInit entries here causes false startup scripts during patch import/merge. The
-            // authoritative GlobalInit/GameEnd lists must come from explicit resource data.
             UndertaleGlobalInit existingGlobalInit = null;
             foreach (UndertaleGlobalInit globalInit in Data.GlobalInitScripts)
             {
@@ -270,7 +272,11 @@ public sealed class CodeImportGroup
                     break;
                 }
             }
-            if (existingGlobalInit is not null)
+            if (existingGlobalInit is null && AutoCreateGlobalInitScripts)
+            {
+                MainThreadAction(() => Data.GlobalInitScripts.Add(new() { Code = newEntry }));
+            }
+            else if (existingGlobalInit is not null)
             {
                 // Attach to existing global init entry (in case of corruption)
                 existingGlobalInit.Code = newEntry;

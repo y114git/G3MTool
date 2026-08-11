@@ -18,17 +18,6 @@ public sealed class G3MCacheOptions
             ? None
             : new G3MCacheOptions { ReadDirectory = directory, WriteDirectory = directory };
 
-    public static G3MCacheOptions FromDirectories(string? readDirectory, string? writeDirectory)
-    {
-        if (string.IsNullOrWhiteSpace(readDirectory) && string.IsNullOrWhiteSpace(writeDirectory))
-            return None;
-
-        return new G3MCacheOptions
-        {
-            ReadDirectory = string.IsNullOrWhiteSpace(readDirectory) ? null : readDirectory,
-            WriteDirectory = string.IsNullOrWhiteSpace(writeDirectory) ? null : writeDirectory
-        };
-    }
 }
 
 public sealed class G3MDataAnalysisCache

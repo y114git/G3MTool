@@ -2,7 +2,7 @@ using System.Security.Cryptography;
 
 namespace G3MToolCLI.Services;
 
-public class HashService
+public static class HashService
 {
     private const int FileBufferSize = 1024 * 1024;
 

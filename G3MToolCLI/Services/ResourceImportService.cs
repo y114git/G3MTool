@@ -7,6 +7,7 @@ using UndertaleModLib;
 using UndertaleModLib.Models;
 using UndertaleModLib.Project;
 using UndertaleModLib.Util;
+using static G3MToolCLI.Utils.ResourceAssetUtil;
 using static UndertaleModLib.Models.UndertaleSound;
 
 namespace G3MToolCLI.Services;
@@ -615,27 +616,6 @@ public static partial class ResourceImportService
             ResourceType.AnimCurve when data.AnimationCurves != null => data.AnimationCurves.IndexOfName(assetName),
             ResourceType.ParticleSystem when data.ParticleSystems != null => data.ParticleSystems.IndexOfName(assetName),
             _ => -1
-        };
-    }
-
-    private static string? GetAssetNameByTagType(UndertaleData data, ResourceType type, int index)
-    {
-        return type switch
-        {
-            ResourceType.Object when index >= 0 && index < data.GameObjects.Count => data.GameObjects[index]?.Name?.Content,
-            ResourceType.Sprite when index >= 0 && index < data.Sprites.Count => data.Sprites[index]?.Name?.Content,
-            ResourceType.Sound when index >= 0 && index < data.Sounds.Count => data.Sounds[index]?.Name?.Content,
-            ResourceType.Room when index >= 0 && index < data.Rooms.Count => data.Rooms[index]?.Name?.Content,
-            ResourceType.Path when index >= 0 && index < data.Paths.Count => data.Paths[index]?.Name?.Content,
-            ResourceType.Script when index >= 0 && index < data.Scripts.Count => data.Scripts[index]?.Name?.Content,
-            ResourceType.Font when index >= 0 && index < data.Fonts.Count => data.Fonts[index]?.Name?.Content,
-            ResourceType.Timeline when index >= 0 && index < data.Timelines.Count => data.Timelines[index]?.Name?.Content,
-            ResourceType.Background when index >= 0 && index < data.Backgrounds.Count => data.Backgrounds[index]?.Name?.Content,
-            ResourceType.Shader when index >= 0 && index < data.Shaders.Count => data.Shaders[index]?.Name?.Content,
-            ResourceType.Sequence when data.Sequences != null && index >= 0 && index < data.Sequences.Count => data.Sequences[index]?.Name?.Content,
-            ResourceType.AnimCurve when data.AnimationCurves != null && index >= 0 && index < data.AnimationCurves.Count => data.AnimationCurves[index]?.Name?.Content,
-            ResourceType.ParticleSystem when data.ParticleSystems != null && index >= 0 && index < data.ParticleSystems.Count => data.ParticleSystems[index]?.Name?.Content,
-            _ => null
         };
     }
 
@@ -1255,16 +1235,6 @@ public static partial class ResourceImportService
             else if (type == typeof(float))
                 prop.SetValue(emitter, (float)value.GetDouble());
         }
-    }
-
-    private static ProjectContext CreateProjectContext(UndertaleData data, string root)
-    {
-        Directory.CreateDirectory(root);
-        string load = Path.Combine(root, "load.win");
-        string save = Path.Combine(root, "save.win");
-        string project = Path.Combine(root, "project", "project.yy");
-        Directory.CreateDirectory(Path.GetDirectoryName(project)!);
-        return new ProjectContext(data, load, save, project, "G3MTool");
     }
 
     // Shared helper for event action properties (used by Timelines and GameObjects)

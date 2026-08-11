@@ -264,7 +264,8 @@ public sealed class PatchFileSystem
     private void HydrateCodeEntryLogicalNamesFromHelpers()
     {
         string helperPath = $"{HelpersPrefix}/variables_functions.json";
-        if (!_files.TryGetValue(helperPath, out var helperBytes))
+        if (!_files.TryGetValue(helperPath, out var helperBytes) &&
+            !_files.TryGetValue($"{HelpersPrefix}/code_patch_metadata.json", out helperBytes))
             return;
 
         try

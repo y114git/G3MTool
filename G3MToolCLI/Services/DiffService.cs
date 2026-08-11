@@ -266,7 +266,7 @@ public class DiffService
             // Export only the resource types present in the patch
             using (var stream = OpenDataReadStream(dataPath))
             {
-                var dataObj = UndertaleIO.Read(stream);
+                using var dataObj = UndertaleIO.Read(stream);
                 ResourceExportService.ExportTypes(dataObj, dataExportDir, dataPath, resourceTypesInPatch);
             }
             GC.Collect();
@@ -542,11 +542,10 @@ public class DiffService
 
     private static void AppendBinaryAnalysis(StringBuilder sb, string file1Path, string file2Path, DiffReportMode reportMode)
     {
-        UndertaleData data1, data2;
-        using (var s = OpenDataReadStream(file1Path))
-            data1 = UndertaleIO.Read(s);
-        using (var s = OpenDataReadStream(file2Path))
-            data2 = UndertaleIO.Read(s);
+        using var s1 = OpenDataReadStream(file1Path);
+        using var data1 = UndertaleIO.Read(s1);
+        using var s2 = OpenDataReadStream(file2Path);
+        using var data2 = UndertaleIO.Read(s2);
 
         sb.AppendLine("## Binary Analysis");
         sb.AppendLine();
@@ -1020,7 +1019,7 @@ public class DiffService
             else
             {
                 using var stream = OpenDataReadStream(file1Path);
-                var data1 = UndertaleIO.Read(stream);
+                using var data1 = UndertaleIO.Read(stream);
                 var loadTime = diffPhaseSw.Elapsed;
                 diffPhaseSw.Restart();
                 hashes1 = ResourceHashService.HashAll(data1);
@@ -1050,7 +1049,7 @@ public class DiffService
             else
             {
                 using var stream = OpenDataReadStream(file2Path);
-                var data2 = UndertaleIO.Read(stream);
+                using var data2 = UndertaleIO.Read(stream);
                 var loadTime = diffPhaseSw.Elapsed;
                 diffPhaseSw.Restart();
                 hashes2 = ResourceHashService.HashAll(data2);
@@ -1118,14 +1117,14 @@ public class DiffService
 
                 using (var stream = OpenDataReadStream(file1Path))
                 {
-                    var data1 = UndertaleIO.Read(stream);
+                    using var data1 = UndertaleIO.Read(stream);
                     ResourceExportService.ExportTypes(data1, export1Dir, file1Path, textDiffTypes);
                 }
                 GC.Collect();
 
                 using (var stream = OpenDataReadStream(file2Path))
                 {
-                    var data2 = UndertaleIO.Read(stream);
+                    using var data2 = UndertaleIO.Read(stream);
                     ResourceExportService.ExportTypes(data2, export2Dir, file2Path, textDiffTypes);
                 }
                 GC.Collect();
