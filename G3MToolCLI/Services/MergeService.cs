@@ -561,8 +561,7 @@ public static partial class MergeService
                             string.IsNullOrEmpty(childName) ||
                             sourceChild.Offset == 0 ||
                             !targetChildren.TryGetValue(childName, out var targetChild) ||
-                            targetChild.ParentEntry == null ||
-                            targetChild.ParentEntry.Length != sourceParent.Length)
+                            targetChild.ParentEntry == null)
                         {
                             continue;
                         }
@@ -772,6 +771,39 @@ public static partial class MergeService
 
         foreach (var path in patch.GetAllFilePaths().Where(p => IsPathForResource(p, resourceType, resourceName)).ToList())
             patch.RemoveFile(path);
+    }
+
+    private static void RemoveAsmEntriesForCompiledCode(PatchFileSystem patch, string codeName)
+    {
+        foreach (string entryKey in patch.AsmEntries.Keys
+                     .Where(entryKey => IsAsmEntryInCodeTree(patch, entryKey, codeName))
+                     .ToList())
+        {
+            patch.RemoveAsmEntry(entryKey);
+        }
+    }
+
+    private static bool IsAsmEntryForCompiledCode(
+        PatchFileSystem source,
+        string entryKey,
+        PatchFileSystem merged) =>
+        merged.GmlEntries.Keys.Any(codeName =>
+            !merged.AsmEntries.ContainsKey(codeName) &&
+            IsAsmEntryInCodeTree(source, entryKey, codeName));
+
+    private static bool IsAsmEntryInCodeTree(PatchFileSystem patch, string entryKey, string codeName)
+    {
+        if (entryKey.Equals(codeName, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (!patch.AsmEntryPaths.TryGetValue(entryKey, out string? path))
+            return false;
+
+        string[] parts = path.Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+        int codeEntriesIndex = Array.FindIndex(parts, part => part.Equals("CodeEntries", StringComparison.OrdinalIgnoreCase));
+        return codeEntriesIndex >= 0 &&
+               parts[(codeEntriesIndex + 1)..^1]
+                   .Any(part => part.Equals(codeName, StringComparison.OrdinalIgnoreCase));
     }
 
     private static string GetTopLevelFolder(string path)
@@ -1183,10 +1215,11 @@ public static partial class MergeService
                             {
                                 finalPfs.AddGmlEntry(codeName, merged, logicalCodeName);
                                 finalPfs.RemoveAsmEntry(codeName);
+                                RemoveAsmEntriesForCompiledCode(finalPfs, codeName);
                                 codeMerged++;
                                 var prevCodeOwner = codeOwner.GetValueOrDefault(codeName, "?");
                                 codeOwner[codeName] = $"{prevCodeOwner} + {patchName}";
-                                var mergeDiff = GenerateThreeWayDiff(baseGml, merged, prevCodeOwner, patchName);
+                                var mergeDiff = GenerateThreeWayDiff(existingGml, gmlCode, prevCodeOwner, patchName);
                                 conflicts.Add(new ConflictEntry(
                                     $"CodeEntries/{codeName}",
                                     "Resolved",
@@ -1226,7 +1259,8 @@ public static partial class MergeService
                 {
                     if (!pfs.GmlEntries.ContainsKey(codeName) &&
                         !finalPfs.GmlEntries.ContainsKey(codeName) &&
-                        !finalPfs.AsmEntries.ContainsKey(codeName))
+                        !finalPfs.AsmEntries.ContainsKey(codeName) &&
+                        !IsAsmEntryForCompiledCode(pfs, codeName, finalPfs))
                     {
                         string logicalCodeName = pfs.CodeEntryLogicalNames.GetValueOrDefault(codeName) ?? codeName;
                         finalPfs.AddAsmEntry(
@@ -3508,6 +3542,7 @@ public static partial class MergeService
             .OrderBy(e => e.BaseStart)
             .ThenBy(e => e.BaseEnd)
             .ThenBy(e => e.Side)];
+        allEdits = RemoveDuplicateEdits(allEdits);
 
         var result = new List<string>();
         int pos = 0;
@@ -3533,6 +3568,10 @@ public static partial class MergeService
             {
                 result.AddRange(cluster[0].Replacement);
             }
+            else if (cluster.All(edit => edit.BaseStart == edit.BaseEnd))
+            {
+                result.AddRange(MergeConcurrentInsertions(cluster));
+            }
             else
             {
                 hasConflicts = true;
@@ -3548,6 +3587,58 @@ public static partial class MergeService
             result.Add(baseLines[i]);
 
         return (string.Join("\n", result), hasConflicts);
+    }
+
+    private static List<(int BaseStart, int BaseEnd, string[] Replacement, int Side)> RemoveDuplicateEdits(
+        List<(int BaseStart, int BaseEnd, string[] Replacement, int Side)> edits)
+    {
+        var unique = new List<(int BaseStart, int BaseEnd, string[] Replacement, int Side)>();
+        foreach (var edit in edits)
+        {
+            if (unique.Count > 0)
+            {
+                var previous = unique[^1];
+                if (previous.BaseStart == edit.BaseStart &&
+                    previous.BaseEnd == edit.BaseEnd &&
+                    previous.Replacement.SequenceEqual(edit.Replacement))
+                {
+                    continue;
+                }
+            }
+            unique.Add(edit);
+        }
+        return unique;
+    }
+
+    private static IEnumerable<string> MergeConcurrentInsertions(
+        List<(int BaseStart, int BaseEnd, string[] Replacement, int Side)> insertions)
+    {
+        var merged = insertions[0].Replacement;
+        foreach (var insertion in insertions.Skip(1))
+            merged = MergeInsertionLines(merged, insertion.Replacement);
+        return merged;
+    }
+
+    private static string[] MergeInsertionLines(string[] lowerPriority, string[] higherPriority)
+    {
+        int prefix = 0;
+        int commonLength = Math.Min(lowerPriority.Length, higherPriority.Length);
+        while (prefix < commonLength && lowerPriority[prefix] == higherPriority[prefix])
+            prefix++;
+
+        int suffix = 0;
+        while (suffix < commonLength - prefix &&
+               lowerPriority[^(suffix + 1)] == higherPriority[^(suffix + 1)])
+        {
+            suffix++;
+        }
+
+        return [
+            .. lowerPriority[..prefix],
+            .. lowerPriority[prefix..(lowerPriority.Length - suffix)],
+            .. higherPriority[prefix..(higherPriority.Length - suffix)],
+            .. lowerPriority[(lowerPriority.Length - suffix)..]
+        ];
     }
 
     private static bool HasEmbeddedTexturePayload(PatchFileSystem[] patches) =>
@@ -3733,6 +3824,9 @@ public static partial class MergeService
         if (filePath.Equals("Options/options.json", StringComparison.OrdinalIgnoreCase))
             return TryThreeWayOptionsMerge(originalData, existingBytes, incomingBytes);
 
+        if (filePath.Equals("GlobalScripts/global_scripts.json", StringComparison.OrdinalIgnoreCase))
+            return TryThreeWayGlobalScriptsMerge(originalData, existingBytes, incomingBytes);
+
         if (!filePath.Equals("GeneralInfo/GeneralInfo.json", StringComparison.OrdinalIgnoreCase))
             return null;
 
@@ -3822,6 +3916,74 @@ public static partial class MergeService
             try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true); } catch { }
         }
     }
+
+    private static byte[]? TryThreeWayGlobalScriptsMerge(
+        UndertaleData originalData,
+        byte[] existingBytes,
+        byte[] incomingBytes)
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"g3m_base_global_scripts_{Guid.NewGuid():N}");
+        try
+        {
+            ResourceExportService.ExportGlobalScripts(originalData, tempDir);
+            var basePath = Path.Combine(tempDir, "GlobalScripts", "global_scripts.json");
+            if (!File.Exists(basePath))
+                return null;
+
+            var baseNode = ParseJsonObject(File.ReadAllBytes(basePath));
+            var existingNode = ParseJsonObject(existingBytes);
+            var incomingNode = ParseJsonObject(incomingBytes);
+            if (baseNode == null || existingNode == null || incomingNode == null)
+                return null;
+
+            var merged = ThreeWayMergeJsonObjects(baseNode, existingNode, incomingNode);
+            foreach (var key in new[] { "globalInitScripts", "gameEndScripts" })
+            {
+                merged[key] = MergeThreeWayGlobalScriptArray(
+                    baseNode[key] as JsonArray,
+                    existingNode[key] as JsonArray,
+                    incomingNode[key] as JsonArray);
+            }
+            return Encoding.UTF8.GetBytes(merged.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        }
+        finally
+        {
+            try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true); } catch { }
+        }
+    }
+
+    private static JsonArray MergeThreeWayGlobalScriptArray(
+        JsonArray? baseArray,
+        JsonArray? oursArray,
+        JsonArray? theirsArray)
+    {
+        var baseNames = JsonStringValues(baseArray);
+        var oursNames = JsonStringValues(oursArray ?? baseArray);
+        var theirsNames = JsonStringValues(theirsArray ?? baseArray);
+        var oursSet = oursNames.ToHashSet(StringComparer.Ordinal);
+        var theirsSet = theirsNames.ToHashSet(StringComparer.Ordinal);
+        var result = new JsonArray();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var name in baseNames)
+            if (oursSet.Contains(name) && theirsSet.Contains(name) && seen.Add(name))
+                result.Add(name);
+        foreach (var name in oursNames)
+            if (!baseNames.Contains(name, StringComparer.Ordinal) && seen.Add(name))
+                result.Add(name);
+        foreach (var name in theirsNames)
+            if (!baseNames.Contains(name, StringComparer.Ordinal) && seen.Add(name))
+                result.Add(name);
+
+        return result;
+    }
+
+    private static List<string> JsonStringValues(JsonArray? array) => array?
+        .Select(node => node?.GetValue<string>())
+        .Where(name => !string.IsNullOrWhiteSpace(name))
+        .Cast<string>()
+        .Distinct(StringComparer.Ordinal)
+        .ToList() ?? [];
 
     private static JsonArray MergeOptionsConstants(JsonArray? baseArray, JsonArray? oursArray, JsonArray? theirsArray)
     {
@@ -4717,52 +4879,17 @@ public static partial class MergeService
     }
 
     /// <summary>
-    /// Generate a diff showing how a 3-way merge combined changes from two patches.
-    /// Shows: base → each side's changes → final merged result.
+    /// Show the source-side differences for a resolved code merge. Shared changes
+    /// are retained once; independent insertions are retained in priority order.
     /// </summary>
     private static string GenerateThreeWayDiff(
-        string baseText, string mergedText,
+        string oursText, string theirsText,
         string oursLabel, string theirsLabel)
     {
-        var baseLines = SplitLines(baseText);
-        var mergedLines = SplitLines(mergedText);
-
         var sb = new StringBuilder();
-        sb.AppendLine($"Base: Original | Side A: {oursLabel} | Side B: {theirsLabel}");
-        sb.AppendLine($"--- Original");
-        sb.AppendLine($"+++ Merged ({oursLabel} + {theirsLabel})");
-
-        // Show diff from base → merged
-        var lcs = ComputeLCS(baseLines, mergedLines);
-        int oldPos = 0, newPos = 0;
-
-        foreach (var (oi, ni) in lcs)
-        {
-            if (oi != oldPos || ni != newPos)
-            {
-                sb.AppendLine($"@@ -{oldPos + 1},{oi - oldPos} +{newPos + 1},{ni - newPos} @@");
-                for (int i = oldPos; i < oi; i++)
-                    sb.AppendLine($"-{baseLines[i]}");
-                for (int i = newPos; i < ni; i++)
-                    sb.AppendLine($"+{mergedLines[i]}");
-            }
-            oldPos = oi + 1;
-            newPos = ni + 1;
-        }
-
-        if (oldPos < baseLines.Length || newPos < mergedLines.Length)
-        {
-            sb.AppendLine($"@@ -{oldPos + 1},{baseLines.Length - oldPos} +{newPos + 1},{mergedLines.Length - newPos} @@");
-            for (int i = oldPos; i < baseLines.Length; i++)
-                sb.AppendLine($"-{baseLines[i]}");
-            for (int i = newPos; i < mergedLines.Length; i++)
-                sb.AppendLine($"+{mergedLines[i]}");
-        }
-
-        var result = sb.ToString();
-        if (result.Length > 4000)
-            result = result[..4000] + "\n... (truncated)";
-        return result;
+        sb.AppendLine("Shared changes were retained once; independent insertions were retained in priority order.");
+        sb.Append(GenerateUnifiedDiff(oursText, theirsText, oursLabel, theirsLabel));
+        return sb.ToString();
     }
 
     // ═══════════════════════════════════════════════════════════════════

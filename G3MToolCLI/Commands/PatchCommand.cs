@@ -511,10 +511,6 @@ public static class PatchCommand
             var conflictsLog = parseResult.GetValueForOption(mergeReportOption);
             var cacheDir = parseResult.GetValueForOption(mergeCacheOption);
             var patchPaths = patches.Select(p => p.FullName).ToList();
-            applyPath ??= Path.Combine(
-                Directory.GetCurrentDirectory(),
-                $"{Path.GetFileNameWithoutExtension(original.Name)}_merged{original.Extension}");
-
             var options = new MergeOptions
             {
                 OutputPath = outPath,

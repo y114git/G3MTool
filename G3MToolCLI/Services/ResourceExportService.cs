@@ -1937,6 +1937,7 @@ public static class ResourceExportService
             .Where(c => c?.ParentEntry == null && c?.Name?.Content != null && entryNames.Contains(c.Name.Content))
             .ToList();
         var topLevelDescriptors = entryDescriptors.Where(x => x.ParentArchiveKey == null).ToList();
+        var (childDescriptorsByParent, duplicateChildDescriptorParents) = BuildChildDescriptorsByParent(entryDescriptors);
 
         var context = new GlobalDecompileContext(data);
         var decompilerSettings = data.ToolInfo.DecompilerSettings;
@@ -1954,19 +1955,17 @@ public static class ResourceExportService
                 try { gml = new Underanalyzer.Decompiler.DecompileContext(context, entry, decompilerSettings).DecompileToString(); } catch { }
                 try { asm = entry.Disassemble(data.Variables, data.CodeLocals?.For(entry)); } catch { }
 
-                if (entry.ChildEntries.Count > 0)
+                if (entry.ChildEntries.Count > 0 && !duplicateChildDescriptorParents.Contains(descriptor.ArchiveKey))
                 {
                     childAsms = [];
-                    var childDescriptors = entryDescriptors
-                        .Where(x => x.ParentArchiveKey == descriptor.ArchiveKey)
-                        .ToDictionary(x => x.LogicalName, x => x, StringComparer.Ordinal);
+                    childDescriptorsByParent.TryGetValue(descriptor.ArchiveKey, out var childDescriptors);
                     foreach (var child in entry.ChildEntries)
                     {
                         if (child?.Name?.Content == null) continue;
                         try
                         {
                             var childAsm = child.Disassemble(data.Variables, data.CodeLocals?.For(child));
-                            if (childDescriptors.TryGetValue(child.Name.Content, out var childDescriptor))
+                            if (childDescriptors != null && childDescriptors.TryGetValue(child.Name.Content, out var childDescriptor))
                                 childAsms[childDescriptor.ArchiveKey[(descriptor.ArchiveKey.Length + 1)..]] = (child.Name.Content, childAsm);
                         }
                         catch { }
@@ -1990,6 +1989,7 @@ public static class ResourceExportService
         if (filterNames != null)
             topLevel = [.. topLevel.Where(c => c?.Name?.Content != null && filterNames.Contains(c.Name.Content))];
         var topLevelDescriptors = entryDescriptors.Where(x => x.ParentArchiveKey == null).ToList();
+        var (childDescriptorsByParent, duplicateChildDescriptorParents) = BuildChildDescriptorsByParent(entryDescriptors);
 
         var context = new GlobalDecompileContext(data);
         var decompilerSettings = data.ToolInfo.DecompilerSettings;
@@ -2024,16 +2024,16 @@ public static class ResourceExportService
                 catch { }
 
                 // Export child entries' ASM
-                var childDescriptors = entryDescriptors
-                    .Where(x => x.ParentArchiveKey == descriptor.ArchiveKey)
-                    .ToDictionary(x => x.LogicalName, x => x, StringComparer.Ordinal);
+                if (duplicateChildDescriptorParents.Contains(descriptor.ArchiveKey))
+                    return;
+                childDescriptorsByParent.TryGetValue(descriptor.ArchiveKey, out var childDescriptors);
                 foreach (var child in entry.ChildEntries)
                 {
                     if (child?.Name?.Content == null) continue;
                     try
                     {
                         var childAsm = child.Disassemble(data.Variables, data.CodeLocals?.For(child));
-                        if (childDescriptors.TryGetValue(child.Name.Content, out var childDescriptor))
+                        if (childDescriptors != null && childDescriptors.TryGetValue(child.Name.Content, out var childDescriptor))
                         {
                             var childLeafKey = childDescriptor.ArchiveKey[(descriptor.ArchiveKey.Length + 1)..];
                             File.WriteAllText(Path.Combine(entryDir, childLeafKey + ".asm"), childAsm, Encoding.UTF8);
@@ -2044,6 +2044,27 @@ public static class ResourceExportService
             }
             catch { }
         });
+    }
+
+    private static (Dictionary<string, Dictionary<string, CodeArchiveEntryDescriptor>> Descriptors, HashSet<string> DuplicateParents) BuildChildDescriptorsByParent(
+        IEnumerable<CodeArchiveEntryDescriptor> descriptors)
+    {
+        var result = new Dictionary<string, Dictionary<string, CodeArchiveEntryDescriptor>>(StringComparer.Ordinal);
+        var duplicates = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var descriptor in descriptors)
+        {
+            if (descriptor.ParentArchiveKey == null)
+                continue;
+
+            if (!result.TryGetValue(descriptor.ParentArchiveKey, out var children))
+            {
+                children = new Dictionary<string, CodeArchiveEntryDescriptor>(StringComparer.Ordinal);
+                result[descriptor.ParentArchiveKey] = children;
+            }
+            if (!children.TryAdd(descriptor.LogicalName, descriptor))
+                duplicates.Add(descriptor.ParentArchiveKey);
+        }
+        return (result, duplicates);
     }
 
     // ────────────────────────────────────────────────────────────────

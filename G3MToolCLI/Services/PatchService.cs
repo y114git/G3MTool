@@ -99,6 +99,13 @@ public partial class PatchService
         return resourceTypesToProcess;
     }
 
+    private static bool HasScriptOrderOnlyAssetPayload(PatchFileSystem pfs)
+    {
+        var assetOrderPath = Path.Combine(pfs.HelpersPrefix, "asset_order.txt");
+        return pfs.FileExists(assetOrderPath) && pfs.ReadAllLines(assetOrderPath)
+            .Any(line => string.Equals(line, "@@scripts@@", StringComparison.OrdinalIgnoreCase));
+    }
+
     private static PatchHelperSnapshot CapturePatchHelpers(
         PatchFileSystem pfs,
         bool includeAssetOrder,
@@ -1022,6 +1029,13 @@ public partial class PatchService
         if (originalNames.SequenceEqual(modifiedOrderedNames, StringComparer.Ordinal))
             return;
 
+        if (resourceType.Equals("Scripts", StringComparison.OrdinalIgnoreCase))
+        {
+            helperForcedResourceTypes.Add(resourceType);
+            LogService.Log("[PatchService] Scripts: order changed, preserving asset order without exporting unchanged scripts");
+            return;
+        }
+
         PromoteResourceTypeToFullExport(changedNamesPerType, modifiedHashes, resourceType);
         if (forceHelpers)
         {
@@ -1390,6 +1404,9 @@ public partial class PatchService
             try
             {
                 var resourceTypesToProcess = BuildResourceTypesToProcess(pfs, manifest);
+                bool scriptOrderOnly = resourceTypesToProcess.Count == 0 && HasScriptOrderOnlyAssetPayload(pfs);
+                if (scriptOrderOnly)
+                    resourceTypesToProcess.Add("Scripts");
 
                 LogService.Log($"[PatchService] Resources to process: {string.Join(", ", resourceTypesToProcess)}");
 
@@ -1405,7 +1422,7 @@ public partial class PatchService
                     return new PatchApplyResult { Success = true };
                 }
 
-                if (CanUseMinimalStandardApply(applyPlan, resourceTypesToProcess))
+                if (!scriptOrderOnly && CanUseMinimalStandardApply(applyPlan, resourceTypesToProcess))
                 {
                     LogService.Log($"[PatchService] Applying only required resource functions: {string.Join(", ", resourceTypesToProcess)}");
                     int minimalAppliedCount = 0;
@@ -1512,7 +1529,7 @@ public partial class PatchService
 
                 int appliedCount = 0;
                 int failedCount = 0;
-                bool requiresFinalAssetReorder = applyPlan.RequiresAssetReorder;
+                bool requiresFinalAssetReorder = applyPlan.RequiresAssetReorder || scriptOrderOnly;
                 bool requiresHeavyFinalize = applyPlan.RequiresHeavyFinalize;
                 bool touchesTextureWorld = RequiresTextureMappingHelpers(resourceTypesToProcess)
                     || resourceTypesToProcess.Contains("EmbeddedTextures", StringComparer.OrdinalIgnoreCase)
@@ -1550,6 +1567,7 @@ public partial class PatchService
                 bool hasFontTexturePayload = needsFontTexturePreservation;
                 var localeArtSpritePayloads = needsLocaleArtPayloadScan ? CapturePatchedLocaleArtSpriteNames(pfs) : [];
                 string? codeMetadataForFinalCleanup = capturedVariablesFunctionsContent;
+                bool gmlCompilationRan = false;
 
                 nonCodeImportSw.Start();
                 foreach (var resourceType in resourceTypesToProcess)
@@ -1668,7 +1686,7 @@ public partial class PatchService
                         try
                         {
                             LogService.Log($"[PatchService] Using {pfs.GmlEntries.Count} GML + {pfs.AsmEntries.Count} ASM entries from PFS");
-                            ImportCodeEntriesDirect(data, pfs.GmlEntries, pfs.AsmEntries, pfs.AsmEntryPaths, pfs.CodeEntryLogicalNames, helpersDir, vfContent, objectEventsContent);
+                            ImportCodeEntriesDirect(data, pfs.GmlEntries, pfs.AsmEntries, pfs.AsmEntryPaths, pfs.CodeEntryLogicalNames, helpersDir, out gmlCompilationRan, vfContent, objectEventsContent);
                             if (hasDeferredScripts)
                             {
                                 ResourceImportService.Import("Scripts", data, "Scripts");
@@ -1826,6 +1844,8 @@ public partial class PatchService
                             ResourceImportService.SetPatchFileSystem(null);
                             finalReorderSw.Start();
                             ResourceImportService.ImportAssetOrder(data, finalReorderDir);
+                            if (scriptOrderOnly)
+                                appliedCount++;
                             finalReorderSw.Stop();
                             ResourceImportService.SetPatchFileSystem(pfs);
                         }
@@ -1848,7 +1868,7 @@ public partial class PatchService
 
                 if (capturedVariablesFunctionsContent != null && originalGmlForCodeRemap.Count > 0)
                 {
-                    RecompileUntouchedCodeForAssetOrderShifts(
+                    gmlCompilationRan |= RecompileUntouchedCodeForAssetOrderShifts(
                         data,
                         assetNamesAtCodeImportStart,
                         originalGmlForCodeRemap,
@@ -1875,9 +1895,12 @@ public partial class PatchService
                     ApplyAuthoritativeObjectEvents(data, Encoding.UTF8.GetString(capturedObjectEventsBytes), objectEventCodeFilter);
                     applyEventsSw.Stop();
                 }
-                PruneCodeEntriesOutsideTargetMetadata(
-                    data,
-                    codeMetadataForFinalCleanup ?? ReadCodeMetadataContent(pfs, helpersDir));
+                if (!gmlCompilationRan)
+                {
+                    PruneCodeEntriesOutsideTargetMetadata(
+                        data,
+                        codeMetadataForFinalCleanup ?? ReadCodeMetadataContent(pfs, helpersDir));
+                }
                 PruneDeletedScriptOrphans(data, manifest);
                 PruneMissingScriptCodeOrphans(data);
                 DataIntegrityResult? integrity = null;
@@ -2070,13 +2093,16 @@ public partial class PatchService
             try
             {
                 var resourceTypesToProcess = BuildResourceTypesToProcess(pfs, manifest);
+                bool scriptOrderOnly = resourceTypesToProcess.Count == 0 && HasScriptOrderOnlyAssetPayload(pfs);
+                if (scriptOrderOnly)
+                    resourceTypesToProcess.Add("Scripts");
 
                 LogService.Log($"[PatchService] Resources to process (in-memory): {string.Join(", ", resourceTypesToProcess)}");
 
                 if (resourceTypesToProcess.Count == 0)
                     return new PatchApplyResult { Success = true };
 
-                if (CanUseMinimalStandardApply(applyPlan, resourceTypesToProcess))
+                if (!scriptOrderOnly && CanUseMinimalStandardApply(applyPlan, resourceTypesToProcess))
                 {
                     LogService.Log($"[PatchService] Applying only required resource functions (in-memory): {string.Join(", ", resourceTypesToProcess)}");
                     int minimalAppliedCount = 0;
@@ -2159,7 +2185,7 @@ public partial class PatchService
 
                 int appliedCount = 0;
                 int failedCount = 0;
-                bool requiresFinalAssetReorder = applyPlan.RequiresAssetReorder;
+                bool requiresFinalAssetReorder = applyPlan.RequiresAssetReorder || scriptOrderOnly;
                 bool requiresHeavyFinalize = applyPlan.RequiresHeavyFinalize;
                 bool touchesTextureWorld = RequiresTextureMappingHelpers(resourceTypesToProcess)
                     || resourceTypesToProcess.Contains("EmbeddedTextures", StringComparer.OrdinalIgnoreCase)
@@ -2190,6 +2216,7 @@ public partial class PatchService
                 bool hasFontTexturePayload = needsFontTexturePreservation;
                 var localeArtSpritePayloads = needsLocaleArtPayloadScan ? CapturePatchedLocaleArtSpriteNames(pfs) : [];
                 string? codeMetadataForFinalCleanup = capturedVariablesFunctionsContent;
+                bool gmlCompilationRan = false;
 
                 nonCodeImportSw.Start();
                 foreach (var resourceType in resourceTypesToProcess)
@@ -2299,7 +2326,7 @@ public partial class PatchService
                         try
                         {
                             LogService.Log($"[PatchService] Using {pfs.GmlEntries.Count} GML + {pfs.AsmEntries.Count} ASM entries from PFS");
-                            ImportCodeEntriesDirect(data, pfs.GmlEntries, pfs.AsmEntries, pfs.AsmEntryPaths, pfs.CodeEntryLogicalNames, helpersDir, vfContent, objectEventsContent);
+                            ImportCodeEntriesDirect(data, pfs.GmlEntries, pfs.AsmEntries, pfs.AsmEntryPaths, pfs.CodeEntryLogicalNames, helpersDir, out gmlCompilationRan, vfContent, objectEventsContent);
                             if (hasDeferredScripts)
                             {
                                 ResourceImportService.Import("Scripts", data, "Scripts");
@@ -2448,6 +2475,8 @@ public partial class PatchService
                             ResourceImportService.SetPatchFileSystem(null);
                             finalReorderSw.Start();
                             ResourceImportService.ImportAssetOrder(data, finalReorderDir);
+                            if (scriptOrderOnly)
+                                appliedCount++;
                             finalReorderSw.Stop();
                             ResourceImportService.SetPatchFileSystem(pfs);
                         }
@@ -2486,15 +2515,9 @@ public partial class PatchService
                     ApplyAuthoritativeObjectEvents(data, Encoding.UTF8.GetString(capturedObjectEventsBytes), objectEventCodeFilter);
                     applyEventsSw.Stop();
                 }
-                PruneCodeEntriesOutsideTargetMetadata(
-                    data,
-                    codeMetadataForFinalCleanup ?? ReadCodeMetadataContent(pfs, helpersDir));
-                PruneDeletedScriptOrphans(data, manifest);
-                PruneMissingScriptCodeOrphans(data);
-
                 if (capturedVariablesFunctionsContent != null && originalGmlForCodeRemap.Count > 0)
                 {
-                    RecompileUntouchedCodeForAssetOrderShifts(
+                    gmlCompilationRan |= RecompileUntouchedCodeForAssetOrderShifts(
                         data,
                         assetNamesAtCodeImportStart,
                         originalGmlForCodeRemap,
@@ -2502,6 +2525,14 @@ public partial class PatchService
                         helpersDir,
                         capturedVariablesFunctionsContent);
                 }
+                if (!gmlCompilationRan)
+                {
+                    PruneCodeEntriesOutsideTargetMetadata(
+                        data,
+                        codeMetadataForFinalCleanup ?? ReadCodeMetadataContent(pfs, helpersDir));
+                }
+                PruneDeletedScriptOrphans(data, manifest);
+                PruneMissingScriptCodeOrphans(data);
 
                 DataIntegrityResult? integrity = null;
                 if (requiresHeavyFinalize)
@@ -2815,25 +2846,17 @@ public partial class PatchService
             {
                 var codeName = code?.Name?.Content;
                 if (string.IsNullOrEmpty(codeName) ||
-                    code!.ParentEntry != null ||
                     !codeName.StartsWith("gml_Script_", StringComparison.Ordinal) ||
-                    codeName.StartsWith("gml_Script_anon_", StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                var scriptName = codeName["gml_Script_".Length..];
-                if (string.IsNullOrEmpty(scriptName) ||
-                    scriptNames.Contains(codeName) ||
-                    !scriptNames.Add(scriptName))
+                    !scriptNames.Add(codeName))
                 {
                     continue;
                 }
 
                 data.Scripts.Add(new UndertaleScript
                 {
-                    Name = data.Strings.MakeString(scriptName),
-                    Code = code
+                    Name = data.Strings.MakeString(codeName),
+                    Code = code,
+                    IsConstructor = codeName.StartsWith("gml_Script____struct___", StringComparison.Ordinal)
                 });
                 created++;
             }
@@ -4033,6 +4056,10 @@ public partial class PatchService
         if (data.Code == null || data.Functions == null)
             return;
 
+        int reordered = ReorderLocalChildFunctions(data);
+        if (reordered > 0)
+            LogService.Log($"[PatchService] Restored local child Function order for {reordered} table slot(s)");
+
         var codeByName = new Dictionary<string, UndertaleCode>(StringComparer.Ordinal);
         foreach (var code in data.Code)
         {
@@ -4196,6 +4223,56 @@ public partial class PatchService
             LogService.Log($"[PatchService] Removed {pruned} detached local child Function entries");
     }
 
+    private static int ReorderLocalChildFunctions(UndertaleData data)
+    {
+        var functionByName = new Dictionary<string, UndertaleFunction>(StringComparer.Ordinal);
+        foreach (var function in data.Functions)
+        {
+            var name = function?.Name?.Content;
+            if (!string.IsNullOrEmpty(name) && function != null)
+                functionByName.TryAdd(name, function);
+        }
+
+        int reordered = 0;
+        foreach (var parent in data.Code)
+        {
+            if (parent?.ParentEntry != null || parent?.ChildEntries == null)
+                continue;
+
+            var expected = new List<UndertaleFunction>();
+            foreach (var child in parent.ChildEntries)
+            {
+                var name = child?.Name?.Content;
+                if (!string.IsNullOrEmpty(name) &&
+                    IsLocalChildFunctionName(name) &&
+                    functionByName.TryGetValue(name, out var function))
+                {
+                    expected.Add(function);
+                }
+            }
+            if (expected.Count < 2)
+                continue;
+
+            var expectedSet = new HashSet<UndertaleFunction>(expected);
+            var slots = Enumerable.Range(0, data.Functions.Count)
+                .Where(index => expectedSet.Contains(data.Functions[index]))
+                .ToList();
+            if (slots.Count != expected.Count)
+                continue;
+
+            for (int index = 0; index < slots.Count; index++)
+            {
+                if (ReferenceEquals(data.Functions[slots[index]], expected[index]))
+                    continue;
+
+                data.Functions[slots[index]] = expected[index];
+                reordered++;
+            }
+        }
+
+        return reordered;
+    }
+
     private static int PruneDetachedLocalStructFunctions(
         UndertaleData data,
         IReadOnlyDictionary<string, UndertaleCode> codeByName)
@@ -4293,7 +4370,7 @@ public partial class PatchService
         return names;
     }
 
-    private static void RecompileUntouchedCodeForAssetOrderShifts(
+    private static bool RecompileUntouchedCodeForAssetOrderShifts(
         UndertaleData data,
         Dictionary<string, List<string>> originalAssetNames,
         Dictionary<string, string> originalGmlByCodeName,
@@ -4303,7 +4380,7 @@ public partial class PatchService
     {
         var shiftedNames = GetShiftedAssetNames(originalAssetNames, CaptureAssetNamesForCodeRemap(data));
         if (shiftedNames.Count == 0)
-            return;
+            return false;
 
         var gmlToRecompile = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var (codeName, gml) in originalGmlByCodeName)
@@ -4318,7 +4395,7 @@ public partial class PatchService
         }
 
         if (gmlToRecompile.Count == 0)
-            return;
+            return false;
 
         LogService.Log($"[PatchService] Recompiling {gmlToRecompile.Count} untouched code entries for shifted asset indices ({shiftedNames.Count} shifted asset name(s))");
         ImportCodeEntriesDirect(
@@ -4328,8 +4405,10 @@ public partial class PatchService
             null,
             null,
             helpersDir,
+            out bool gmlCompilationRan,
             variablesFunctionsContent,
             null);
+        return gmlCompilationRan;
     }
 
     private static HashSet<string> GetShiftedAssetNames(
@@ -4435,12 +4514,13 @@ public partial class PatchService
         Dictionary<string, string>? asmEntryPaths,
         Dictionary<string, string>? codeEntryLogicalNames,
         string helpersDir,
+        out bool gmlCompilationRan,
         string? vfContentOverride = null,
         string? objectEventsContentOverride = null)
     {
         lock (s_codeImportLock)
         {
-            ImportCodeEntriesDirectCore(data, gmlEntries, asmEntries, asmEntryPaths, codeEntryLogicalNames, helpersDir, vfContentOverride, objectEventsContentOverride);
+            ImportCodeEntriesDirectCore(data, gmlEntries, asmEntries, asmEntryPaths, codeEntryLogicalNames, helpersDir, out gmlCompilationRan, vfContentOverride, objectEventsContentOverride);
         }
     }
 
@@ -4451,9 +4531,11 @@ public partial class PatchService
         Dictionary<string, string>? asmEntryPaths,
         Dictionary<string, string>? codeEntryLogicalNames,
         string helpersDir,
+        out bool gmlCompilationRan,
         string? vfContentOverride = null,
         string? objectEventsContentOverride = null)
     {
+        gmlCompilationRan = false;
         var sw = Stopwatch.StartNew();
         var phaseSw = new Stopwatch();
 
@@ -4808,6 +4890,7 @@ public partial class PatchService
         if (hasQueuedGmlCompilation)
         {
             LogService.Log($"[ImportCodeEntries] Compiling {regularCount + collisionCount} code entries...");
+            gmlCompilationRan = true;
             var compileResult = importGroup!.Import(throwOnFailedCompile: false);
             if (!compileResult.Successful)
             {
@@ -5179,8 +5262,10 @@ public partial class PatchService
 
         // === Phase 5: Reconcile functions against TARGET ===
         var functionReconcileSw = Stopwatch.StartNew();
-        if (hasFunctionVariableTables)
+        if (hasFunctionVariableTables && !gmlCompilationRan)
             ApplyTargetFunctionVariableTables(data, root, "postcompile");
+        else if (hasFunctionVariableTables)
+            LogService.Log("[ImportCodeEntries] Function/variable reconciliation skipped after GML compilation");
         functionReconcileSw.Stop();
         LogService.Log($"[ImportCodeEntries] Function reconciliation phase complete in {functionReconcileSw.Elapsed.TotalSeconds:F2}s");
         Dictionary<string, UndertaleString>? codeImportStringLookup = null;
@@ -5523,6 +5608,7 @@ public partial class PatchService
 
         if (asmGmlFallbackEntries.Count > 0)
         {
+            gmlCompilationRan = true;
             int fallbackFailed = RetryGmlOnlyCodeEntriesIndividually(
                 data,
                 asmGmlFallbackEntries,
@@ -5613,7 +5699,8 @@ public partial class PatchService
         if (hasCompleteCodeEntryMetadata)
         {
             ReorderCodeEntriesFromTargetMetadata(data, targetCodeEntriesByKey);
-            PruneCodeEntriesOutsideTargetMetadata(data, targetCodeEntriesByKey);
+            if (!gmlCompilationRan)
+                PruneCodeEntriesOutsideTargetMetadata(data, targetCodeEntriesByKey);
         }
 
         archiveCodeLookup = BuildArchiveCodeLookup(data);
