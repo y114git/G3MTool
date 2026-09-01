@@ -4,6 +4,7 @@ using System.CommandLine.Parsing;
 using G3MToolCLI.Commands;
 using G3MToolCLI.Services;
 using G3MToolCLI.Utils;
+using UndertaleModLib.Decompiler;
 
 namespace G3MToolCLI;
 
@@ -14,6 +15,8 @@ class Program
 
     static async Task<int> Main(string[] args)
     {
+        GameSpecificResolver.BaseDirectory = PlatformUtil.GetExecutableDirectory();
+
         var rootCommand = new RootCommand("Create, apply, merge, inspect, and compare GameMaker data-file patches.")
         {
             Name = "G3MTool"
