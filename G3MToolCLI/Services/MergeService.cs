@@ -1082,6 +1082,17 @@ public static partial class MergeService
                         continue;
                     }
 
+                    if (filePath.Equals("GeneralInfo/GeneralInfo.json", StringComparison.OrdinalIgnoreCase) &&
+                        TryMergeGeneralInfo(originalData, existingData, fileData) is { } mergedGeneralInfo)
+                    {
+                        finalPfs.AddFile(filePath, mergedGeneralInfo);
+                        var prevOwner = fileOwner.GetValueOrDefault(filePath, "?");
+                        fileOwner[filePath] = $"{prevOwner} + {patchName}";
+                        conflicts.Add(new ConflictEntry(filePath, "Resolved", "GeneralInfo Merge",
+                            $"{prevOwner} + {patchName}", null));
+                        continue;
+                    }
+
                     if (options.UsePropertyMerge && filePath.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
                     {
                         try
@@ -3853,6 +3864,35 @@ public static partial class MergeService
         }
     }
 
+    private static byte[]? TryMergeGeneralInfo(
+        UndertaleData originalData,
+        byte[] existingBytes,
+        byte[] incomingBytes)
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"g3m_base_json_{Guid.NewGuid():N}");
+        try
+        {
+            ResourceExportService.ExportGeneralInfo(originalData, tempDir);
+            var basePath = Path.Combine(tempDir, "GeneralInfo", "GeneralInfo.json");
+            if (!File.Exists(basePath))
+                return null;
+
+            var baseNode = ParseJsonObject(File.ReadAllBytes(basePath));
+            var existingNode = ParseJsonObject(existingBytes);
+            var incomingNode = ParseJsonObject(incomingBytes);
+            if (baseNode == null || existingNode == null || incomingNode == null ||
+                HasThreeWayJsonConflict(baseNode, existingNode, incomingNode))
+                return null;
+
+            var merged = ThreeWayMergeJsonObjects(baseNode, existingNode, incomingNode);
+            return Encoding.UTF8.GetBytes(merged.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        }
+        finally
+        {
+            try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true); } catch { }
+        }
+    }
+
     private static byte[]? TryThreeWayExportedJsonMerge(
         byte[] existingBytes,
         byte[] incomingBytes,
@@ -4092,6 +4132,35 @@ public static partial class MergeService
         }
 
         return result;
+    }
+
+    private static bool HasThreeWayJsonConflict(JsonNode? baseNode, JsonNode? oursNode, JsonNode? theirsNode)
+    {
+        if (JsonNodeDeepEquals(oursNode, theirsNode) ||
+            JsonNodeDeepEquals(oursNode, baseNode) ||
+            JsonNodeDeepEquals(theirsNode, baseNode))
+            return false;
+
+        if (baseNode is JsonObject baseObject &&
+            oursNode is JsonObject oursObject &&
+            theirsNode is JsonObject theirsObject)
+        {
+            var keys = baseObject.Select(p => p.Key)
+                .Concat(oursObject.Select(p => p.Key))
+                .Concat(theirsObject.Select(p => p.Key))
+                .Distinct(StringComparer.Ordinal);
+            foreach (var key in keys)
+            {
+                baseObject.TryGetPropertyValue(key, out var baseValue);
+                oursObject.TryGetPropertyValue(key, out var oursValue);
+                theirsObject.TryGetPropertyValue(key, out var theirsValue);
+                if (HasThreeWayJsonConflict(baseValue, oursValue, theirsValue))
+                    return true;
+            }
+            return false;
+        }
+
+        return true;
     }
 
     private static JsonArray ThreeWayMergeJsonArrays(JsonArray baseArray, JsonArray oursArray, JsonArray theirsArray)

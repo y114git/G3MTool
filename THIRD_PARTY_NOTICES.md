@@ -18,7 +18,8 @@ If you redistribute a release archive, include:
 - Upstream license: Apache-2.0
 - Local binaries bundled in:
   - `G3MToolCLI/Assets/bin/linux/xdelta`
-  - `G3MToolCLI/Assets/bin/mac/xdelta`
+  - `G3MToolCLI/Assets/bin/mac-arm64/xdelta`
+  - `G3MToolCLI/Assets/bin/mac-x64/xdelta`
   - `G3MToolCLI/Assets/bin/win/xdelta.exe`
 - License text: `licenses/Apache-2.0.txt`
 

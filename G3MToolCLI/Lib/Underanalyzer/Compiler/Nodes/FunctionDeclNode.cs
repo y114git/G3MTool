@@ -66,10 +66,10 @@ internal sealed class FunctionDeclNode : IMaybeStatementASTNode
     /// <inheritdoc/>
     public IToken? NearbyToken { get; }
 
-    private FunctionDeclNode(FunctionScope scope, IToken? token, string? functionName, 
-                             List<string> argumentNames, BlockNode? defaultValueBlock, BlockNode body,
-                             SimpleFunctionCallNode? inheritanceCall,
-                             bool isStruct, bool isConstructor)
+    private FunctionDeclNode(FunctionScope scope, IToken? token, string? functionName,
+                            List<string> argumentNames, BlockNode? defaultValueBlock, BlockNode body,
+                            SimpleFunctionCallNode? inheritanceCall,
+                            bool isStruct, bool isConstructor)
     {
         Scope = scope;
         NearbyToken = token;
@@ -394,12 +394,16 @@ internal sealed class FunctionDeclNode : IMaybeStatementASTNode
                     context.CompileContext.PushError("Struct field name must start with a-z, A-Z, or _ in this GameMaker version", variable);
                 }
             }
-            else if (modernSpecialCaseNames && !parsedStringName && (variableName == "self" || variableName == "other"))
+            else if (modernSpecialCaseNames && !parsedStringName && VMConstants.ModernDisallowedStructKeywords.Contains(variableName))
+            {
+                context.CompileContext.PushError("Invalid keyword used for struct field name, must surround with quotes", variable);
+            }
+            else if (modernSpecialCaseNames && (variableName == "self" || variableName == "other"))
             {
                 DotVariableNode destination = new(
-                    new SimpleFunctionCallNode(VMConstants.SelfFunction, 
-                                               context.CompileContext.GameContext.Builtins.LookupBuiltinFunction(VMConstants.SelfFunction), 
-                                               []),
+                    new SimpleFunctionCallNode(VMConstants.SelfFunction,
+                                            context.CompileContext.GameContext.Builtins.LookupBuiltinFunction(VMConstants.SelfFunction),
+                                            []),
                     false,
                     variable);
                 block.Children.Add(new AssignNode(AssignNode.AssignKind.Normal, destination, value));

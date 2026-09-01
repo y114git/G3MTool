@@ -10,6 +10,7 @@ public static class PlatformUtil
         public required string Path { get; init; }
         public bool IsTemporary { get; init; }
         public string? TempDirectory { get; init; }
+        public string? DynamicLibraryDirectory { get; init; }
     }
 
     public static string GetPlatformName()
@@ -19,7 +20,7 @@ public static class PlatformUtil
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             return "linux";
         if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-            return "mac";
+            return RuntimeInformation.OSArchitecture == Architecture.Arm64 ? "mac-arm64" : "mac-x64";
 
         return "unknown";
     }
@@ -70,7 +71,7 @@ public static class PlatformUtil
     private static XDeltaPathInfo? ExtractXDeltaFromResource(string platform, string exeName)
     {
         var assembly = Assembly.GetExecutingAssembly();
-        var resourceName = $"G3MToolCLI.Assets.bin.{platform}.{exeName}";
+        var resourceName = $"G3MToolCLI.Assets.bin.{platform.Replace('-', '_')}.{exeName}";
 
         using var stream = assembly.GetManifestResourceStream(resourceName);
         if (stream == null)
