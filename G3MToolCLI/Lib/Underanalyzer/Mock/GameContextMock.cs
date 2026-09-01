@@ -1,4 +1,4 @@
-/*
+﻿/*
   This Source Code Form is subject to the terms of the Mozilla Public
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -85,6 +85,8 @@ public class GameContextMock : IGameContext
     /// <inheritdoc/>
     public bool UsingFixedDefaultArgumentFunctionDecls { get; set; } = false;
     /// <inheritdoc/>
+    public bool UsingNewNullishAssignSideEffects { get; set; } = false;
+    /// <inheritdoc/>
     public IGlobalFunctions GlobalFunctions { get; } = new GlobalFunctions();
     /// <inheritdoc/>
     public GameSpecificRegistry GameSpecificRegistry { get; set; } = new();
@@ -140,7 +142,7 @@ public class GameContextMock : IGameContext
             _mockScriptsByName[assetName] = id;
         }
     }
-
+    
     /// <summary>
     /// Fetches an asset from <see cref="_mockAssetsByType"/>.
     /// </summary>
@@ -160,7 +162,7 @@ public class GameContextMock : IGameContext
         }
         return null;
     }
-
+    
     /// <inheritdoc/>
     public string? GetAssetName(AssetType assetType, int assetIndex)
     {

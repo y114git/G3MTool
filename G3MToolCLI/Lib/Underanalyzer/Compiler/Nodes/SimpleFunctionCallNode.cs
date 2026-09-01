@@ -1,4 +1,4 @@
-/*
+﻿/*
   This Source Code Form is subject to the terms of the Mozilla Public
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -70,8 +70,8 @@ internal sealed class SimpleFunctionCallNode : IMaybeStatementASTNode
     public static SimpleFunctionCallNode ParseArrayLiteral(ParseContext context)
     {
         List<IASTNode> arguments = new(16);
-        SimpleFunctionCallNode result = new(VMConstants.NewArrayFunction,
-                                            context.CompileContext.GameContext.Builtins.LookupBuiltinFunction(VMConstants.NewArrayFunction),
+        SimpleFunctionCallNode result = new(VMConstants.NewArrayFunction, 
+                                            context.CompileContext.GameContext.Builtins.LookupBuiltinFunction(VMConstants.NewArrayFunction), 
                                             arguments);
 
         while (!context.EndOfCode && !context.IsCurrentToken(SeparatorKind.ArrayClose))
@@ -134,8 +134,8 @@ internal sealed class SimpleFunctionCallNode : IMaybeStatementASTNode
         string templateStringFunction = context.CompileContext.GameContext.UsingModernTemplateStrings ?
             VMConstants.ModernTemplateStringFunction : VMConstants.TemplateStringFunction;
         SimpleFunctionCallNode result = new(
-            templateStringFunction,
-            context.CompileContext.GameContext.Builtins.LookupBuiltinFunction(templateStringFunction),
+            templateStringFunction, 
+            context.CompileContext.GameContext.Builtins.LookupBuiltinFunction(templateStringFunction), 
             arguments
         );
 
@@ -401,7 +401,7 @@ internal sealed class SimpleFunctionCallNode : IMaybeStatementASTNode
                         value = hex;
                         break;
                     }
-
+                    
                     // Hex failed to parse
                     context.CompileContext.PushError($"Failed to convert \"{stringNode.Value}\" to real number", NearbyToken);
                     return this;
@@ -490,8 +490,8 @@ internal sealed class SimpleFunctionCallNode : IMaybeStatementASTNode
 
         // Create a variable hash node!
         return new VariableHashNode(
-            str.Value,
-            context.CompileContext.GameContext.Builtins.LookupBuiltinVariable(str.Value) is not null,
+            str.Value, 
+            context.CompileContext.GameContext.Builtins.LookupBuiltinVariable(str.Value) is not null, 
             str.NearbyToken);
     }
 

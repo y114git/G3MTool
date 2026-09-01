@@ -1,4 +1,4 @@
-/*
+﻿/*
   This Source Code Form is subject to the terms of the Mozilla Public
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -14,8 +14,8 @@ namespace Underanalyzer.Decompiler.AST;
 /// <summary>
 /// Represents a variable reference in the AST.
 /// </summary>
-public class VariableNode(IGMVariable variable, VariableType referenceType, IExpressionNode left,
-                          List<IExpressionNode>? arrayIndices = null, bool regularPush = false)
+public class VariableNode(IGMVariable variable, VariableType referenceType, IExpressionNode left, 
+                          List<IExpressionNode>? arrayIndices = null, bool regularPush = false) 
     : IExpressionNode, IMacroTypeNode, IConditionalValueNode
 {
     /// <summary>
@@ -48,7 +48,7 @@ public class VariableNode(IGMVariable variable, VariableType referenceType, IExp
     /// Meant for tracking obscure compiler quirks.
     /// </summary>
     public bool ForceSelf { get; set; } = false;
-
+    
     /// <inheritdoc/>
     public bool Duplicated { get; set; } = false;
 
@@ -317,7 +317,7 @@ public class VariableNode(IGMVariable variable, VariableType referenceType, IExp
                     // Parent scope of the hoist is where the local is actually declared.
                     hoistScope.Parent?.DeclaredLocals?.Add(localName);
                 }
-            }
+            }    
         }
 
         return this;
@@ -352,7 +352,7 @@ public class VariableNode(IGMVariable variable, VariableType referenceType, IExp
                 {
                     case (int)InstanceType.Self:
                     case (int)InstanceType.Builtin:
-                        if (ForceSelf ||
+                        if (ForceSelf || 
                             (value == (int)InstanceType.Self && ArrayIndices is null && printer.Context.GameContext.UsingSelfToBuiltin) ||
                             leftInstType is { FromBuiltinFunction: true } ||
                             printer.LocalVariableNames.Contains(Variable.Name.Content) ||
@@ -495,7 +495,7 @@ public class VariableNode(IGMVariable variable, VariableType referenceType, IExp
                     return true;
                 }
                 else if (value >= 0)
-                {
+                {    
                     // Check if we have an object asset name to use
                     string? objectName = printer.Context.GameContext.GetAssetName(AssetType.Object, value);
                     if (objectName is null)
@@ -597,7 +597,7 @@ public class VariableNode(IGMVariable variable, VariableType referenceType, IExp
     }
 
     /// <summary>
-    /// Returns true if the variable is "simple," meaning that it can be referenced with
+    /// Returns true if the variable is "simple," meaning that it can be referenced with 
     /// one instruction, or false otherwise.
     /// </summary>
     /// <remarks>

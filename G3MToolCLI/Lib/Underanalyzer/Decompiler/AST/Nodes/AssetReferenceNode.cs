@@ -87,6 +87,10 @@ public class AssetReferenceNode(int assetId, AssetType assetType) : IExpressionN
         {
             return conditional.Resolve(cleaner, this);
         }
+        if (type is AssetMacroType { Type: AssetType.AudioGroup } typeAudioGroup && AssetType == AssetType.Sound)
+        {
+            return typeAudioGroup.Resolve(cleaner, this, AssetId);
+        }
         return null;
     }
 

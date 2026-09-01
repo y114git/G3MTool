@@ -1,4 +1,4 @@
-/*
+﻿/*
   This Source Code Form is subject to the terms of the Mozilla Public
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -219,7 +219,7 @@ internal sealed class LexContext : ISubCompileContext
                     {
                         // Make sure to post-process the contents of the macro itself, now
                         i--;
-
+                        
                         // Push existing macro expansion endings back by however many tokens we just added
                         for (int j = 0; j < macroExpansionEnd.Count; j++)
                         {

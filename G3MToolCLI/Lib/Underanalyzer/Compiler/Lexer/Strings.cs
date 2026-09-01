@@ -1,4 +1,4 @@
-/*
+﻿/*
   This Source Code Form is subject to the terms of the Mozilla Public
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -25,7 +25,7 @@ internal static class Strings
             // Modern verbatim string; advance by one character
             startChar = context.Text[pos + 1];
             pos++;
-        }
+        }    
 
         pos = ContiguousTextReader.ReadUntilChar(context.Text, pos + 1, startChar, out ReadOnlySpan<char> str);
 
@@ -134,12 +134,12 @@ internal static class Strings
             context.CompileContext.PushError("String not closed", context, startPosition);
             return pos;
         }
-
+        
         context.Tokens.Add(new TokenTemplateStringEnd(context, pos));
 
         return pos + 1;
     }
-
+    
     /// <summary>
     /// Parses a single character within a string, appending it to the supplied StringBuilder, and returning the new text position.
     /// </summary>
@@ -307,7 +307,7 @@ internal static class Strings
     }
 
     /// <summary>
-    /// Converts a hex character to its integer equivalent, or -1 if not a valid hex digit.
+    /// Converts a hex character to its integer equivalent, or -1 if not a valid hex digit. 
     /// </summary>
     private static int HexCharToInt(char c)
     {

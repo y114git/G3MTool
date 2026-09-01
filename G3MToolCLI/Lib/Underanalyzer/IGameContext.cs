@@ -1,4 +1,4 @@
-/*
+﻿/*
   This Source Code Form is subject to the terms of the Mozilla Public
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -29,7 +29,13 @@ public enum AssetType
     Sequence,
     AnimCurve,
     ParticleSystem,
-    RoomInstance
+    RoomInstance,
+
+    /// <remarks>
+    /// This asset type overlaps with <see cref="Sound"/> in official GameMaker.
+    /// It is distinguished here, as it can be useful for decompilation purposes.
+    /// </remarks>
+    AudioGroup
 }
 
 /// <summary>
@@ -186,7 +192,7 @@ public interface IGameContext
     public bool UsingGlobalConstantFunction { get; }
 
     /// <summary>
-    /// <see langword="true"/> if the compiler is aware of functions before they are declared in the same object code event entry (this is
+    /// <see langword="true"/> if the compiler is aware of functions before they are declared in the same object code event entry (this is 
     /// always true for global scripts &amp; room creation code); <see langword="false"/> otherwise.
     /// </summary>
     /// <remarks>
@@ -250,6 +256,14 @@ public interface IGameContext
     public bool UsingFixedDefaultArgumentFunctionDecls { get; }
 
     /// <summary>
+    /// <see langword="true"/> if the game uses improved side effect handling in nullish coalesce assignments; <see langword="false"/> otherwise.
+    /// </summary>
+    /// <remarks>
+    /// This code generation change was introduced in GameMaker 2026.1 (after the initial 2026 LTS release).
+    /// </remarks>
+    public bool UsingNewNullishAssignSideEffects { get; }
+
+    /// <summary>
     /// Interface for getting global functions.
     /// Can be custom, or can use the provided implementation of <see cref="Decompiler.GlobalFunctions"/>.
     /// This should not be modified during decompilation.
@@ -279,7 +293,7 @@ public interface IGameContext
     public string? GetAssetName(AssetType assetType, int assetIndex);
 
     /// <summary>
-    /// Returns the ID of an asset, if one exists. If <see cref="UsingAssetReferences"/> is <see langword="true"/>,
+    /// Returns the ID of an asset, if one exists. If <see cref="UsingAssetReferences"/> is <see langword="true"/>, 
     /// this ID encodes the correct asset type as well.
     /// </summary>
     /// <remarks>
@@ -291,7 +305,7 @@ public interface IGameContext
     public bool GetAssetId(string assetName, out int assetId);
 
     /// <summary>
-    /// Returns the ID of a room instance asset, if one exists. If <see cref="UsingRoomInstanceReferences"/> is <see langword="true"/>,
+    /// Returns the ID of a room instance asset, if one exists. If <see cref="UsingRoomInstanceReferences"/> is <see langword="true"/>, 
     /// this ID encodes the correct asset type as well.
     /// </summary>
     /// <param name="roomInstanceName">Room instance name to look up</param>
@@ -300,7 +314,7 @@ public interface IGameContext
     public bool GetRoomInstanceId(string roomInstanceName, out int assetId);
 
     /// <summary>
-    /// Returns the asset ID of a script, if one exists. If <see cref="UsingAssetReferences"/> is <see langword="true"/>,
+    /// Returns the asset ID of a script, if one exists. If <see cref="UsingAssetReferences"/> is <see langword="true"/>, 
     /// this ID encodes the correct script asset type as well.
     /// </summary>
     /// <param name="scriptName">Script name to look up</param>
@@ -309,7 +323,7 @@ public interface IGameContext
     public bool GetScriptId(string scriptName, out int assetId);
 
     /// <summary>
-    /// Returns the asset ID of a script from its global function name, if one exists. If <see cref="UsingAssetReferences"/> is <see langword="true"/>,
+    /// Returns the asset ID of a script from its global function name, if one exists. If <see cref="UsingAssetReferences"/> is <see langword="true"/>, 
     /// this ID encodes the correct script asset type as well.
     /// </summary>
     /// <param name="functionName">Global function name to look up</param>

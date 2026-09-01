@@ -1,4 +1,4 @@
-/*
+﻿/*
   This Source Code Form is subject to the terms of the Mozilla Public
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -66,7 +66,7 @@ internal sealed class FunctionDeclNode : IMaybeStatementASTNode
     /// <inheritdoc/>
     public IToken? NearbyToken { get; }
 
-    private FunctionDeclNode(FunctionScope scope, IToken? token, string? functionName,
+    private FunctionDeclNode(FunctionScope scope, IToken? token, string? functionName, 
                              List<string> argumentNames, BlockNode? defaultValueBlock, BlockNode body,
                              SimpleFunctionCallNode? inheritanceCall,
                              bool isStruct, bool isConstructor)
@@ -287,6 +287,7 @@ internal sealed class FunctionDeclNode : IMaybeStatementASTNode
         // Read assignments from struct literal
         while (!context.EndOfCode && !context.IsCurrentToken(SeparatorKind.BlockClose, KeywordKind.End))
         {
+            bool parsedStringName = false;
             if (context.Tokens[context.Position] is not TokenVariable variable)
             {
                 // Failed to find a variable here... check if a constant/asset reference, string, or keyword
@@ -301,6 +302,7 @@ internal sealed class FunctionDeclNode : IMaybeStatementASTNode
                 else if (context.Tokens[context.Position] is TokenString str)
                 {
                     variable = new TokenVariable(str);
+                    parsedStringName = true;
                 }
                 else if (context.Tokens[context.Position] is TokenKeyword keyword)
                 {
@@ -392,16 +394,19 @@ internal sealed class FunctionDeclNode : IMaybeStatementASTNode
                     context.CompileContext.PushError("Struct field name must start with a-z, A-Z, or _ in this GameMaker version", variable);
                 }
             }
-            // Reserved field names are valid here; the decompiler emits them as quoted struct keys.
-            else if (modernSpecialCaseNames && (variableName == "self" || variableName == "other"))
+            else if (modernSpecialCaseNames && !parsedStringName && (variableName == "self" || variableName == "other"))
             {
                 DotVariableNode destination = new(
-                    new SimpleFunctionCallNode(VMConstants.SelfFunction,
-                                            context.CompileContext.GameContext.Builtins.LookupBuiltinFunction(VMConstants.SelfFunction),
-                                            []),
+                    new SimpleFunctionCallNode(VMConstants.SelfFunction, 
+                                               context.CompileContext.GameContext.Builtins.LookupBuiltinFunction(VMConstants.SelfFunction), 
+                                               []),
                     false,
                     variable);
                 block.Children.Add(new AssignNode(AssignNode.AssignKind.Normal, destination, value));
+            }
+            else if (!modernSpecialCaseNames && !parsedStringName && VMConstants.OldDisallowedStructKeywords.Contains(variableName))
+            {
+                context.CompileContext.PushError("Invalid keyword used for struct field name in this GameMaker version, must surround with quotes", variable);
             }
             else
             {

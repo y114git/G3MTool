@@ -1,4 +1,4 @@
-/*
+﻿/*
   This Source Code Form is subject to the terms of the Mozilla Public
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -32,12 +32,12 @@ internal sealed class AccessorNode : IAssignableASTNode
     /// <summary>
     /// Expression inside of the accessor itself.
     /// </summary>
-    public IASTNode AccessorExpression { get; private set; }
+    public IASTNode AccessorExpression { get; set; }
 
     /// <summary>
     /// Second expression inside of the accessor itself, if applicable.
     /// </summary>
-    public IASTNode? AccessorExpression2 { get; private set; }
+    public IASTNode? AccessorExpression2 { get; set; }
 
     /// <inheritdoc/>
     public IToken? NearbyToken { get; }
@@ -201,7 +201,7 @@ internal sealed class AccessorNode : IAssignableASTNode
 
             // Use variable's instance type
             instanceType = simpleVariable.ExplicitInstanceType;
-
+            
             // Other becomes Self for arrays in particular
             if (instanceType == InstanceType.Other)
             {
