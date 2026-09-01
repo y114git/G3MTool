@@ -28,7 +28,7 @@
     <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
 
     <!-- Roslyn scripting -->
-    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Scripting" Version="5.6.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Scripting" Version="5.9.0" />
 
     <!-- System.Text.Json is included in .NET 10 by default -->
 
@@ -43,8 +43,11 @@
   <ItemGroup Condition="$(RuntimeIdentifier.StartsWith('linux'))">
     <EmbeddedResource Include="Assets\bin\linux\**\*" />
   </ItemGroup>
-  <ItemGroup Condition="$(RuntimeIdentifier.StartsWith('osx'))">
-    <EmbeddedResource Include="Assets\bin\mac\**\*" />
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'osx-arm64'">
+    <EmbeddedResource Include="Assets\bin\mac-arm64\**\*" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'osx-x64'">
+    <EmbeddedResource Include="Assets\bin\mac-x64\**\*" />
   </ItemGroup>
 
   <!-- Embed scripts -->
