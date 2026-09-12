@@ -1,16 +1,13 @@
-
-
-
 using System;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Collections.Generic;
-using UndertaleModLib;
-using UndertaleModLib.Models;
-using static UndertaleModLib.Models.UndertaleSound;
-using static UndertaleModLib.UndertaleData;
+using G3MLib.DataFile;
+using G3MLib.DataFile.Models;
+using static G3MLib.DataFile.Models.GameMakerSound;
+using static G3MLib.DataFile.GameMakerData;
 
 
 
@@ -23,7 +20,7 @@ string GetInputDirectory()
     if (string.IsNullOrEmpty(inputDir))
         throw new Exception("InputDir is not set.");
     if (!Directory.Exists(inputDir))
-        throw new Exception($"INPUT_DIR directory does not exist: {inputDir}");
+        throw new Exception($"Input directory does not exist: {inputDir}");
     return inputDir;
 }
 
@@ -114,13 +111,13 @@ foreach (string soundName in soundDirs)
             continue;
         }
 
-        UndertaleSound sound = Data.Sounds.ByName(soundName);
+        GameMakerSound sound = Data.Sounds.ByName(soundName);
         bool isNew = false;
 
         if (sound == null)
         {
 
-            sound = new UndertaleSound();
+            sound = new GameMakerSound();
             sound.Name = Data.Strings.MakeString(soundName);
             sound.File = Data.Strings.MakeString(soundName + (isOGG ? ".ogg" : ".wav"));
             sound.Type = isOGG ? Data.Strings.MakeString(".ogg") : Data.Strings.MakeString(".wav");
@@ -134,7 +131,7 @@ foreach (string soundName in soundDirs)
             }
 
 
-            sound.AudioFile = new UndertaleEmbeddedAudio();
+            sound.AudioFile = new GameMakerEmbeddedAudio();
             sound.AudioFile.Data = audioData;
 
 
@@ -157,7 +154,7 @@ foreach (string soundName in soundDirs)
 
             if (sound.AudioFile == null)
             {
-                sound.AudioFile = new UndertaleEmbeddedAudio();
+                sound.AudioFile = new GameMakerEmbeddedAudio();
                 Data.EmbeddedAudio.Add(sound.AudioFile);
                 sound.AudioID = Data.EmbeddedAudio.Count - 1;
             }
@@ -205,7 +202,7 @@ foreach (string soundName in soundDirs)
 
 PrintLine($"[ImportSounds] Summary: {imported} imported ({created} new, {metadataApplied} with metadata), {skipped} skipped");
 
-void ApplyMetadata(UndertaleSound sound, string metaFile)
+void ApplyMetadata(GameMakerSound sound, string metaFile)
 {
     string jsonContent = File.ReadAllText(metaFile, Encoding.UTF8);
     JsonDocument jsonDoc = JsonDocument.Parse(jsonContent);
@@ -258,9 +255,3 @@ void ApplyMetadata(UndertaleSound sound, string metaFile)
 
     jsonDoc.Dispose();
 }
-
-
-
-
-
-

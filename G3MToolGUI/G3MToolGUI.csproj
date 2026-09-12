@@ -1,0 +1,80 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>14.0</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>G3MToolGUI</AssemblyName>
+    <AssemblyTitle>G3MTool</AssemblyTitle>
+    <ProductName>G3MTool</ProductName>
+    <ApplicationIcon>Assets\icons\G3MTool_icon.ico</ApplicationIcon>
+    <Version>1.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <InformationalVersion>1.0.0</InformationalVersion>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' != ''">
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <XDeltaRuntimeIdentifier Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</XDeltaRuntimeIdentifier>
+    <XDeltaRuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">$(NETCoreSdkRuntimeIdentifier)</XDeltaRuntimeIdentifier>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.1.2" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.2" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.2" />
+    <PackageReference Include="G3MLib" Version="1.0.1" />
+    <PackageReference Include="Magick.NET-Q8-AnyCPU" Version="14.17.1" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Scripting" Version="5.9.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AvaloniaResource Include="Assets\images\G3MTool_bg.png" />
+    <AvaloniaResource Include="Assets\images\G3MTool_logo.png" />
+    <AvaloniaResource Include="Assets\icons\G3MTool_icon.ico" />
+    <AvaloniaResource Include="Assets\icons\boosty_logo.png" />
+    <AvaloniaResource Include="Assets\icons\telegram_logo.png" />
+    <AvaloniaResource Include="Assets\icons\discord_logo.png" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(XDeltaRuntimeIdentifier)' == 'win-x64'">
+    <EmbeddedResource Include="Assets\bin\win-x64\xdelta.exe" LogicalName="G3MToolCLI.Assets.bin.win.xdelta.exe" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(XDeltaRuntimeIdentifier)' == 'win-arm64'">
+    <EmbeddedResource Include="Assets\bin\win-arm64\xdelta.exe" LogicalName="G3MToolCLI.Assets.bin.win.xdelta.exe" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(XDeltaRuntimeIdentifier)' == 'linux-x64'">
+    <EmbeddedResource Include="Assets\bin\linux-x64\xdelta" LogicalName="G3MToolCLI.Assets.bin.linux.xdelta" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(XDeltaRuntimeIdentifier)' == 'linux-arm64'">
+    <EmbeddedResource Include="Assets\bin\linux-arm64\xdelta" LogicalName="G3MToolCLI.Assets.bin.linux.xdelta" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(XDeltaRuntimeIdentifier)' == 'osx-x64'">
+    <EmbeddedResource Include="Assets\bin\mac-x64\xdelta" LogicalName="G3MToolCLI.Assets.bin.mac_x64.xdelta" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(XDeltaRuntimeIdentifier)' == 'osx-arm64'">
+    <EmbeddedResource Include="Assets\bin\mac-arm64\xdelta" LogicalName="G3MToolCLI.Assets.bin.mac_arm64.xdelta" />
+  </ItemGroup>
+
+  <Target Name="KeepSingleFilePublishOutput" AfterTargets="Publish" Condition="'$(PublishSingleFile)' == 'true'">
+    <ItemGroup>
+      <PublishedSymbol Include="$(PublishDir)**\*.pdb" />
+    </ItemGroup>
+    <Delete Files="@(PublishedSymbol)" />
+    <Delete Files="$(PublishDir)G3MLib.xml" />
+    <RemoveDir Directories="$(PublishDir)GameSpecificData" />
+  </Target>
+
+</Project>

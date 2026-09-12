@@ -1,6 +1,3 @@
-
-
-
 using System;
 using System.IO;
 using System.Text;
@@ -8,8 +5,8 @@ using System.Text.Json;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
-using UndertaleModLib;
-using UndertaleModLib.Models;
+using G3MLib.DataFile;
+using G3MLib.DataFile.Models;
 
 
 
@@ -43,7 +40,7 @@ EnsureDataLoaded();
 string pathsOut = GetOutputDirectory();
 PrintLine($"[ExportPaths] Exporting to: {pathsOut}");
 
-List<UndertalePath> allPaths = Data.Paths?.ToList() ?? new List<UndertalePath>();
+List<GameMakerPath> allPaths = Data.Paths?.ToList() ?? new List<GameMakerPath>();
 PrintLine($"[ExportPaths] Found {allPaths.Count} paths to export.");
 
 SetProgressBar(null, "Exporting Paths", 0, allPaths.Count);
@@ -51,7 +48,7 @@ StartProgressBarUpdater();
 
 await Task.Run(() => Parallel.ForEach(allPaths, p => ExportPath(p, pathsOut)));
 
-void ExportPath(UndertalePath path, string outputDir)
+void ExportPath(GameMakerPath path, string outputDir)
 {
     if (path?.Name?.Content == null)
     {
@@ -101,7 +98,3 @@ await StopProgressBarUpdater();
 HideProgressBar();
 
 PrintLine($"[ExportPaths] Export complete. {allPaths.Count} paths exported to {pathsOut}");
-
-
-
-

@@ -1,19 +1,29 @@
-name: Build and Release G3MTool (Windows + Linux + macOS)
+name: Build and Release G3MTool
 
 on:
   workflow_dispatch:
     inputs:
       publish_release:
-        description: "Publish release to GitHub? (If No, artifacts will be built but not published)"
+        description: "Publish a GitHub release after building?"
         required: false
         type: boolean
         default: true
-      version_and_tag:
-        description: "Release Version and Tag (e.g., v1.0.0) - Required if publishing release"
+      build_cli:
+        description: "Build G3MTool CLI"
+        required: false
+        type: boolean
+        default: true
+      build_gui:
+        description: "Build G3MTool GUI"
+        required: false
+        type: boolean
+        default: true
+      release_name:
+        description: "Release name (required only when publishing)"
         required: false
         type: string
-      release_name:
-        description: "Release Name (e.g., G3MTool v1.0.0) - Required if publishing release"
+      release_tag:
+        description: "Optional custom release tag (default: UTC date, YYYY.MM.DD)"
         required: false
         type: string
 
@@ -22,300 +32,250 @@ permissions:
 
 env:
   DOTNET_VERSION: "10.0.x"
-  PUBLISH_RELEASE: ${{ inputs.publish_release != false }}
-  RELEASE_VERSION: ${{ inputs.version_and_tag || 'dev' }}
 
 jobs:
-  build-windows:
-    name: Windows x64 · Build
-    runs-on: windows-latest
+  prepare:
+    name: Select components
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.value }}
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: ${{ env.DOTNET_VERSION }}
-
-      - name: Restore dependencies
-        run: dotnet restore G3MToolCLI
-
-      - name: Build and Publish
+      - id: matrix
+        shell: pwsh
         run: |
-          dotnet publish G3MToolCLI -c Release -r win-x64 -o publish/win-x64
-
-      - name: Bundle legal notices
-        shell: powershell
-        run: |
-          Copy-Item LICENSE, THIRD_PARTY_NOTICES.md, SECURITY.md publish/win-x64/
-          Copy-Item licenses publish/win-x64/licenses -Recurse
-
-      - name: Create archive
-        shell: powershell
-        run: |
-          $archiveName = "G3MTool-Windows-x64-${{ env.RELEASE_VERSION }}.zip"
-          Compress-Archive -Path publish/win-x64/* -DestinationPath $archiveName
-
-      - name: Test executable
-        shell: powershell
-        run: |
-          Write-Host "=== Testing G3MTool ==="
-          $output = & .\publish\win-x64\G3MTool.exe --help 2>&1
-          Write-Host $output
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "ERROR: G3MTool failed to run"
-            exit 1
+          $components = @()
+          if ('${{ inputs.build_cli }}' -eq 'true') {
+            $components += @{ Component = 'CLI'; Project = 'G3MToolCLI/G3MToolCLI.csproj'; TestProject = 'G3MToolCLI.Tests/G3MToolCLI.Tests.csproj'; Executable = 'G3MTool' }
           }
-          Write-Host "Test passed"
+          if ('${{ inputs.build_gui }}' -eq 'true') {
+            $components += @{ Component = 'GUI'; Project = 'G3MToolGUI/G3MToolGUI.csproj'; TestProject = 'G3MToolGUI.Tests/G3MToolGUI.Tests.csproj'; Executable = 'G3MToolGUI' }
+          }
+          if ($components.Count -eq 0) {
+            throw 'Select at least one component to build.'
+          }
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: G3MTool-Windows-x64
-          path: G3MTool-Windows-x64-${{ env.RELEASE_VERSION }}.zip
+          $platforms = @(
+            @{ Name = 'Windows x64'; Runner = 'windows-latest'; Rid = 'win-x64'; Suffix = 'Windows-x64'; Extension = '.exe' },
+            @{ Name = 'Windows arm64'; Runner = 'windows-11-arm'; Rid = 'win-arm64'; Suffix = 'Windows-arm64'; Extension = '.exe' },
+            @{ Name = 'Linux x64'; Runner = 'ubuntu-latest'; Rid = 'linux-x64'; Suffix = 'Linux-x64'; Extension = '' },
+            @{ Name = 'Linux arm64'; Runner = 'ubuntu-24.04-arm'; Rid = 'linux-arm64'; Suffix = 'Linux-arm64'; Extension = '' },
+            @{ Name = 'macOS x64'; Runner = 'macos-26-intel'; Rid = 'osx-x64'; Suffix = 'macOS-x64'; Extension = '' },
+            @{ Name = 'macOS arm64'; Runner = 'macos-26'; Rid = 'osx-arm64'; Suffix = 'macOS-arm64'; Extension = '' }
+          )
 
-  build-linux:
-    name: Linux x64 · Build
-    runs-on: ubuntu-latest
+          $include = foreach ($component in $components) {
+            foreach ($platform in $platforms) {
+              [ordered]@{
+                name = if ($component.Component -eq 'CLI') { $platform.Name } else { "$($component.Component) $($platform.Name)" }
+                component = $component.Component
+                is_macos_gui = $component.Component -eq 'GUI' -and $platform.Rid -like 'osx-*'
+                runner = $platform.Runner
+                rid = $platform.Rid
+                asset = "G3MTool-$($component.Component)-$($platform.Suffix)"
+                extension = $platform.Extension
+                project = $component.Project
+                test_project = $component.TestProject
+                executable = $component.Executable
+              }
+            }
+          }
+
+          $matrix = @{ include = @($include) } | ConvertTo-Json -Compress
+          "value=$matrix" >> $env:GITHUB_OUTPUT
+
+  build:
+    name: ${{ matrix.name }}
+    needs: prepare
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      - name: Restore dependencies
-        run: dotnet restore G3MToolCLI
+      - name: Restore test dependencies
+        run: dotnet restore ${{ matrix.test_project }}
 
-      - name: Build and Publish
+      - name: Run component tests
+        run: dotnet test ${{ matrix.test_project }} --configuration Release --no-restore
+
+      - name: Restore runtime dependencies
+        run: dotnet restore ${{ matrix.project }} --runtime ${{ matrix.rid }}
+
+      - name: Publish and bundle release
+        id: bundle
+        shell: pwsh
         run: |
-          dotnet publish G3MToolCLI -c Release -r linux-x64 -o publish/linux-x64
+          $versionOutput = @(dotnet msbuild ${{ matrix.project }} -getProperty:Version -nologo -verbosity:quiet)
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $applicationVersion = ($versionOutput | Where-Object { $_.Trim() } | Select-Object -Last 1).Trim()
+          if ([string]::IsNullOrWhiteSpace($applicationVersion)) {
+            throw 'Could not determine the application version.'
+          }
 
-      - name: Bundle legal notices
-        run: |
-          cp LICENSE THIRD_PARTY_NOTICES.md SECURITY.md publish/linux-x64/
-          cp -R licenses publish/linux-x64/licenses
+          $publishDirectory = "publish/${{ matrix.rid }}"
+          $bundleName = "${{ matrix.asset }}-$applicationVersion"
+          $bundleDirectory = "bundle/$bundleName"
+          $archivePath = "$bundleName.zip"
+          dotnet publish ${{ matrix.project }} --configuration Release --no-restore --runtime ${{ matrix.rid }} --output $publishDirectory
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Create archive
-        run: |
-          for file in LICENSE THIRD_PARTY_NOTICES.md SECURITY.md; do
-            if [ ! -f "$file" ]; then
-              echo "ERROR: required release file missing: $file"
-              exit 1
-            fi
-          done
-          cd publish/linux-x64
-          chmod +x G3MTool
-          zip -r ../../G3MTool-Linux-x64-${{ env.RELEASE_VERSION }}.zip .
+          $files = @(Get-ChildItem -LiteralPath $publishDirectory -File)
+          $items = @(Get-ChildItem -LiteralPath $publishDirectory -Force)
+          if ($files.Count -ne 1 -or $items.Count -ne 1) {
+            throw "Expected one published executable, found: $($items.Name -join ', ')"
+          }
 
-      - name: Test executable
-        run: |
-          echo "=== Testing G3MTool ==="
-          chmod +x publish/linux-x64/G3MTool
-          ./publish/linux-x64/G3MTool --help || exit 1
-          echo "Test passed"
+          $executable = Join-Path $publishDirectory "${{ matrix.executable }}${{ matrix.extension }}"
+          if (-not (Test-Path -LiteralPath $executable)) {
+            throw "Published executable not found: $executable"
+          }
 
-      - uses: actions/upload-artifact@v4
+          New-Item -ItemType Directory -Path $bundleDirectory | Out-Null
+          $releaseExecutable = "${{ matrix.executable }}${{ matrix.extension }}"
+          if ('${{ matrix.is_macos_gui }}' -eq 'true') {
+            $appDirectory = Join-Path $bundleDirectory 'G3MToolGUI.app'
+            $macOsDirectory = Join-Path $appDirectory 'Contents/MacOS'
+            $resourcesDirectory = Join-Path $appDirectory 'Contents/Resources'
+            New-Item -ItemType Directory -Force -Path $macOsDirectory, $resourcesDirectory | Out-Null
+            Copy-Item -LiteralPath $executable -Destination $macOsDirectory
+            Copy-Item -LiteralPath 'G3MToolGUI/Assets/icons/G3MTool_icon.icns' -Destination $resourcesDirectory
+            @"
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleDevelopmentRegion</key>
+            <string>en</string>
+            <key>CFBundleExecutable</key>
+            <string>G3MToolGUI</string>
+            <key>CFBundleIconFile</key>
+            <string>G3MTool_icon.icns</string>
+            <key>CFBundleIdentifier</key>
+            <string>space.y114.g3mtool.gui</string>
+            <key>CFBundleName</key>
+            <string>G3MTool</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>CFBundleShortVersionString</key>
+            <string>$applicationVersion</string>
+            <key>CFBundleVersion</key>
+            <string>$applicationVersion</string>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+          </dict>
+          </plist>
+          "@ | Set-Content -LiteralPath (Join-Path $appDirectory 'Contents/Info.plist') -Encoding utf8NoBOM
+            & chmod +x (Join-Path $macOsDirectory 'G3MToolGUI')
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $releaseExecutable = 'G3MToolGUI.app/Contents/MacOS/G3MToolGUI'
+          } else {
+            Copy-Item -LiteralPath $executable -Destination $bundleDirectory
+          }
+          Copy-Item -LiteralPath LICENSE, THIRD_PARTY_NOTICES.md, SECURITY.md -Destination $bundleDirectory
+          Copy-Item -LiteralPath licenses -Destination $bundleDirectory -Recurse
+
+          if ($IsWindows) {
+            Compress-Archive -Path "$bundleDirectory/*" -DestinationPath $archivePath
+          } else {
+            Push-Location $bundleDirectory
+            & zip -q -r "../../$archivePath" .
+            $zipExitCode = $LASTEXITCODE
+            Pop-Location
+            if ($zipExitCode -ne 0) { exit $zipExitCode }
+          }
+
+          $archive = [System.IO.Compression.ZipFile]::OpenRead($archivePath)
+          try {
+            $entryNames = $archive.Entries.FullName
+            foreach ($requiredFile in $releaseExecutable, "LICENSE", "THIRD_PARTY_NOTICES.md", "SECURITY.md", "licenses/Apache-2.0.txt", "licenses/GPL-3.0.txt", "licenses/MIT.txt", "licenses/MPL-2.0.txt") {
+              if ($requiredFile -notin $entryNames) {
+                throw "Release archive is missing $requiredFile"
+              }
+            }
+            if ('${{ matrix.is_macos_gui }}' -eq 'true' -and 'G3MToolGUI.app/Contents/Resources/G3MTool_icon.icns' -notin $entryNames) {
+              throw 'macOS GUI bundle is missing its application icon.'
+            }
+            if (-not ($entryNames | Where-Object { $_.StartsWith("licenses/", [System.StringComparison]::Ordinal) })) {
+              throw 'Release archive is missing third-party license files'
+            }
+          } finally {
+            $archive.Dispose()
+          }
+
+          "archive=$archivePath" >> $env:GITHUB_OUTPUT
+
+      - uses: actions/upload-artifact@v7
         with:
-          name: G3MTool-Linux-x64
-          path: G3MTool-Linux-x64-${{ env.RELEASE_VERSION }}.zip
-
-  build-linux-arm64:
-    name: Linux arm64 · Build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: ${{ env.DOTNET_VERSION }}
-
-      - name: Restore dependencies
-        run: dotnet restore G3MToolCLI
-
-      - name: Build and Publish
-        run: |
-          dotnet publish G3MToolCLI -c Release -r linux-arm64 -o publish/linux-arm64
-
-      - name: Bundle legal notices
-        run: |
-          cp LICENSE THIRD_PARTY_NOTICES.md SECURITY.md publish/linux-arm64/
-          cp -R licenses publish/linux-arm64/licenses
-
-      - name: Create archive
-        run: |
-          for file in LICENSE THIRD_PARTY_NOTICES.md SECURITY.md; do
-            if [ ! -f "$file" ]; then
-              echo "ERROR: required release file missing: $file"
-              exit 1
-            fi
-          done
-          cd publish/linux-arm64
-          chmod +x G3MTool
-          zip -r ../../G3MTool-Linux-arm64-${{ env.RELEASE_VERSION }}.zip .
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: G3MTool-Linux-arm64
-          path: G3MTool-Linux-arm64-${{ env.RELEASE_VERSION }}.zip
-
-  build-macos-x64:
-    name: macOS x64 · Build
-    runs-on: macos-15-intel
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: ${{ env.DOTNET_VERSION }}
-
-      - name: Restore dependencies
-        run: dotnet restore G3MToolCLI
-
-      - name: Build and Publish
-        run: |
-          dotnet publish G3MToolCLI -c Release -r osx-x64 -o publish/osx-x64
-
-      - name: Bundle legal notices
-        run: |
-          cp LICENSE THIRD_PARTY_NOTICES.md SECURITY.md publish/osx-x64/
-          cp -R licenses publish/osx-x64/licenses
-
-      - name: Create archive
-        run: |
-          cd publish/osx-x64
-          chmod +x G3MTool
-          zip -r ../../G3MTool-macOS-x64-${{ env.RELEASE_VERSION }}.zip .
-
-      - name: Test executable
-        run: |
-          echo "=== Testing G3MTool ==="
-          chmod +x publish/osx-x64/G3MTool
-          ./publish/osx-x64/G3MTool --help || exit 1
-          echo "Test passed"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: G3MTool-macOS-x64
-          path: G3MTool-macOS-x64-${{ env.RELEASE_VERSION }}.zip
-
-  build-macos-arm64:
-    name: macOS arm64 · Build
-    runs-on: macos-14
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: ${{ env.DOTNET_VERSION }}
-
-      - name: Restore dependencies
-        run: dotnet restore G3MToolCLI
-
-      - name: Build and Publish
-        run: |
-          dotnet publish G3MToolCLI -c Release -r osx-arm64 -o publish/osx-arm64
-
-      - name: Bundle legal notices
-        run: |
-          cp LICENSE THIRD_PARTY_NOTICES.md SECURITY.md publish/osx-arm64/
-          cp -R licenses publish/osx-arm64/licenses
-
-      - name: Create archive
-        run: |
-          cd publish/osx-arm64
-          chmod +x G3MTool
-          zip -r ../../G3MTool-macOS-arm64-${{ env.RELEASE_VERSION }}.zip .
-
-      - name: Test executable
-        run: |
-          echo "=== Testing G3MTool ==="
-          chmod +x publish/osx-arm64/G3MTool
-          ./publish/osx-arm64/G3MTool --help || exit 1
-          echo "Test passed"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: G3MTool-macOS-arm64
-          path: G3MTool-macOS-arm64-${{ env.RELEASE_VERSION }}.zip
+          name: ${{ matrix.asset }}
+          path: ${{ steps.bundle.outputs.archive }}
+          if-no-files-found: error
 
   release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs:
-      [
-        build-windows,
-        build-linux,
-        build-linux-arm64,
-        build-macos-x64,
-        build-macos-arm64,
-      ]
-    if: ${{ inputs.publish_release != false }}
+    needs: build
+    if: ${{ inputs.publish_release }}
+    concurrency:
+      group: g3mtool-release
+      cancel-in-progress: false
     steps:
+      - uses: actions/checkout@v7
+
       - name: Validate release inputs
+        env:
+          RELEASE_NAME: ${{ inputs.release_name }}
         run: |
-          if [ -z "${{ inputs.version_and_tag }}" ]; then
-            echo "ERROR: version_and_tag is required when publishing release"
-            exit 1
-          fi
-          if [ -z "${{ inputs.release_name }}" ]; then
-            echo "ERROR: release_name is required when publishing release"
+          if [ -z "$RELEASE_NAME" ]; then
+            echo "ERROR: release_name is required when publishing a release"
             exit 1
           fi
 
-      - name: Download all build artifacts
-        uses: actions/download-artifact@v4
+      - name: Choose release tag
+        id: release_tag
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          tag="$RELEASE_TAG"
+          if [[ "$tag" == *$'\n'* || "$tag" == *$'\r'* ]]; then
+            echo "ERROR: release_tag must be a single line"
+            exit 1
+          fi
+          if [ -z "$tag" ]; then
+            tag="$(date -u +'%Y.%m.%d')"
+          fi
+          echo "value=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Download release archives
+        uses: actions/download-artifact@v8
         with:
-          path: ./release_assets
+          path: release_assets
           merge-multiple: true
 
-      - name: List gathered assets
-        run: find ./release_assets -type f -name "*.zip" -print
-
-      - name: Get existing release
-        id: get_release
-        uses: actions/github-script@v7
-        with:
-          script: |
-            try {
-              const release = await github.rest.repos.getReleaseByTag({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                tag: '${{ inputs.version_and_tag }}'
-              });
-              return release.data;
-            } catch (error) {
-              if (error.status === 404) return null;
-              throw error;
-            }
-
-      - name: Delete existing release assets if release exists
-        if: steps.get_release.outputs.result != 'null'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const release = JSON.parse('${{ steps.get_release.outputs.result }}');
-            for (const asset of release.assets) {
-              console.log('Deleting existing asset:', asset.name);
-              await github.rest.repos.deleteReleaseAsset({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                asset_id: asset.id,
-              });
-            }
+      - name: Verify release contents
+        run: |
+          expected=0
+          if [ "${{ inputs.build_cli }}" = "true" ]; then expected=$((expected + 6)); fi
+          if [ "${{ inputs.build_gui }}" = "true" ]; then expected=$((expected + 6)); fi
+          actual="$(find release_assets -maxdepth 1 -type f -name 'G3MTool-*.zip' | wc -l)"
+          find release_assets -maxdepth 1 -type f -name 'G3MTool-*.zip' -print
+          test "$actual" -eq "$expected"
 
       - name: Create or update GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ inputs.version_and_tag }}
+          tag_name: ${{ steps.release_tag.outputs.value }}
+          target_commitish: ${{ github.sha }}
           name: ${{ inputs.release_name }}
           draft: false
           prerelease: false
           generate_release_notes: true
           make_latest: true
+          overwrite_files: true
           fail_on_unmatched_files: true
-          files: |
-            release_assets/*.zip
+          files: release_assets/G3MTool-*.zip

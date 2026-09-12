@@ -1,16 +1,12 @@
-
-
-
-
 using System;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Reflection;
-using UndertaleModLib;
-using UndertaleModLib.Models;
-using UndertaleModLib.Util;
+using G3MLib.DataFile;
+using G3MLib.DataFile.Models;
+using G3MLib.DataFile.Util;
 
 
 
@@ -23,7 +19,7 @@ string GetInputDirectory()
     if (string.IsNullOrEmpty(inputDir))
         throw new Exception("InputDir is not set.");
     if (!Directory.Exists(inputDir))
-        throw new Exception($"INPUT_DIR directory does not exist: {inputDir}");
+        throw new Exception($"Input directory does not exist: {inputDir}");
     return inputDir;
 }
 
@@ -99,12 +95,12 @@ using (TextureWorker worker = new TextureWorker())
 
         try
         {
-            UndertaleBackground ts = Data.Backgrounds.ByName(tsName);
+            GameMakerBackground ts = Data.Backgrounds.ByName(tsName);
             bool isNew = false;
 
             if (ts == null)
             {
-                ts = new UndertaleBackground();
+                ts = new GameMakerBackground();
                 ts.Name = Data.Strings.MakeString(tsName);
                 ts.Transparent = false;
                 ts.Smooth = false;
@@ -114,7 +110,7 @@ using (TextureWorker worker = new TextureWorker())
                 PrintLine($"[ImportTilesets] Creating new tileset: {tsName}");
             }
 
-            
+
             if (File.Exists(pngPath))
             {
                 using (var img = TextureWorker.ReadBGRAImageFromFile(pngPath))
@@ -122,13 +118,13 @@ using (TextureWorker worker = new TextureWorker())
                     int lastTextPage = Data.EmbeddedTextures.Count - 1;
                     int lastTextPageItem = Data.TexturePageItems.Count - 1;
 
-                    UndertaleEmbeddedTexture newEmbeddedTexture = new UndertaleEmbeddedTexture();
-                    newEmbeddedTexture.Name = new UndertaleString($"Texture {++lastTextPage}");
+                    GameMakerEmbeddedTexture newEmbeddedTexture = new GameMakerEmbeddedTexture();
+                    newEmbeddedTexture.Name = new GameMakerString($"Texture {++lastTextPage}");
                     newEmbeddedTexture.TextureData.Image = GMImage.FromMagickImage(img).ConvertToPng();
                     Data.EmbeddedTextures.Add(newEmbeddedTexture);
 
-                    UndertaleTexturePageItem newTexturePageItem = new UndertaleTexturePageItem();
-                    newTexturePageItem.Name = new UndertaleString($"PageItem {++lastTextPageItem}");
+                    GameMakerTexturePageItem newTexturePageItem = new GameMakerTexturePageItem();
+                    newTexturePageItem.Name = new GameMakerString($"PageItem {++lastTextPageItem}");
                     newTexturePageItem.SourceX = 0;
                     newTexturePageItem.SourceY = 0;
                     newTexturePageItem.SourceWidth = (ushort)img.Width;
@@ -146,7 +142,7 @@ using (TextureWorker worker = new TextureWorker())
                 }
             }
 
-            
+
             if (File.Exists(jsonPath))
             {
                 string jsonContent = File.ReadAllText(jsonPath, Encoding.UTF8);
@@ -157,7 +153,7 @@ using (TextureWorker worker = new TextureWorker())
                 ts.Smooth = GetJsonValue<bool>(root, "smooth", ts.Smooth);
                 ts.Preload = GetJsonValue<bool>(root, "preload", ts.Preload);
 
-                
+
                 if (root.TryGetProperty("gms2UnknownAlways2", out _))
                     ts.GMS2UnknownAlways2 = GetJsonValue<uint>(root, "gms2UnknownAlways2", ts.GMS2UnknownAlways2);
 
@@ -186,13 +182,13 @@ using (TextureWorker worker = new TextureWorker())
                 {
                     int expectedCount = (int)(ts.GMS2TileCount * ts.GMS2ItemsPerTileCount);
                     var tileIdsList = tileIdsElm.EnumerateArray().ToList();
-                    
+
                     if (tileIdsList.Count == expectedCount)
                     {
                         ts.GMS2TileIds.Clear();
                         foreach (var idElm in tileIdsList)
                         {
-                            var tileId = new UndertaleBackground.TileID();
+                            var tileId = new GameMakerBackground.TileID();
                             tileId.ID = (uint)idElm.GetInt64();
                             ts.GMS2TileIds.Add(tileId);
                         }
@@ -222,8 +218,3 @@ using (TextureWorker worker = new TextureWorker())
 }
 
 PrintLine($"[ImportTilesets] Import complete. {imported} tilesets processed ({created} new).");
-
-
-
-
-

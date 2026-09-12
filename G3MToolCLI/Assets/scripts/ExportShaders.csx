@@ -1,6 +1,3 @@
-
-
-
 using System;
 using System.IO;
 using System.Text;
@@ -8,8 +5,8 @@ using System.Text.Json;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
-using UndertaleModLib;
-using UndertaleModLib.Models;
+using G3MLib.DataFile;
+using G3MLib.DataFile.Models;
 
 
 
@@ -43,7 +40,7 @@ EnsureDataLoaded();
 string shadersOut = GetOutputDirectory();
 PrintLine($"[ExportShaders] Exporting to: {shadersOut}");
 
-List<UndertaleShader> allShaders = Data.Shaders.ToList();
+List<GameMakerShader> allShaders = Data.Shaders.ToList();
 PrintLine($"[ExportShaders] Found {allShaders.Count} shaders to export.");
 
 SetProgressBar(null, "Exporting Shaders", 0, allShaders.Count);
@@ -51,7 +48,7 @@ StartProgressBarUpdater();
 
 await Task.Run(() => Parallel.ForEach(allShaders, shader => ExportShader(shader, shadersOut)));
 
-void ExportShader(UndertaleShader shader, string outputDir)
+void ExportShader(GameMakerShader shader, string outputDir)
 {
     if (shader?.Name?.Content == null)
     {
@@ -65,10 +62,10 @@ void ExportShader(UndertaleShader shader, string outputDir)
         string shaderDir = Path.Combine(outputDir, name);
         Directory.CreateDirectory(shaderDir);
 
-        
+
         File.WriteAllText(Path.Combine(shaderDir, "Type.txt"), shader.Type.ToString(), Encoding.UTF8);
 
-        
+
         if (shader.GLSL_ES_Fragment != null)
             File.WriteAllText(Path.Combine(shaderDir, "GLSL_ES_Fragment.txt"), shader.GLSL_ES_Fragment.Content ?? "", Encoding.UTF8);
         if (shader.GLSL_ES_Vertex != null)
@@ -78,13 +75,13 @@ void ExportShader(UndertaleShader shader, string outputDir)
         if (shader.GLSL_Vertex != null)
             File.WriteAllText(Path.Combine(shaderDir, "GLSL_Vertex.txt"), shader.GLSL_Vertex.Content ?? "", Encoding.UTF8);
 
-        
+
         if (shader.HLSL9_Fragment != null)
             File.WriteAllText(Path.Combine(shaderDir, "HLSL9_Fragment.txt"), shader.HLSL9_Fragment.Content ?? "", Encoding.UTF8);
         if (shader.HLSL9_Vertex != null)
             File.WriteAllText(Path.Combine(shaderDir, "HLSL9_Vertex.txt"), shader.HLSL9_Vertex.Content ?? "", Encoding.UTF8);
 
-        
+
         if (shader.HLSL11_VertexData?.Data != null && shader.HLSL11_VertexData.Data.Length > 0)
             File.WriteAllBytes(Path.Combine(shaderDir, "HLSL11_VertexData.bin"), shader.HLSL11_VertexData.Data);
         if (shader.HLSL11_PixelData?.Data != null && shader.HLSL11_PixelData.Data.Length > 0)
@@ -102,7 +99,7 @@ void ExportShader(UndertaleShader shader, string outputDir)
         if (shader.Cg_PS3_PixelData?.Data != null && shader.Cg_PS3_PixelData.Data.Length > 0)
             File.WriteAllBytes(Path.Combine(shaderDir, "Cg_PS3_PixelData.bin"), shader.Cg_PS3_PixelData.Data);
 
-        
+
         if (shader.VertexShaderAttributes != null && shader.VertexShaderAttributes.Count > 0)
         {
             var attrs = new StringBuilder();
@@ -114,7 +111,7 @@ void ExportShader(UndertaleShader shader, string outputDir)
             File.WriteAllText(Path.Combine(shaderDir, "VertexShaderAttributes.txt"), attrs.ToString(), Encoding.UTF8);
         }
 
-        
+
         var meta = new Dictionary<string, object>
         {
             ["name"] = shader.Name.Content,
@@ -135,7 +132,3 @@ await StopProgressBarUpdater();
 HideProgressBar();
 
 PrintLine($"[ExportShaders] Export complete. {allShaders.Count} shaders exported to {shadersOut}");
-
-
-
-

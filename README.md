@@ -1,16 +1,42 @@
-# G3MTool
+<!-- markdownlint-disable MD013 MD033 MD041 -->
 
-G3MTool is the command-line tool and reference implementation for the `.g3mpatch` format. It works with GameMaker data files, creates and applies `.g3mpatch` patches, batch-processes patch jobs, merges patches, inspects files, compares files, runs bundled/import scripts, and works with xdelta/csx patches.
+<p align="center">
+  <img src="G3MToolGUI/Assets/images/G3MTool_logo.png" alt="G3MTool logo" width="650">
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/CLI-1.3.0-3F8F3F?style=for-the-badge" alt="G3MTool CLI 1.3.0">
+  <img src="https://img.shields.io/badge/GUI-1.0.0-3F8F3F?style=for-the-badge" alt="G3MTool GUI 1.0.0">
+  <img src="https://img.shields.io/badge/.NET-10.0-512BD4?style=for-the-badge&logo=dotnet&logoColor=white" alt=".NET 10">
+  <a href="https://github.com/y114git/G3MTool/releases"><img src="https://img.shields.io/github/downloads/y114git/G3MTool/total?style=for-the-badge" alt="Total downloads"></a>
+</p>
+
+<h1 align="center">G3MTool</h1>
+
+G3MTool provides command-line and graphical front ends for G3MLib. Both work with GameMaker data files and support `.g3mpatch` and XDelta workflows.
+
+- **G3MTool CLI** is the command-line interface for automation, scripts, and interactive terminal use.
+- **G3MTool GUI** is the cross-platform graphical interface for patching, merging, comparison, inspection, batch work, scripts, and external programs.
+
+Release archives contain one self-contained executable plus the required license notices. Choose the archive matching both the application and your operating system/architecture.
 
 Supported data-file extensions are `.win`, `.ios`, `.droid`, and `.unx`.
 
-## Commands
+## GUI
+
+G3MTool GUI exposes G3MLib-based patch, merge, comparison, inspection, validation, batch, XDelta, script, and external-program workflows without command-line arguments. It shows live progress and selectable, colour-coded activity logs.
+
+The GUI executable is named `G3MToolGUI.exe` on Windows and `G3MToolGUI` on Linux and macOS.
+
+## CLI - Commands
 
 ```bash
 G3MTool [command] [options]
 ```
 
-When no arguments are provided, G3MTool starts an interactive prompt. Output paths are optional for most commands; when omitted, files are written next to the executable or to the command-specific default directory.
+CLI release archives contain `G3MTool.exe` on Windows and `G3MTool` on Linux and macOS.
+
+When no arguments are provided, G3MTool CLI starts an interactive prompt. Output paths are optional for most commands; when omitted, files are written next to the executable or to the command-specific default directory.
 
 Global options:
 
@@ -31,7 +57,7 @@ Create, apply, validate, or merge `.g3mpatch` files.
 G3MTool patch create <original> <input> [output] [--xdelta] [--xdelta-fallback] [--cache <dir>] [--xdelta-path <path>]
 ```
 
-`input` can be `.g3mpatch`, `.xdelta`, `.vcdiff`, `.csx`, or a data file. G3MTool materializes the input against `original` and validates the resulting data before creating the patch.
+`input` can be `.g3mpatch`, `.xdelta`, `.vcdiff`, `.csx`, or a data file. G3MTool CLI materializes the input against `original` and validates the resulting data before creating the patch.
 
 The default output is `.g3mpatch`. `--xdelta` creates `.xdelta` instead. `--xdelta-fallback` embeds an xdelta fallback inside `.g3mpatch`; it cannot be combined with `--xdelta`.
 
@@ -43,9 +69,9 @@ The default output is `.g3mpatch`. `--xdelta` creates `.xdelta` instead. `--xdel
 G3MTool patch apply <data> <patch> [output] [--xdelta-fallback] [--xdelta-path <path>]
 ```
 
-`patch` can be `.g3mpatch`, `.xdelta`, `.vcdiff`, `.csx`, or a data file. A `.csx` script receives `data` through `ScriptGlobals.Data`. G3MTool saves and reopens the script result before using it.
+`patch` can be `.g3mpatch`, `.xdelta`, `.vcdiff`, `.csx`, or a data file. A `.csx` script receives `data` through `ScriptGlobals.Data`. G3MTool CLI saves and reopens the script result before using it.
 
-For `.g3mpatch` input, the default order is normal `.g3mpatch` apply first, then the embedded xdelta copy if normal apply fails and the patch contains one. With `--xdelta-fallback`, G3MTool tries the embedded xdelta copy first; if that fails, it continues with normal `.g3mpatch` apply.
+For `.g3mpatch` input, the default order is normal `.g3mpatch` apply first, then the embedded xdelta copy if normal apply fails and the patch contains one. With `--xdelta-fallback`, G3MTool CLI tries the embedded xdelta copy first; if that fails, it continues with normal `.g3mpatch` apply.
 
 ### patch validate
 
@@ -75,7 +101,7 @@ Options:
 | `-r`, `--report <path>` | Write a Markdown merge report |
 | `--cache <dir>` | Reuse `.g3mcache` analysis files while converting data-file or `.xdelta` inputs |
 
-If `--apply` is not set, G3MTool writes the merged data file to the current directory as `<original>_merged<ext>`. Add `--out` when you also want to keep the intermediate merged `.g3mpatch`.
+Without `--apply`, G3MTool CLI writes a merged `.g3mpatch`. Use `--out` to choose its path and `--apply` to write the merged data file.
 
 ### patch batch
 
@@ -89,7 +115,7 @@ G3MTool patch batch merge <original> <sets...> [--apply <data-dir>] [--out <patc
 
 `batch apply` applies each supported input independently to the original data file. `batch create` creates one `.g3mpatch` per input, or one `.xdelta` per input with `--xdelta`. `batch merge` runs independent mixed-format merge jobs; each set is a quoted comma-separated list in low-to-high priority order:
 
-Independent batch jobs run in isolated processes with automatic CPU and memory limits. Hashing, patch normalization, and patch-container loading also use bounded parallelism; priority-dependent merge and DATA mutation remain ordered.
+Batch jobs run sequentially in the CLI process. Patch normalization and resource analysis may use bounded parallelism inside G3MLib; merge priority and data mutations remain ordered.
 
 ```bash
 G3MTool patch batch merge game.win "base_patch.xdelta,ui_patch.g3mpatch" "mod_a.win,mod_b.xdelta,mod_c.g3mpatch" --apply data --out patches
@@ -138,25 +164,30 @@ Pass `--xdelta-path <path>` to use a specific xdelta executable instead of the b
 G3MTool execute <target> [args]
 G3MTool execute <script.csx> [args] --data <data-file> --output <output-file>
 G3MTool execute <script.csx> --data <data-file> --input <directory> --output <output-file>
-G3MTool execute xdelta <args>
+G3MTool execute xdelta -- <args>
 ```
 
 Runs an external program, a `.csx` script, or xdelta. For `.csx` scripts, `--data` loads a data file and `--output` writes the modified result. `--input` passes an input directory as the first script argument.
-When the `target` is `xdelta`, pass `--xdelta-path <path>` to use a specific xdelta executable.
+Put `--` before external-program or xdelta arguments so their options are passed through unchanged. When the `target` is `xdelta`, place `--xdelta-path <path>` before the separator to use a specific xdelta executable.
 
 Bundled scripts are in `G3MToolCLI/Assets/scripts`.
+
+GUI scripts can ask questions, request text, and open file or folder pickers. Cancelled dialogs return no selection. Script work runs outside the UI thread; closing the main window waits for the current operation to finish.
 
 ## Build
 
 ```bash
 dotnet publish G3MToolCLI -c Release -r <runtime>
+dotnet publish G3MToolGUI -c Release -r <runtime>
 ```
 
-Common runtimes: `win-x64`, `linux-x64`, `linux-arm64`, `osx-x64`, `osx-arm64`.
+Common runtimes: `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64`, `osx-x64`, `osx-arm64`.
+
+The `Build and Release G3MTool` workflow is manual. It can build CLI, GUI, or both; publishing is optional. When publishing, its tag defaults to the current UTC date in `YYYY.MM.DD` form, unless a custom tag is supplied.
 
 ## Notes
 
-`.g3mpatch` is G3MTool's patch format. It stores resource changes so patches can be inspected, applied to compatible data files, and merged. It does not guarantee byte-identical output for every data file. For exact binary fallback behavior, create patches with `--xdelta-fallback`; this increases patch size and depends on the input data matching the xdelta requirements.
+`.g3mpatch` is G3MLib's resource-aware patch format, used by both G3MTool applications. It stores resource changes so patches can be inspected, applied to compatible data files, and merged. It does not guarantee byte-identical output for every data file. For exact binary fallback behavior, create patches with `--xdelta-fallback`; this increases patch size and depends on the input data matching the xdelta requirements.
 
 ## Legal
 

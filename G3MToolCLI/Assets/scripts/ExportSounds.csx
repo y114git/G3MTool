@@ -1,6 +1,3 @@
-
-
-
 using System;
 using System.IO;
 using System.Text;
@@ -8,8 +5,8 @@ using System.Text.Json;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
-using UndertaleModLib;
-using UndertaleModLib.Models;
+using G3MLib.DataFile;
+using G3MLib.DataFile.Models;
 
 
 
@@ -37,16 +34,16 @@ string GetOutputDirectory()
 
 string DEFAULT_AUDIOGROUP_NAME = "audiogroup_default";
 
-Dictionary<string, IList<UndertaleEmbeddedAudio>> loadedAudioGroups = new Dictionary<string, IList<UndertaleEmbeddedAudio>>();
+Dictionary<string, IList<GameMakerEmbeddedAudio>> loadedAudioGroups = new Dictionary<string, IList<GameMakerEmbeddedAudio>>();
 
-IList<UndertaleEmbeddedAudio> GetAudioGroupData(UndertaleSound sound, UndertaleData data, string dataFilePath)
+IList<GameMakerEmbeddedAudio> GetAudioGroupData(GameMakerSound sound, GameMakerData data, string dataFilePath)
 {
     string audioGroupName = sound.AudioGroup is not null ? sound.AudioGroup.Name.Content : DEFAULT_AUDIOGROUP_NAME;
     if (loadedAudioGroups.ContainsKey(audioGroupName))
         return loadedAudioGroups[audioGroupName];
 
     string relativeAudioGroupPath;
-    if (sound.AudioGroup is UndertaleAudioGroup { Path.Content: string customRelativePath })
+    if (sound.AudioGroup is GameMakerAudioGroup { Path.Content: string customRelativePath })
         relativeAudioGroupPath = customRelativePath;
     else
         relativeAudioGroupPath = $"audiogroup{sound.GroupID}.dat";
@@ -57,10 +54,10 @@ IList<UndertaleEmbeddedAudio> GetAudioGroupData(UndertaleSound sound, UndertaleD
 
     try
     {
-        UndertaleData groupData = null;
+        GameMakerData groupData = null;
         using (var stream = new FileStream(groupFilePath, FileMode.Open, FileAccess.Read))
         {
-            groupData = UndertaleIO.Read(stream);
+            groupData = GameMakerIO.Read(stream);
         }
         loadedAudioGroups[audioGroupName] = groupData.EmbeddedAudio;
         return groupData.EmbeddedAudio;
@@ -72,14 +69,14 @@ IList<UndertaleEmbeddedAudio> GetAudioGroupData(UndertaleSound sound, UndertaleD
     }
 }
 
-byte[] GetSoundData(UndertaleSound sound, UndertaleData data, string dataFilePath)
+byte[] GetSoundData(GameMakerSound sound, GameMakerData data, string dataFilePath)
 {
     if (sound.AudioFile is not null)
         return sound.AudioFile.Data;
 
     if (sound.GroupID > data.GetBuiltinSoundGroupID())
     {
-        IList<UndertaleEmbeddedAudio> audioGroup = GetAudioGroupData(sound, data, dataFilePath);
+        IList<GameMakerEmbeddedAudio> audioGroup = GetAudioGroupData(sound, data, dataFilePath);
         if (audioGroup is not null && sound.AudioID < audioGroup.Count)
             return audioGroup[sound.AudioID].Data;
     }
@@ -95,11 +92,11 @@ EnsureDataLoaded();
 string soundsOut = GetOutputDirectory();
 PrintLine($"[ExportSounds] Exporting to: {soundsOut}");
 
-List<UndertaleSound> allSounds = Data.Sounds.ToList();
+List<GameMakerSound> allSounds = Data.Sounds.ToList();
 PrintLine($"[ExportSounds] Found {allSounds.Count} sounds to export.");
 
-JsonSerializerOptions jsonWriteOptions = new JsonSerializerOptions 
-{ 
+JsonSerializerOptions jsonWriteOptions = new JsonSerializerOptions
+{
     WriteIndented = true,
     Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
 };
@@ -109,7 +106,7 @@ StartProgressBarUpdater();
 
 await Task.Run(() => Parallel.ForEach(allSounds, sound => ExportSound(sound, soundsOut)));
 
-void ExportSound(UndertaleSound sound, string outputDir)
+void ExportSound(GameMakerSound sound, string outputDir)
 {
     if (sound?.Name?.Content == null)
     {
@@ -123,8 +120,8 @@ void ExportSound(UndertaleSound sound, string outputDir)
         string resourceDir = Path.Combine(outputDir, name);
         Directory.CreateDirectory(resourceDir);
 
-        bool flagCompressed = sound.Flags.HasFlag(UndertaleSound.AudioEntryFlags.IsCompressed);
-        bool flagEmbedded = sound.Flags.HasFlag(UndertaleSound.AudioEntryFlags.IsEmbedded);
+        bool flagCompressed = sound.Flags.HasFlag(GameMakerSound.AudioEntryFlags.IsCompressed);
+        bool flagEmbedded = sound.Flags.HasFlag(GameMakerSound.AudioEntryFlags.IsEmbedded);
         string audioExt = ".ogg";
         bool isEmbedded = true;
 
@@ -136,7 +133,7 @@ void ExportSound(UndertaleSound sound, string outputDir)
             isEmbedded = false;
         }
 
-        
+
         if (isEmbedded)
         {
             byte[] soundData = GetSoundData(sound, Data, DataFilePath);
@@ -147,17 +144,17 @@ void ExportSound(UndertaleSound sound, string outputDir)
             }
         }
 
-        
+
         var soundMeta = new Dictionary<string, object>
         {
             ["name"] = sound.Name?.Content ?? "",
             ["flags"] = (uint)sound.Flags,
             ["flagsDescription"] = new Dictionary<string, bool>
             {
-                ["isEmbedded"] = sound.Flags.HasFlag(UndertaleSound.AudioEntryFlags.IsEmbedded),
-                ["isCompressed"] = sound.Flags.HasFlag(UndertaleSound.AudioEntryFlags.IsCompressed),
-                ["isDecompressedOnLoad"] = sound.Flags.HasFlag(UndertaleSound.AudioEntryFlags.IsDecompressedOnLoad),
-                ["regular"] = sound.Flags.HasFlag(UndertaleSound.AudioEntryFlags.Regular)
+                ["isEmbedded"] = sound.Flags.HasFlag(GameMakerSound.AudioEntryFlags.IsEmbedded),
+                ["isCompressed"] = sound.Flags.HasFlag(GameMakerSound.AudioEntryFlags.IsCompressed),
+                ["isDecompressedOnLoad"] = sound.Flags.HasFlag(GameMakerSound.AudioEntryFlags.IsDecompressedOnLoad),
+                ["regular"] = sound.Flags.HasFlag(GameMakerSound.AudioEntryFlags.Regular)
             },
             ["type"] = sound.Type?.Content ?? "",
             ["file"] = sound.File?.Content ?? "",
@@ -191,7 +188,3 @@ await StopProgressBarUpdater();
 HideProgressBar();
 
 PrintLine($"[ExportSounds] Export complete. {allSounds.Count} sounds exported to {soundsOut}");
-
-
-
-

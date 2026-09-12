@@ -1,13 +1,10 @@
-
-
-
 using System;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
-using UndertaleModLib;
-using UndertaleModLib.Models;
+using G3MLib.DataFile;
+using G3MLib.DataFile.Models;
 
 
 
@@ -20,7 +17,7 @@ string GetInputDirectory()
     if (string.IsNullOrEmpty(inputDir))
         throw new Exception("InputDir is not set.");
     if (!Directory.Exists(inputDir))
-        throw new Exception($"INPUT_DIR directory does not exist: {inputDir}");
+        throw new Exception($"Input directory does not exist: {inputDir}");
     return inputDir;
 }
 
@@ -52,28 +49,28 @@ foreach (string pathDir in pathDirs)
     try
     {
         string pathFile = Path.Combine(pathDir, pathName + ".json");
-        
+
         if (!File.Exists(pathFile))
         {
             PrintLine($"[ImportPaths] Warning: No .json file found in {pathName}");
             IncrementProgress();
             continue;
         }
-        
+
         string jsonContent = File.ReadAllText(pathFile, Encoding.UTF8);
-        
+
         JsonDocument jsonDoc = JsonDocument.Parse(jsonContent);
         JsonElement root = jsonDoc.RootElement;
-        
-        UndertalePath path = Data.Paths?.ByName(pathName);
+
+        GameMakerPath path = Data.Paths?.ByName(pathName);
         bool isNew = false;
-        
+
         if (path == null)
         {
-            
-            path = new UndertalePath();
+
+            path = new GameMakerPath();
             path.Name = Data.Strings.MakeString(pathName);
-            path.Points = new UndertaleSimpleList<UndertalePath.PathPoint>();
+            path.Points = new GameMakerSimpleList<GameMakerPath.PathPoint>();
             path.IsSmooth = false;
             path.IsClosed = false;
             path.Precision = 4;
@@ -101,7 +98,7 @@ foreach (string pathDir in pathDirs)
             path.Points.Clear();
             foreach (JsonElement pointElm in pointsElm.EnumerateArray())
             {
-                var point = new UndertalePath.PathPoint();
+                var point = new GameMakerPath.PathPoint();
                 if (pointElm.TryGetProperty("x", out JsonElement xElm))
                 {
                     point.X = (float)xElm.GetDouble();
@@ -140,9 +137,3 @@ foreach (string pathDir in pathDirs)
 await StopProgressBarUpdater();
 HideProgressBar();
 PrintLine("[ImportPaths] Done.");
-
-
-
-
-
-

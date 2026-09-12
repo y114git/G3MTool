@@ -1,15 +1,12 @@
-
-
-
 using System;
 using System.IO;
 using System.Text;
 using System.Text.Json;
 using System.Linq;
 using System.Collections.Generic;
-using UndertaleModLib;
-using UndertaleModLib.Models;
-using UndertaleModLib.Util;
+using G3MLib.DataFile;
+using G3MLib.DataFile.Models;
+using G3MLib.DataFile.Util;
 
 
 
@@ -30,7 +27,7 @@ string GetInputDirectory()
     if (string.IsNullOrEmpty(inputDir))
         throw new Exception("InputDir is not set.");
     if (!Directory.Exists(inputDir))
-        throw new Exception($"INPUT_DIR directory does not exist: {inputDir}");
+        throw new Exception($"Input directory does not exist: {inputDir}");
     return inputDir;
 }
 
@@ -75,15 +72,15 @@ foreach (string fontDir in fontDirs)
             fontName = nameElm.GetString() ?? safeName;
         }
 
-        UndertaleFont font = Data.Fonts.ByName(fontName);
+        GameMakerFont font = Data.Fonts.ByName(fontName);
         bool isNew = false;
 
         if (font == null)
         {
-            font = new UndertaleFont();
+            font = new GameMakerFont();
             font.Name = Data.Strings.MakeString(fontName);
             font.DisplayName = Data.Strings.MakeString(fontName);
-            font.Glyphs = new UndertalePointerList<UndertaleFont.Glyph>();
+            font.Glyphs = new GameMakerPointerList<GameMakerFont.Glyph>();
             font.EmSize = 12;
             font.Bold = false;
             font.Italic = false;
@@ -106,8 +103,8 @@ foreach (string fontDir in fontDirs)
                 int lastTextPage = Data.EmbeddedTextures.Count - 1;
                 int lastTextPageItem = Data.TexturePageItems.Count - 1;
 
-                UndertaleEmbeddedTexture newEmbeddedTexture = new UndertaleEmbeddedTexture();
-                newEmbeddedTexture.Name = new UndertaleString($"Texture {++lastTextPage}");
+                GameMakerEmbeddedTexture newEmbeddedTexture = new GameMakerEmbeddedTexture();
+                newEmbeddedTexture.Name = new GameMakerString($"Texture {++lastTextPage}");
                 newEmbeddedTexture.TextureData.Image = GMImage.FromMagickImage(img).ConvertToPng();
                 Data.EmbeddedTextures.Add(newEmbeddedTexture);
 
@@ -116,8 +113,8 @@ foreach (string fontDir in fontDirs)
                 ushort originalBoundingWidth = font.Texture?.BoundingWidth ?? (ushort)img.Width;
                 ushort originalBoundingHeight = font.Texture?.BoundingHeight ?? (ushort)img.Height;
 
-                UndertaleTexturePageItem newTexturePageItem = new UndertaleTexturePageItem();
-                newTexturePageItem.Name = new UndertaleString($"PageItem {++lastTextPageItem}");
+                GameMakerTexturePageItem newTexturePageItem = new GameMakerTexturePageItem();
+                newTexturePageItem.Name = new GameMakerString($"PageItem {++lastTextPageItem}");
                 newTexturePageItem.SourceX = 0;
                 newTexturePageItem.SourceY = 0;
                 newTexturePageItem.SourceWidth = (ushort)img.Width;
@@ -185,7 +182,7 @@ foreach (string fontDir in fontDirs)
             font.Glyphs.Clear();
             foreach (JsonElement glyphElm in glyphsElm.EnumerateArray())
             {
-                var glyph = new UndertaleFont.Glyph();
+                var glyph = new GameMakerFont.Glyph();
 
                 if (glyphElm.TryGetProperty("character", out JsonElement charElm))
                     glyph.Character = (ushort)charElm.GetInt32();
@@ -205,10 +202,10 @@ foreach (string fontDir in fontDirs)
 
                 if (glyphElm.TryGetProperty("kerning", out JsonElement kerningElm) && kerningElm.ValueKind == JsonValueKind.Array)
                 {
-                    glyph.Kerning = new UndertaleSimpleListShort<UndertaleFont.Glyph.GlyphKerning>();
+                    glyph.Kerning = new GameMakerSimpleListShort<GameMakerFont.Glyph.GlyphKerning>();
                     foreach (JsonElement kernElm in kerningElm.EnumerateArray())
                     {
-                        var kern = new UndertaleFont.Glyph.GlyphKerning();
+                        var kern = new GameMakerFont.Glyph.GlyphKerning();
                         if (kernElm.TryGetProperty("character", out JsonElement kCharElm))
                             kern.Character = (short)kCharElm.GetInt32();
                         if (kernElm.TryGetProperty("shiftModifier", out JsonElement kShiftElm))
@@ -238,8 +235,3 @@ foreach (string fontDir in fontDirs)
 }
 
 PrintLine($"[ImportFonts] Summary: {imported} imported ({created} new), {skipped} skipped");
-
-
-
-
-

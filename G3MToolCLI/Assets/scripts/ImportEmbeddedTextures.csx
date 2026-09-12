@@ -1,65 +1,16 @@
-
 using System;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Collections.Generic;
-using UndertaleModLib;
-using UndertaleModLib.Models;
-using UndertaleModLib.Util;
+using G3MLib.DataFile;
+using G3MLib.DataFile.Models;
+using G3MLib.DataFile.Util;
 using ImageMagick;
 
-// ============================================================================
-// DETAILED LOGGING SYSTEM
-// ============================================================================
-static StreamWriter _logWriter = null;
-static string _logPath = null;
-
-void InitLog(string scriptName)
-{
-    if (!Verbose) return;
-    string logDir = Path.Combine(Path.GetTempPath(), "g3mtool_logs");
-    Directory.CreateDirectory(logDir);
-    _logPath = Path.Combine(logDir, $"{scriptName}_{DateTime.Now:yyyyMMdd_HHmmss}.log");
-    _logWriter = new StreamWriter(_logPath, false, Encoding.UTF8);
-    _logWriter.AutoFlush = true;
-    Log($"=== {scriptName} Log Started at {DateTime.Now} ===");
-    Console.WriteLine($"[{scriptName}] Detailed log: {_logPath}");
-}
-
-void Log(string message)
-{
-    if (_logWriter != null)
-        _logWriter.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] {message}");
-}
-
-void CloseLog()
-{
-    if (_logWriter != null)
-    {
-        Log("=== Log Ended ===");
-        _logWriter.Close();
-        _logWriter = null;
-        if (!string.IsNullOrEmpty(_logPath))
-        {
-            try { File.Delete(_logPath); } catch { }
-            try
-            {
-                string logDir = Path.GetDirectoryName(_logPath);
-                if (!string.IsNullOrEmpty(logDir) &&
-                    Directory.Exists(logDir) &&
-                    !Directory.EnumerateFileSystemEntries(logDir).Any())
-                {
-                    Directory.Delete(logDir);
-                }
-            }
-            catch { }
-        }
-    }
-}
-
-void PrintLine(string s) { if (Verbose) Console.WriteLine(s); Log(s); }
+void Log(string message) { if (Verbose) ScriptMessage(message); }
+void PrintLine(string message) => Log(message);
 
 string GetInputDirectory()
 {
@@ -67,7 +18,7 @@ string GetInputDirectory()
     if (string.IsNullOrEmpty(inputDir))
         throw new Exception("InputDir is not set.");
     if (!Directory.Exists(inputDir))
-        throw new Exception($"INPUT_DIR directory does not exist: {inputDir}");
+        throw new Exception($"Input directory does not exist: {inputDir}");
     return inputDir;
 }
 
@@ -99,8 +50,7 @@ T GetJsonValue<T>(JsonElement root, string propertyName, T defaultValue)
 
 EnsureDataLoaded();
 
-// Initialize detailed logging
-InitLog("ImportEmbeddedTextures");
+
 
 string texturesDir = GetInputDirectory();
 Console.WriteLine($"[ImportEmbeddedTextures] Importing from: {texturesDir}");
@@ -181,7 +131,7 @@ foreach (string textureSubDir in textureDirs)
         byte[] pngBytes = File.ReadAllBytes(pngPath);
         var gmImage = GMImage.FromPng(pngBytes);
         Log($"LOADED IMAGE: {pngPath} - Size: {gmImage.Width}x{gmImage.Height}, converting to {originalFormat}");
-        
+
         // Convert to original format (preserves BZ2QOI/QOI encoding instead of storing as larger PNG)
         if (Enum.TryParse<GMImage.ImageFormat>(originalFormat, out var targetFormat) && targetFormat != GMImage.ImageFormat.Png)
         {
@@ -194,15 +144,15 @@ foreach (string textureSubDir in textureDirs)
             // Expand EmbeddedTextures array if needed to accommodate this index
             while (Data.EmbeddedTextures.Count <= textureIndex)
             {
-                var placeholder = new UndertaleEmbeddedTexture();
-                placeholder.Name = new UndertaleString($"Texture {Data.EmbeddedTextures.Count}");
+                var placeholder = new GameMakerEmbeddedTexture();
+                placeholder.Name = new GameMakerString($"Texture {Data.EmbeddedTextures.Count}");
                 Data.EmbeddedTextures.Add(placeholder);
                 created++;
             }
-            
+
             // Update texture at the specified index
             var texture = Data.EmbeddedTextures[textureIndex];
-            texture.Name = new UndertaleString(originalName.Length > 0 ? originalName : $"Texture {textureIndex}");
+            texture.Name = new GameMakerString(originalName.Length > 0 ? originalName : $"Texture {textureIndex}");
             texture.TextureData.Image = gmImage;
             texture.Scaled = scaled;
             texture.GeneratedMips = generatedMips;
@@ -236,5 +186,3 @@ for (int i = 0; i < Math.Min(10, Data.EmbeddedTextures.Count); i++)
     var tex = Data.EmbeddedTextures[i];
     Log($"  [{i}] {tex?.Name?.Content ?? "(null)"}");
 }
-
-CloseLog();

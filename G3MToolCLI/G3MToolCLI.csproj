@@ -1,63 +1,69 @@
 <Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <LangVersion>14.0</LangVersion>
+        <Nullable>enable</Nullable>
+        <OutputType>Exe</OutputType>
+        <AssemblyName>G3MTool</AssemblyName>
+        <AssemblyTitle>G3MTool</AssemblyTitle>
+        <ProductName>G3MTool</ProductName>
+        <ApplicationIcon>Assets\icons\G3MTool_icon.ico</ApplicationIcon>
+        <Version>1.3.0</Version>
+        <AssemblyVersion>1.3.0.0</AssemblyVersion>
+        <FileVersion>1.3.0.0</FileVersion>
+        <InformationalVersion>1.3.0</InformationalVersion>
+        <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <ImplicitUsings>enable</ImplicitUsings>
+    </PropertyGroup>
 
-  <PropertyGroup>
-    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-    <RootNamespace>G3MToolCLI</RootNamespace>
-    <AssemblyName>G3MTool</AssemblyName>
-    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
-    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <PropertyGroup Condition="'$(RuntimeIdentifier)' != ''">
+        <SelfContained>true</SelfContained>
+        <PublishSingleFile>true</PublishSingleFile>
+        <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+        <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+        <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
+        <DebugType>none</DebugType>
+        <DebugSymbols>false</DebugSymbols>
+    </PropertyGroup>
 
-    <!-- Publish settings -->
-    <Version>1.2.9</Version>
-    <PublishSingleFile>true</PublishSingleFile>
-    <SelfContained>true</SelfContained>
-    <PublishTrimmed>false</PublishTrimmed>
-    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-    <DebugType>embedded</DebugType>
-    <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
-    <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
-    <CopyDocumentationFilesToPublishDirectory>false</CopyDocumentationFilesToPublishDirectory>
-  </PropertyGroup>
+    <PropertyGroup>
+        <XDeltaRuntimeIdentifier Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</XDeltaRuntimeIdentifier>
+        <XDeltaRuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">$(NETCoreSdkRuntimeIdentifier)</XDeltaRuntimeIdentifier>
+    </PropertyGroup>
 
-  <ItemGroup>
-    <!-- CLI parsing -->
-    <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
+    <ItemGroup>
+        <PackageReference Include="G3MLib" Version="1.0.1" />
+        <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Scripting" Version="5.9.0" />
+        <PackageReference Include="System.CommandLine" Version="2.0.12" />
+    </ItemGroup>
 
-    <!-- Roslyn scripting -->
-    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Scripting" Version="5.9.0" />
+    <ItemGroup>
+        <None Remove="Assets\**\*" />
+        <EmbeddedResource Include="Assets\**\*" Exclude="Assets\bin\**\*;Assets\icons\G3MTool_icon.ico" />
+    </ItemGroup>
 
-    <!-- System.Text.Json is included in .NET 10 by default -->
+    <ItemGroup Condition="'$(XDeltaRuntimeIdentifier)' == 'win-x64'">
+        <EmbeddedResource Include="Assets\bin\win-x64\xdelta.exe" LogicalName="G3MToolCLI.Assets.bin.win.xdelta.exe" />
+    </ItemGroup>
+    <ItemGroup Condition="'$(XDeltaRuntimeIdentifier)' == 'win-arm64'">
+        <EmbeddedResource Include="Assets\bin\win-arm64\xdelta.exe" LogicalName="G3MToolCLI.Assets.bin.win.xdelta.exe" />
+    </ItemGroup>
+    <ItemGroup Condition="'$(XDeltaRuntimeIdentifier)' == 'linux-x64'">
+        <EmbeddedResource Include="Assets\bin\linux-x64\xdelta" LogicalName="G3MToolCLI.Assets.bin.linux.xdelta" />
+    </ItemGroup>
+    <ItemGroup Condition="'$(XDeltaRuntimeIdentifier)' == 'linux-arm64'">
+        <EmbeddedResource Include="Assets\bin\linux-arm64\xdelta" LogicalName="G3MToolCLI.Assets.bin.linux.xdelta" />
+    </ItemGroup>
+    <ItemGroup Condition="'$(XDeltaRuntimeIdentifier)' == 'osx-x64'">
+        <EmbeddedResource Include="Assets\bin\mac-x64\xdelta" LogicalName="G3MToolCLI.Assets.bin.mac_x64.xdelta" />
+    </ItemGroup>
+    <ItemGroup Condition="'$(XDeltaRuntimeIdentifier)' == 'osx-arm64'">
+        <EmbeddedResource Include="Assets\bin\mac-arm64\xdelta" LogicalName="G3MToolCLI.Assets.bin.mac_arm64.xdelta" />
+    </ItemGroup>
 
-    <!-- UndertaleModLib - embedded -->
-    <ProjectReference Include="Lib\UndertaleModLib\UndertaleModLib.csproj" />
-  </ItemGroup>
-
-  <!-- Embed xdelta binaries - platform-specific -->
-  <ItemGroup Condition="$(RuntimeIdentifier.StartsWith('win'))">
-    <EmbeddedResource Include="Assets\bin\win\**\*" />
-  </ItemGroup>
-  <ItemGroup Condition="$(RuntimeIdentifier.StartsWith('linux'))">
-    <EmbeddedResource Include="Assets\bin\linux\**\*" />
-  </ItemGroup>
-  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'osx-arm64'">
-    <EmbeddedResource Include="Assets\bin\mac-arm64\**\*" />
-  </ItemGroup>
-  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'osx-x64'">
-    <EmbeddedResource Include="Assets\bin\mac-x64\**\*" />
-  </ItemGroup>
-
-  <!-- Embed scripts -->
-  <ItemGroup>
-    <EmbeddedResource Include="Assets\scripts\**\*.csx" />
-  </ItemGroup>
-
-  <!-- Compile only G3MToolCLI source files, not Lib -->
-  <ItemGroup>
-    <Compile Include="**\*.cs" Exclude="Lib\**\*.cs;obj\**\*.cs;bin\**\*.cs" />
-  </ItemGroup>
-
+    <Target Name="KeepSingleFilePublishOutput" AfterTargets="Publish" Condition="'$(PublishSingleFile)' == 'true'">
+        <Delete Files="$(PublishDir)G3MLib.pdb;$(PublishDir)G3MLib.xml" />
+        <RemoveDir Directories="$(PublishDir)GameSpecificData" />
+    </Target>
 </Project>

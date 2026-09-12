@@ -1,4 +1,3 @@
-
 using System;
 using System.IO;
 using System.Text;
@@ -6,9 +5,9 @@ using System.Text.Json;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
-using UndertaleModLib;
-using UndertaleModLib.Models;
-using UndertaleModLib.Util;
+using G3MLib.DataFile;
+using G3MLib.DataFile.Models;
+using G3MLib.DataFile.Util;
 using ImageMagick;
 
 void PrintLine(string s) { if (Verbose) Console.WriteLine(s); }
@@ -32,8 +31,8 @@ PrintLine($"[ExportEmbeddedTextures] Exporting to: {texturesOut}");
 var allTextures = Data.EmbeddedTextures.ToList();
 PrintLine($"[ExportEmbeddedTextures] Found {allTextures.Count} embedded textures to export.");
 
-JsonSerializerOptions jsonWriteOptions = new JsonSerializerOptions 
-{ 
+JsonSerializerOptions jsonWriteOptions = new JsonSerializerOptions
+{
     WriteIndented = true,
     Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
 };

@@ -1,65 +1,14 @@
-
-
-
 using System;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Collections.Generic;
 using System.Text.Json;
-using UndertaleModLib;
-using UndertaleModLib.Models;
+using G3MLib.DataFile;
+using G3MLib.DataFile.Models;
 
-// ============================================================================
-// DETAILED LOGGING SYSTEM
-// ============================================================================
-static StreamWriter _logWriter = null;
-static string _logPath = null;
-
-void InitLog(string scriptName)
-{
-    if (!Verbose) return;
-    string logDir = Path.Combine(Path.GetTempPath(), "g3mtool_logs");
-    Directory.CreateDirectory(logDir);
-    _logPath = Path.Combine(logDir, $"{scriptName}_{DateTime.Now:yyyyMMdd_HHmmss}.log");
-    _logWriter = new StreamWriter(_logPath, false, Encoding.UTF8);
-    _logWriter.AutoFlush = true;
-    Log($"=== {scriptName} Log Started at {DateTime.Now} ===");
-    Console.WriteLine($"[{scriptName}] Detailed log: {_logPath}");
-}
-
-void Log(string message)
-{
-    if (_logWriter != null)
-        _logWriter.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] {message}");
-}
-
-void CloseLog()
-{
-    if (_logWriter != null)
-    {
-        Log("=== Log Ended ===");
-        _logWriter.Close();
-        _logWriter = null;
-        if (!string.IsNullOrEmpty(_logPath))
-        {
-            try { File.Delete(_logPath); } catch { }
-            try
-            {
-                string logDir = Path.GetDirectoryName(_logPath);
-                if (!string.IsNullOrEmpty(logDir) &&
-                    Directory.Exists(logDir) &&
-                    !Directory.EnumerateFileSystemEntries(logDir).Any())
-                {
-                    Directory.Delete(logDir);
-                }
-            }
-            catch { }
-        }
-    }
-}
-
-void PrintLine(string s) { if (Verbose) Console.WriteLine(s); Log(s); }
+void Log(string message) { if (Verbose) ScriptMessage(message); }
+void PrintLine(string message) => Log(message);
 
 string GetInputDirectory()
 {
@@ -67,7 +16,7 @@ string GetInputDirectory()
     if (string.IsNullOrEmpty(inputDir))
         throw new Exception("InputDir is not set.");
     if (!Directory.Exists(inputDir))
-        throw new Exception($"INPUT_DIR directory does not exist: {inputDir}");
+        throw new Exception($"Input directory does not exist: {inputDir}");
     return inputDir;
 }
 
@@ -87,21 +36,10 @@ class GameObjectImportData
 
 EnsureDataLoaded();
 
-// Initialize detailed logging
-InitLog("ImportGameObjects");
+
 
 string gameObjectsIn = GetInputDirectory();
 PrintLine($"[ImportGameObjects] Importing from: {gameObjectsIn}");
-
-// Log initial state
-Log($"INITIAL STATE: Data.GameObjects.Count = {Data.GameObjects.Count}");
-Log("INITIAL OBJECTS (first 20):");
-for (int i = 0; i < Math.Min(20, Data.GameObjects.Count); i++)
-{
-    var obj = Data.GameObjects[i];
-    string spriteName = obj?.Sprite?.Name?.Content ?? "(none)";
-    Log($"  [{i}] {obj?.Name?.Content ?? "(null)"} - Sprite: {spriteName}");
-}
 
 int gameObjectsImported = 0;
 int gameObjectsCreated = 0;
@@ -109,10 +47,7 @@ int gameObjectsUpdated = 0;
 
 var objDirs = Directory.GetDirectories(gameObjectsIn);
 Console.WriteLine($"[ImportGameObjects] Found {objDirs.Length} game object folders to import");
-
-// ============================================================================
 // PHASE 1: Collect all JSONs and determine which are new vs existing
-// ============================================================================
 var importDataList = new List<GameObjectImportData>();
 int maxTargetIndex = -1;
 
@@ -124,7 +59,7 @@ foreach (string objDir in objDirs)
         PrintLine($"[ImportGameObjects] Skipping {Path.GetFileName(objDir)}: object.json not found");
         continue;
     }
-    
+
     try
     {
         string jsonContent = File.ReadAllText(jsonFile);
@@ -133,13 +68,13 @@ foreach (string objDir in objDirs)
 
         string objName = "";
         int targetIndex = -1;
-        
+
         // Try to get index from JSON first
         if (root.TryGetProperty("index", out JsonElement indexElm))
         {
             targetIndex = indexElm.GetInt32();
         }
-        
+
         // Also try to extract index from folder name (format: name__idxXXXX)
         string folderName = Path.GetFileName(objDir);
         int idxPos = folderName.LastIndexOf("__idx");
@@ -152,7 +87,7 @@ foreach (string objDir in objDirs)
                 Log($"EXTRACTED INDEX from folder name: {folderName} -> index={targetIndex}");
             }
         }
-        
+
         if (root.TryGetProperty("name", out JsonElement nameElm))
         {
             objName = nameElm.GetString();
@@ -170,10 +105,10 @@ foreach (string objDir in objDirs)
         // (e.g. TARGET may have two objects with the same name at different indices)
         int nameCount = importDataList.Count(d => d.Name == objName);
         bool existsInData = Data.GameObjects.ByName(objName) != null;
-        
+
         // It's new if: not in data at all, OR it's a duplicate name that needs a second copy
         bool isNew = !existsInData || nameCount > 0;
-        
+
         importDataList.Add(new GameObjectImportData
         {
             TargetIndex = targetIndex,
@@ -182,7 +117,7 @@ foreach (string objDir in objDirs)
             Root = root,
             IsNew = isNew
         });
-        
+
         if (isNew && targetIndex > maxTargetIndex)
         {
             maxTargetIndex = targetIndex;
@@ -195,10 +130,7 @@ foreach (string objDir in objDirs)
 }
 
 Console.WriteLine($"[ImportGameObjects] Collected {importDataList.Count} objects. New: {importDataList.Count(d => d.IsNew)}, Existing: {importDataList.Count(d => !d.IsNew)}");
-
-// ============================================================================
 // PHASE 2: Append new objects (ImportAssetOrder will reorder later)
-// ============================================================================
 var newObjects = importDataList.Where(d => d.IsNew).ToList();
 
 int originalCount = Data.GameObjects.Count;
@@ -206,7 +138,7 @@ Console.WriteLine($"[ImportGameObjects] Original count: {originalCount}, New obj
 
 foreach (var importData in newObjects)
 {
-    var gameObject = new UndertaleGameObject();
+    var gameObject = new GameMakerGameObject();
     gameObject.Name = Data.Strings.MakeString(importData.Name);
     Data.GameObjects.Add(gameObject);
     importData.ActualIndex = Data.GameObjects.Count - 1;
@@ -215,11 +147,7 @@ foreach (var importData in newObjects)
 }
 
 Console.WriteLine($"[ImportGameObjects] After additions: {Data.GameObjects.Count} objects");
-
-// ============================================================================
 // PHASE 3: Apply properties to ALL objects (new and existing)
-// ============================================================================
-
 foreach (var importData in importDataList)
 {
     try
@@ -227,9 +155,9 @@ foreach (var importData in importDataList)
         JsonElement root = importData.Root;
         string objName = importData.Name;
         int targetIdx = importData.TargetIndex;
-        
+
         // Find object: use ActualIndex for newly created objects, otherwise by index/name
-        UndertaleGameObject gameObject = null;
+        GameMakerGameObject gameObject = null;
         if (importData.IsNew && importData.ActualIndex >= 0 && importData.ActualIndex < Data.GameObjects.Count)
         {
             // For newly created objects (including duplicates), use the exact index where we placed them
@@ -249,13 +177,13 @@ foreach (var importData in importDataList)
         {
             gameObject = Data.GameObjects.ByName(objName);
         }
-        
+
         if (gameObject == null)
         {
             Console.WriteLine($"[ImportGameObjects] ERROR: Object '{objName}' not found after placement!");
             continue;
         }
-        
+
         bool isNew = importData.IsNew;
 
         // Set parent first
@@ -273,9 +201,8 @@ foreach (var importData in importDataList)
         }
 
         // Set sprite from JSON
-        // IMPORTANT: Empty string "" means "intentionally no sprite" (null)
-        // This is different from missing property which means "don't change"
-        if (root.TryGetProperty("sprite", out JsonElement spriteElm))
+        // An empty string clears the sprite; a missing property preserves it.
+                if (root.TryGetProperty("sprite", out JsonElement spriteElm))
         {
             string spriteName = spriteElm.GetString();
             if (!string.IsNullOrEmpty(spriteName))
@@ -357,7 +284,7 @@ foreach (var importData in importDataList)
             var collection = gameObject.PhysicsVertices;
             var addMethod = collection.GetType().GetMethod("Add");
             var vertexType = collection.GetType().GetGenericArguments()[0];
-            
+
             foreach (var vertexElm in verticesElm.EnumerateArray())
             {
                 // Create vertex using reflection to avoid Roslyn type resolution issues
@@ -377,7 +304,7 @@ foreach (var importData in importDataList)
             {
                 gameObject.Events[ei].Clear();
             }
-            
+
             foreach (var eventElm in eventsElm.EnumerateArray())
             {
                 if (!eventElm.TryGetProperty("eventType", out JsonElement eventTypeElm)) continue;
@@ -411,7 +338,7 @@ foreach (var importData in importDataList)
 
                 if (eventType < 0 || eventType >= gameObject.Events.Count) continue;
 
-                UndertaleGameObject.Event existingEvent = null;
+                GameMakerGameObject.Event existingEvent = null;
                 foreach (var evt in gameObject.Events[eventType])
                 {
                     if (evt.EventSubtype == eventSubtype)
@@ -423,7 +350,7 @@ foreach (var importData in importDataList)
 
                 if (existingEvent == null)
                 {
-                    existingEvent = new UndertaleGameObject.Event();
+                    existingEvent = new GameMakerGameObject.Event();
                     existingEvent.EventSubtype = eventSubtype;
                     gameObject.Events[eventType].Add(existingEvent);
                 }
@@ -433,14 +360,14 @@ foreach (var importData in importDataList)
                     int actionIndex = 0;
                     foreach (var actionElm in actionsElm.EnumerateArray())
                     {
-                        UndertaleGameObject.EventAction action;
+                        GameMakerGameObject.EventAction action;
                         if (actionIndex < existingEvent.Actions.Count)
                         {
                             action = existingEvent.Actions[actionIndex];
                         }
                         else
                         {
-                            action = new UndertaleGameObject.EventAction();
+                            action = new GameMakerGameObject.EventAction();
                             existingEvent.Actions.Add(action);
                         }
 
@@ -500,5 +427,3 @@ foreach (var importData in importDataList)
 }
 
 Console.WriteLine($"[ImportGameObjects] Imported {gameObjectsImported} game objects ({gameObjectsCreated} new, {gameObjectsUpdated} updated)");
-
-CloseLog();

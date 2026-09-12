@@ -1,6 +1,3 @@
-
-
-
 using System;
 using System.IO;
 using System.Text;
@@ -8,8 +5,8 @@ using System.Text.Json;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
-using UndertaleModLib;
-using UndertaleModLib.Models;
+using G3MLib.DataFile;
+using G3MLib.DataFile.Models;
 
 
 
@@ -28,7 +25,7 @@ string GetOutputDirectory()
 {
     string outputDir = OutputDir;
     if (string.IsNullOrEmpty(outputDir))
-        throw new Exception("OUTPUT_DIR environment variable is not set.");
+        throw new Exception("Output directory is not set.");
     string typeDir = Path.Combine(outputDir, "Timelines");
     if (!Directory.Exists(typeDir))
         Directory.CreateDirectory(typeDir);
@@ -43,7 +40,7 @@ EnsureDataLoaded();
 string timelinesOut = GetOutputDirectory();
 PrintLine($"[ExportTimelines] Exporting to: {timelinesOut}");
 
-List<UndertaleTimeline> allTimelines = Data.Timelines?.ToList() ?? new List<UndertaleTimeline>();
+List<GameMakerTimeline> allTimelines = Data.Timelines?.ToList() ?? new List<GameMakerTimeline>();
 PrintLine($"[ExportTimelines] Found {allTimelines.Count} timelines to export.");
 
 SetProgressBar(null, "Exporting Timelines", 0, allTimelines.Count);
@@ -51,7 +48,7 @@ StartProgressBarUpdater();
 
 await Task.Run(() => Parallel.ForEach(allTimelines, tl => ExportTimeline(tl, timelinesOut)));
 
-void ExportTimeline(UndertaleTimeline timeline, string outputDir)
+void ExportTimeline(GameMakerTimeline timeline, string outputDir)
 {
     if (timeline?.Name?.Content == null)
     {
@@ -124,6 +121,3 @@ await StopProgressBarUpdater();
 HideProgressBar();
 
 PrintLine($"[ExportTimelines] Export complete. {allTimelines.Count} timelines exported to {timelinesOut}");
-
-
-

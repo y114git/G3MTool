@@ -1,7 +1,7 @@
+using System;
 using System.CommandLine;
-using G3MToolCLI.Services;
+using System.IO;
 using G3MToolCLI.Utils;
-using static G3MToolCLI.Utils.DataFileExtensionUtil;
 
 namespace G3MToolCLI.Commands;
 
@@ -9,78 +9,81 @@ public static class XPatchCommand
 {
     public static Command Create()
     {
-        var command = new Command("xpatch", "Create or apply xdelta patches. Subcommands: create, apply");
-
-        var createCommand = new Command("create", "Create an xdelta patch from two files.\n  Usage: xpatch create <original> <modified> [output] [--xdelta-path <path>]");
-        var originalArg = new Argument<FileInfo>("original", "Path to original file");
-        var modifiedArg = new Argument<FileInfo>("modified", "Path to modified file");
-        var outputArg = new Argument<FileInfo?>("output", () => null, "Output patch file (optional). Default: next to G3MTool executable");
-
-        createCommand.AddArgument(originalArg);
-        createCommand.AddArgument(modifiedArg);
-        createCommand.AddArgument(outputArg);
-
-        createCommand.SetHandler(async (original, modified, output) =>
+        Command command = new Command("xpatch", "Create or apply xdelta patches. Subcommands: create, apply");
+        Command createCommand = new Command("create", "Create an xdelta patch from two files.\n  Usage: xpatch create <original> <modified> [output] [--xdelta-path <path>]");
+        Argument<FileInfo> originalArg = new Argument<FileInfo>("original") { Description = "Path to original file" };
+        Argument<FileInfo> modifiedArg = new Argument<FileInfo>("modified") { Description = "Path to modified file" };
+        Argument<FileInfo?> outputArg = new Argument<FileInfo?>("output") { DefaultValueFactory = _ => null, Description = "Output patch file (optional). Default: next to the executable" };
+        createCommand.Add(originalArg);
+        createCommand.Add(modifiedArg);
+        createCommand.Add(outputArg);
+        createCommand.SetAction(async parseResult =>
         {
-            var xdelta = new XDeltaService();
-            var defaultOutput = Path.Combine(PlatformUtil.GetExecutableDirectory(), Path.ChangeExtension(Path.GetFileName(modified.FullName), ".xdelta"));
-            var outputPath = output?.FullName ?? defaultOutput;
-
-            Console.WriteLine($"Creating xdelta patch...");
-            Console.WriteLine($"  Original: {original.FullName}");
-            Console.WriteLine($"  Modified: {modified.FullName}");
-            Console.WriteLine($"  Output:   {outputPath}");
-
-            var result = await xdelta.CreatePatchAsync(original.FullName, modified.FullName, outputPath);
-
+            FileInfo original = parseResult.GetValue(originalArg)!;
+            FileInfo modified = parseResult.GetValue(modifiedArg)!;
+            FileInfo? output = parseResult.GetValue(outputArg);
+            XDeltaService xDeltaService = new XDeltaService();
+            string defaultOutput = Path.Combine(PlatformUtil.GetExecutableDirectory(), Path.ChangeExtension(Path.GetFileName(modified.FullName), ".xdelta"));
+            string outputPath = output?.FullName ?? defaultOutput;
+            Console.WriteLine("Creating xdelta patch...");
+            Console.WriteLine("  Original: " + original.FullName);
+            Console.WriteLine("  Modified: " + modified.FullName);
+            Console.WriteLine("  Output:   " + outputPath);
+            XDeltaResult result = await xDeltaService.CreatePatchAsync(original.FullName, modified.FullName, outputPath);
             if (result.Success)
             {
-                Console.WriteLine($"Patch created successfully: {outputPath}");
+                Console.WriteLine("Patch created successfully: " + outputPath);
             }
             else
             {
-                Console.Error.WriteLine($"Error: {result.Error}");
+                Console.Error.WriteLine("Error: " + result.Error);
                 Environment.ExitCode = 1;
             }
-        }, originalArg, modifiedArg, outputArg);
-
-        var applyCommand = new Command("apply", "Apply an xdelta patch to a file.\n  Usage: xpatch apply <original> <patch> [output] [--xdelta-path <path>]");
-        var applyOriginalArg = new Argument<FileInfo>("original", "Path to original file");
-        var patchArg = new Argument<FileInfo>("patch", "Path to xdelta patch file");
-        var applyOutputArg = new Argument<FileInfo?>("output", () => null, "Output file (optional). Default: next to G3MTool executable");
-
-        applyCommand.AddArgument(applyOriginalArg);
-        applyCommand.AddArgument(patchArg);
-        applyCommand.AddArgument(applyOutputArg);
-
-        applyCommand.SetHandler(async (original, patch, output) =>
+        });
+        Command applyCommand = new Command("apply", "Apply an xdelta patch to a file.\n  Usage: xpatch apply <original> <patch> [output] [--xdelta-path <path>]");
+        Argument<FileInfo> applyOriginalArg = new Argument<FileInfo>("original") { Description = "Path to original file" };
+        Argument<FileInfo> patchArg = new Argument<FileInfo>("patch") { Description = "Path to xdelta patch file" };
+        Argument<FileInfo?> applyOutputArg = new Argument<FileInfo?>("output") { DefaultValueFactory = _ => null, Description = "Output file (optional). Default: next to the executable" };
+        applyCommand.Add(applyOriginalArg);
+        applyCommand.Add(patchArg);
+        applyCommand.Add(applyOutputArg);
+        applyCommand.SetAction(async parseResult =>
         {
-            var xdelta = new XDeltaService();
-            var outputExt = GetOutputExtension(original.FullName);
-            var defaultOutput = Path.Combine(PlatformUtil.GetExecutableDirectory(), Path.GetFileNameWithoutExtension(original.FullName) + "_patched" + outputExt);
-            var outputPath = output?.FullName ?? defaultOutput;
-
-            Console.WriteLine($"Applying xdelta patch...");
-            Console.WriteLine($"  Original: {original.FullName}");
-            Console.WriteLine($"  Patch:    {patch.FullName}");
-            Console.WriteLine($"  Output:   {outputPath}");
-
-            var result = await xdelta.ApplyPatchAsync(original.FullName, patch.FullName, outputPath);
-
+            FileInfo original = parseResult.GetValue(applyOriginalArg)!;
+            FileInfo patch = parseResult.GetValue(patchArg)!;
+            FileInfo? output = parseResult.GetValue(applyOutputArg);
+            XDeltaService xDeltaService = new XDeltaService();
+            string outputExt = GetDataFileOutputExtension(original.FullName);
+            string defaultOutput = Path.Combine(PlatformUtil.GetExecutableDirectory(), Path.GetFileNameWithoutExtension(original.FullName) + "_patched" + outputExt);
+            string outputPath = output?.FullName ?? defaultOutput;
+            Console.WriteLine("Applying xdelta patch...");
+            Console.WriteLine("  Original: " + original.FullName);
+            Console.WriteLine("  Patch:    " + patch.FullName);
+            Console.WriteLine("  Output:   " + outputPath);
+            XDeltaResult result = await xDeltaService.ApplyPatchAsync(original.FullName, patch.FullName, outputPath);
             if (result.Success)
             {
-                Console.WriteLine($"Patch applied successfully: {outputPath}");
+                Console.WriteLine("Patch applied successfully: " + outputPath);
             }
             else
             {
-                Console.Error.WriteLine($"Error: {result.Error}");
+                Console.Error.WriteLine("Error: " + result.Error);
                 Environment.ExitCode = 1;
             }
-        }, applyOriginalArg, patchArg, applyOutputArg);
-
-        command.AddCommand(createCommand);
-        command.AddCommand(applyCommand);
-
+        });
+        command.Add(createCommand);
+        command.Add(applyCommand);
         return command;
+    }
+
+    private static string GetDataFileOutputExtension(string path)
+    {
+        string extension = Path.GetExtension(path);
+        return extension.Equals(".win", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".ios", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".droid", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".unx", StringComparison.OrdinalIgnoreCase)
+            ? extension.ToLowerInvariant()
+            : ".win";
     }
 }

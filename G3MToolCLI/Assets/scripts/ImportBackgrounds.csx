@@ -1,15 +1,11 @@
-
-
-
-
 using System;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
-using UndertaleModLib;
-using UndertaleModLib.Models;
-using UndertaleModLib.Util;
+using G3MLib.DataFile;
+using G3MLib.DataFile.Models;
+using G3MLib.DataFile.Util;
 
 
 
@@ -22,7 +18,7 @@ string GetInputDirectory()
     if (string.IsNullOrEmpty(inputDir))
         throw new Exception("InputDir is not set.");
     if (!Directory.Exists(inputDir))
-        throw new Exception($"INPUT_DIR directory does not exist: {inputDir}");
+        throw new Exception($"Input directory does not exist: {inputDir}");
     return inputDir;
 }
 
@@ -85,12 +81,12 @@ using (TextureWorker worker = new TextureWorker())
 
         try
         {
-            UndertaleBackground bg = Data.Backgrounds.ByName(bgName);
+            GameMakerBackground bg = Data.Backgrounds.ByName(bgName);
             bool isNew = false;
 
             if (bg == null)
             {
-                bg = new UndertaleBackground();
+                bg = new GameMakerBackground();
                 bg.Name = Data.Strings.MakeString(bgName);
                 bg.Transparent = false;
                 bg.Smooth = false;
@@ -120,13 +116,13 @@ using (TextureWorker worker = new TextureWorker())
                     int lastTextPage = Data.EmbeddedTextures.Count - 1;
                     int lastTextPageItem = Data.TexturePageItems.Count - 1;
 
-                    UndertaleEmbeddedTexture newEmbeddedTexture = new UndertaleEmbeddedTexture();
-                    newEmbeddedTexture.Name = new UndertaleString($"Texture {++lastTextPage}");
+                    GameMakerEmbeddedTexture newEmbeddedTexture = new GameMakerEmbeddedTexture();
+                    newEmbeddedTexture.Name = new GameMakerString($"Texture {++lastTextPage}");
                     newEmbeddedTexture.TextureData.Image = GMImage.FromMagickImage(img).ConvertToPng();
                     Data.EmbeddedTextures.Add(newEmbeddedTexture);
 
-                    UndertaleTexturePageItem newTexturePageItem = new UndertaleTexturePageItem();
-                    newTexturePageItem.Name = new UndertaleString($"PageItem {++lastTextPageItem}");
+                    GameMakerTexturePageItem newTexturePageItem = new GameMakerTexturePageItem();
+                    newTexturePageItem.Name = new GameMakerString($"PageItem {++lastTextPageItem}");
                     newTexturePageItem.SourceX = 0;
                     newTexturePageItem.SourceY = 0;
                     newTexturePageItem.SourceWidth = (ushort)img.Width;
@@ -181,8 +177,3 @@ using (TextureWorker worker = new TextureWorker())
 }
 
 PrintLine($"[ImportBackgrounds] Import complete. {imported} backgrounds processed ({created} new).");
-
-
-
-
-

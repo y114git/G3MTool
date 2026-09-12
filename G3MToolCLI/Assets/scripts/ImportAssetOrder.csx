@@ -9,7 +9,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
-using UndertaleModLib.Models;
+using G3MLib.DataFile.Models;
 
 EnsureDataLoaded();
 
@@ -28,7 +28,7 @@ Console.WriteLine($"[ImportAssetOrder] Loading asset order from: {assetOrderPath
 
 string[] lines = File.ReadAllLines(assetOrderPath);
 
-void Reorganize<T>(IList<T> list, List<string> order, string typeName) where T : UndertaleNamedResource, new()
+void Reorganize<T>(IList<T> list, List<string> order, string typeName) where T : GameMakerNamedResource, new()
 {
     if (order.Count == 0)
         return;
@@ -170,7 +170,7 @@ void SubmitList()
             {
                 if (Data.Scripts.ByName(scriptName) == null)
                 {
-                    var script = new UndertaleScript();
+                    var script = new GameMakerScript();
                     script.Name = Data.Strings.MakeString(scriptName);
                     // Link to code entry (convention: gml_Script_<name> or gml_GlobalScript_<name>)
                     var code = Data.Code.ByName("gml_Script_" + scriptName)
@@ -192,7 +192,7 @@ void SubmitList()
             break;
         case "objects":
             // Save collision target names BEFORE reorder (subtypes are indices that will change)
-            var collisionInfo = new List<(UndertaleGameObject obj, int evtIdx, string targetName)>();
+            var collisionInfo = new List<(GameMakerGameObject obj, int evtIdx, string targetName)>();
             foreach (var obj in Data.GameObjects)
             {
                 if (obj == null) continue;
@@ -354,7 +354,7 @@ if (File.Exists(tpiJsonPath) && File.Exists(frameMapJsonPath))
 
     // Update TPIs IN-PLACE to preserve object identity (avoids dangling pointers from
     // objects we don't scan, like dropped sprites still referenced by game objects)
-    void ApplyTpiData(UndertaleTexturePageItem tpi, int[] arr)
+    void ApplyTpiData(GameMakerTexturePageItem tpi, int[] arr)
     {
         int texIdx = arr[0];
         if (texIdx >= 0 && texIdx < Data.EmbeddedTextures.Count)
@@ -381,7 +381,7 @@ if (File.Exists(tpiJsonPath) && File.Exists(frameMapJsonPath))
     // 1b. Add new TPIs if target has more
     for (int i = oldTpiCount; i < newTpiCount; i++)
     {
-        var tpi = new UndertaleTexturePageItem();
+        var tpi = new GameMakerTexturePageItem();
         ApplyTpiData(tpi, tpiData[i]);
         Data.TexturePageItems.Add(tpi);
     }
@@ -408,7 +408,7 @@ if (File.Exists(tpiJsonPath) && File.Exists(frameMapJsonPath))
             sprite.Textures.Clear();
             foreach (int tpiIdx in idxArr)
             {
-                var entry = new UndertaleSprite.TextureEntry();
+                var entry = new GameMakerSprite.TextureEntry();
                 if (tpiIdx >= 0 && tpiIdx < Data.TexturePageItems.Count)
                     entry.Texture = Data.TexturePageItems[tpiIdx];
                 sprite.Textures.Add(entry);

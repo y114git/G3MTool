@@ -1,0 +1,98 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Styles.Resources>
+    <Color x:Key="G3MBackground">#282828</Color>
+    <Color x:Key="G3MElements">#222222</Color>
+    <Color x:Key="G3MBorder">#039D5B</Color>
+    <Color x:Key="G3MAccent">#6DE985</Color>
+    <Color x:Key="G3MText">#E8E9EB</Color>
+    <Color x:Key="G3MMuted">#9CA3AF</Color>
+
+    <SolidColorBrush x:Key="WindowBackgroundBrush" Color="{StaticResource G3MBackground}" />
+    <SolidColorBrush x:Key="PanelBrush" Color="#E6222222" />
+    <SolidColorBrush x:Key="BorderBrush" Color="{StaticResource G3MBorder}" />
+    <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource G3MAccent}" />
+    <SolidColorBrush x:Key="TextBrush" Color="{StaticResource G3MText}" />
+    <SolidColorBrush x:Key="MutedBrush" Color="{StaticResource G3MMuted}" />
+    <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="#B89CA3AF" />
+  </Styles.Resources>
+
+  <Style Selector="Window">
+    <Setter Property="Background" Value="{StaticResource WindowBackgroundBrush}" />
+    <Setter Property="FontFamily" Value="Segoe UI, Arial" />
+    <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+  </Style>
+  <Style Selector="TextBlock.muted"><Setter Property="Foreground" Value="{StaticResource MutedBrush}" /></Style>
+  <Style Selector="TextBlock.accent"><Setter Property="Foreground" Value="{StaticResource AccentBrush}" /></Style>
+  <Style Selector="Border.card">
+    <Setter Property="Background" Value="{StaticResource PanelBrush}" />
+    <Setter Property="BorderBrush" Value="#80039D5B" />
+    <Setter Property="BorderThickness" Value="2" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="Padding" Value="10" />
+  </Style>
+  <Style Selector="Button">
+    <Setter Property="Background" Value="#2B3431" />
+    <Setter Property="BorderBrush" Value="#7A039D5B" />
+    <Setter Property="BorderThickness" Value="2" />
+    <Setter Property="CornerRadius" Value="6" />
+    <Setter Property="Padding" Value="10,5" />
+    <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <BrushTransition Property="Background" Duration="0:0:0.12" />
+        <BrushTransition Property="BorderBrush" Duration="0:0:0.12" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Button:pointerover"><Setter Property="Background" Value="#3A4A43" /></Style>
+  <Style Selector="Button.primary">
+    <Setter Property="Background" Value="#039D5B" />
+    <Setter Property="BorderBrush" Value="#6DE985" />
+    <Setter Property="Foreground" Value="#FFFFFF" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+  <Style Selector="Button.social">
+    <Setter Property="Width" Value="38" />
+    <Setter Property="Height" Value="38" />
+    <Setter Property="Padding" Value="5" />
+  </Style>
+  <Style Selector="Button.website">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="MinWidth" Value="0" />
+  </Style>
+  <Style Selector="Button.website:pointerover"><Setter Property="Background" Value="Transparent" /></Style>
+  <Style Selector="TextBox">
+    <Setter Property="Background" Value="#CC171717" />
+    <Setter Property="BorderBrush" Value="#70616B78" />
+    <Setter Property="BorderThickness" Value="2" />
+    <Setter Property="CornerRadius" Value="5" />
+    <Setter Property="Padding" Value="8,4" />
+    <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+    <Setter Property="Transitions">
+      <Transitions><BrushTransition Property="BorderBrush" Duration="0:0:0.12" /></Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="TextBox:focus"><Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" /></Style>
+  <Style Selector="ComboBox">
+    <Setter Property="Background" Value="#CC171717" />
+    <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+    <Setter Property="BorderBrush" Value="#70616B78" />
+    <Setter Property="BorderThickness" Value="2" />
+    <Setter Property="Padding" Value="10,7" />
+  </Style>
+  <Style Selector="CheckBox">
+    <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+    <Setter Property="BorderThickness" Value="2" />
+  </Style>
+  <Style Selector="ProgressBar">
+    <Setter Property="Background" Value="#3A3A3A" />
+    <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+    <Setter Property="Height" Value="7" />
+    <Setter Property="Transitions">
+      <Transitions><DoubleTransition Property="Value" Duration="0:0:0.18" /></Transitions>
+    </Setter>
+  </Style>
+</Styles>

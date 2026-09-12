@@ -1,7 +1,3 @@
-
-
-
-
 using System;
 using System.IO;
 using System.Text;
@@ -9,9 +5,9 @@ using System.Text.Json;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
-using UndertaleModLib;
-using UndertaleModLib.Models;
-using UndertaleModLib.Util;
+using G3MLib.DataFile;
+using G3MLib.DataFile.Models;
+using G3MLib.DataFile.Util;
 
 
 
@@ -30,7 +26,7 @@ string GetOutputDirectory()
 {
     string outputDir = OutputDir;
     if (string.IsNullOrEmpty(outputDir))
-        throw new Exception("OUTPUT_DIR environment variable is not set.");
+        throw new Exception("Output directory is not set.");
     if (!Directory.Exists(outputDir))
         Directory.CreateDirectory(outputDir);
     return outputDir;
@@ -45,7 +41,7 @@ string tilesetOut = GetOutputDirectory();
 PrintLine($"[ExportTilesets] Exporting to: {tilesetOut}");
 
 
-List<UndertaleBackground> allTilesets;
+List<GameMakerBackground> allTilesets;
 if (Data.IsGameMaker2())
 {
     allTilesets = Data.Backgrounds
@@ -54,7 +50,7 @@ if (Data.IsGameMaker2())
 }
 else
 {
-    
+
     PrintLine("[ExportTilesets] GMS1 detected - tilesets are handled as backgrounds. Use ExportBackgrounds.csx instead.");
     return;
 }
@@ -67,8 +63,8 @@ if (allTilesets.Count == 0)
     return;
 }
 
-JsonSerializerOptions jsonWriteOptions = new JsonSerializerOptions 
-{ 
+JsonSerializerOptions jsonWriteOptions = new JsonSerializerOptions
+{
     WriteIndented = true,
     Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
 };
@@ -81,7 +77,7 @@ using (TextureWorker worker = new TextureWorker())
     await Task.Run(() => Parallel.ForEach(allTilesets, ts => ExportTileset(ts, worker, tilesetOut)));
 }
 
-void ExportTileset(UndertaleBackground ts, TextureWorker worker, string outputDir)
+void ExportTileset(GameMakerBackground ts, TextureWorker worker, string outputDir)
 {
     if (ts?.Name?.Content == null)
     {
@@ -93,14 +89,14 @@ void ExportTileset(UndertaleBackground ts, TextureWorker worker, string outputDi
     {
         string name = SafeName(ts.Name.Content);
 
-        
+
         if (ts.Texture != null)
         {
             string pngPath = Path.Combine(outputDir, name + ".png");
             worker.ExportAsPNG(ts.Texture, pngPath);
         }
 
-        
+
         var tsMeta = new Dictionary<string, object>
         {
             ["name"] = ts.Name?.Content ?? "",
@@ -109,7 +105,7 @@ void ExportTileset(UndertaleBackground ts, TextureWorker worker, string outputDi
             ["preload"] = ts.Preload
         };
 
-        
+
         tsMeta["gms2UnknownAlways2"] = ts.GMS2UnknownAlways2;
         tsMeta["gms2TileWidth"] = ts.GMS2TileWidth;
         tsMeta["gms2TileHeight"] = ts.GMS2TileHeight;
@@ -151,6 +147,3 @@ await StopProgressBarUpdater();
 HideProgressBar();
 
 PrintLine($"[ExportTilesets] Export complete. {allTilesets.Count} tilesets exported to {tilesetOut}");
-
-
-

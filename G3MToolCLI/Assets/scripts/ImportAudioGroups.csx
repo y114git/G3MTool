@@ -1,13 +1,10 @@
-
-
-
 using System;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
-using UndertaleModLib;
-using UndertaleModLib.Models;
+using G3MLib.DataFile;
+using G3MLib.DataFile.Models;
 
 
 
@@ -20,7 +17,7 @@ string GetInputDirectory()
     if (string.IsNullOrEmpty(inputDir))
         throw new Exception("InputDir is not set.");
     if (!Directory.Exists(inputDir))
-        throw new Exception($"INPUT_DIR directory does not exist: {inputDir}");
+        throw new Exception($"Input directory does not exist: {inputDir}");
     return inputDir;
 }
 
@@ -55,26 +52,26 @@ foreach (string audioGroupDir in audioGroupDirs)
     try
     {
         string audioGroupFile = Path.Combine(audioGroupDir, audioGroupName + ".json");
-        
+
         if (!File.Exists(audioGroupFile))
         {
             PrintLine($"[ImportAudioGroups] Warning: No .json file found in {audioGroupName}");
             IncrementProgress();
             continue;
         }
-        
+
         string jsonContent = File.ReadAllText(audioGroupFile, Encoding.UTF8);
-        
+
         JsonDocument jsonDoc = JsonDocument.Parse(jsonContent);
         JsonElement root = jsonDoc.RootElement;
-        
-        UndertaleAudioGroup audioGroup = Data.AudioGroups?.ByName(audioGroupName);
+
+        GameMakerAudioGroup audioGroup = Data.AudioGroups?.ByName(audioGroupName);
         bool isNew = false;
-        
+
         if (audioGroup == null)
         {
-            
-            audioGroup = new UndertaleAudioGroup();
+
+            audioGroup = new GameMakerAudioGroup();
             audioGroup.Name = Data.Strings.MakeString(audioGroupName);
             isNew = true;
             PrintLine($"[ImportAudioGroups] Creating NEW audio group: {audioGroupName}");
@@ -113,10 +110,3 @@ foreach (string audioGroupDir in audioGroupDirs)
 await StopProgressBarUpdater();
 HideProgressBar();
 PrintLine($"[ImportAudioGroups] Done. Created: {created}, Updated: {updated}");
-
-
-
-
-
-
-

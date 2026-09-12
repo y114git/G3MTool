@@ -1,6 +1,3 @@
-
-
-
 using System;
 using System.IO;
 using System.Text;
@@ -9,9 +6,9 @@ using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using System.Collections.Generic;
-using UndertaleModLib;
-using UndertaleModLib.Models;
-using UndertaleModLib.Util;
+using G3MLib.DataFile;
+using G3MLib.DataFile.Models;
+using G3MLib.DataFile.Util;
 using ImageMagick;
 
 
@@ -40,33 +37,33 @@ string GetOutputDirectory()
     return typeDir;
 }
 
-void ExportSourcePixelsAsPNG(TextureWorker worker, UndertaleTexturePageItem texPageItem, string filePath)
+void ExportSourcePixelsAsPNG(TextureWorker worker, GameMakerTexturePageItem texPageItem, string filePath)
 {
-    var getEmbeddedMethod = worker.GetType().GetMethod("GetEmbeddedTexture", 
+    var getEmbeddedMethod = worker.GetType().GetMethod("GetEmbeddedTexture",
         BindingFlags.Public | BindingFlags.Instance);
     var embeddedImage = getEmbeddedMethod.Invoke(worker, new object[] { texPageItem.TexturePage }) as MagickImage;
-    
+
     if (embeddedImage == null)
         throw new Exception($"Failed to get embedded texture for {filePath}");
-    
+
     IMagickImage<byte> croppedImage;
     lock (embeddedImage)
     {
         croppedImage = embeddedImage.CloneArea(
-            texPageItem.SourceX, 
-            texPageItem.SourceY, 
-            texPageItem.SourceWidth, 
+            texPageItem.SourceX,
+            texPageItem.SourceY,
+            texPageItem.SourceWidth,
             texPageItem.SourceHeight
         );
     }
-    
+
     croppedImage.Strip();
-    
+
     using (var stream = new FileStream(filePath, FileMode.Create))
     {
         croppedImage.Write(stream, MagickFormat.Png32);
     }
-    
+
     croppedImage.Dispose();
 }
 
@@ -83,11 +80,11 @@ if (Data.IsYYC())
 string spritesOut = GetOutputDirectory();
 PrintLine($"[ExportSprites] Exporting to: {spritesOut}");
 
-List<UndertaleSprite> allSprites = Data.Sprites.ToList();
+List<GameMakerSprite> allSprites = Data.Sprites.ToList();
 PrintLine($"[ExportSprites] Found {allSprites.Count} sprites to export.");
 
-JsonSerializerOptions jsonWriteOptions = new JsonSerializerOptions 
-{ 
+JsonSerializerOptions jsonWriteOptions = new JsonSerializerOptions
+{
     WriteIndented = true,
     Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
 };
@@ -100,7 +97,7 @@ using (TextureWorker worker = new TextureWorker())
     await Task.Run(() => Parallel.ForEach(allSprites, sprite => ExportSprite(sprite, worker, spritesOut)));
 }
 
-void ExportSprite(UndertaleSprite sprite, TextureWorker worker, string outputDir)
+void ExportSprite(GameMakerSprite sprite, TextureWorker worker, string outputDir)
 {
     if (sprite?.Name?.Content == null)
     {
@@ -112,28 +109,28 @@ void ExportSprite(UndertaleSprite sprite, TextureWorker worker, string outputDir
     {
         int spriteIndex = Data.Sprites.IndexOf(sprite);
         string spriteName = SafeName(sprite.Name.Content);
-        
+
         // Handle sprites with empty names - use index as folder name
-        string folderName = string.IsNullOrEmpty(spriteName) 
-            ? $"__unnamed_sprite__idx{spriteIndex}" 
+        string folderName = string.IsNullOrEmpty(spriteName)
+            ? $"__unnamed_sprite__idx{spriteIndex}"
             : spriteName;
-        
+
         // Use sprite name as folder name (index is stored in JSON metadata)
         string spriteFolder = Path.Combine(outputDir, folderName);
         Directory.CreateDirectory(spriteFolder);
 
-        
+
         for (int i = 0; i < sprite.Textures.Count; i++)
         {
             if (sprite.Textures[i]?.Texture is not null)
             {
-                UndertaleTexturePageItem tex = sprite.Textures[i].Texture;
+                GameMakerTexturePageItem tex = sprite.Textures[i].Texture;
                 string pngPath = Path.Combine(spriteFolder, $"{folderName}_{i}.png");
                 ExportSourcePixelsAsPNG(worker, tex, pngPath);
             }
         }
 
-        
+
         var spriteMeta = new Dictionary<string, object>
         {
             ["index"] = Data.Sprites.IndexOf(sprite),
@@ -155,7 +152,7 @@ void ExportSprite(UndertaleSprite sprite, TextureWorker worker, string outputDir
             ["textureCount"] = sprite.Textures.Count
         };
 
-        
+
         var textureFrames = new List<Dictionary<string, object>>();
         for (int i = 0; i < sprite.Textures.Count; i++)
         {
@@ -192,7 +189,7 @@ void ExportSprite(UndertaleSprite sprite, TextureWorker worker, string outputDir
         }
         spriteMeta["textureFrames"] = textureFrames;
 
-        
+
         if (Data.IsGameMaker2())
         {
             spriteMeta["isSpecialType"] = sprite.IsSpecialType;
@@ -204,7 +201,7 @@ void ExportSprite(UndertaleSprite sprite, TextureWorker worker, string outputDir
             spriteMeta["gms2PlaybackSpeedTypeDescription"] = sprite.GMS2PlaybackSpeedType.ToString();
         }
 
-        
+
         if (sprite.CollisionMasks != null && sprite.CollisionMasks.Count > 0)
         {
             var masksData = new List<Dictionary<string, object>>();
@@ -223,7 +220,7 @@ void ExportSprite(UndertaleSprite sprite, TextureWorker worker, string outputDir
             spriteMeta["collisionMasks"] = masksData;
         }
 
-        
+
         if (sprite.V3NineSlice != null)
         {
             var nineSliceData = new Dictionary<string, object>
@@ -234,30 +231,30 @@ void ExportSprite(UndertaleSprite sprite, TextureWorker worker, string outputDir
                 ["bottom"] = sprite.V3NineSlice.Bottom,
                 ["enabled"] = sprite.V3NineSlice.Enabled
             };
-            
+
             if (sprite.V3NineSlice.TileModes != null)
             {
                 nineSliceData["tileModes"] = sprite.V3NineSlice.TileModes.Select(t => (int)t).ToArray();
             }
-            
+
             spriteMeta["nineSlice"] = nineSliceData;
         }
 
-        
+
         if (sprite.IsSpineSprite)
         {
             spriteMeta["isSpineSprite"] = true;
             spriteMeta["spineVersion"] = sprite.SpineVersion;
         }
 
-        
+
         if (sprite.IsYYSWFSprite)
         {
             spriteMeta["isYYSWFSprite"] = true;
             spriteMeta["swfVersion"] = sprite.SWFVersion;
         }
 
-        
+
         string metaJson = JsonSerializer.Serialize(spriteMeta, jsonWriteOptions);
         string metaFile = Path.Combine(spriteFolder, $"{folderName}.json");
         File.WriteAllText(metaFile, metaJson, Encoding.UTF8);
@@ -274,7 +271,3 @@ await StopProgressBarUpdater();
 HideProgressBar();
 
 PrintLine($"[ExportSprites] Export complete. {allSprites.Count} sprites exported to {spritesOut}");
-
-
-
-

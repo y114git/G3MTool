@@ -1,7 +1,3 @@
-
-
-
-
 using System;
 using System.IO;
 using System.Text;
@@ -9,9 +5,9 @@ using System.Text.Json;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
-using UndertaleModLib;
-using UndertaleModLib.Models;
-using UndertaleModLib.Util;
+using G3MLib.DataFile;
+using G3MLib.DataFile.Models;
+using G3MLib.DataFile.Util;
 
 
 
@@ -46,7 +42,7 @@ string bgOut = GetOutputDirectory();
 PrintLine($"[ExportBackgrounds] Exporting to: {bgOut}");
 
 
-List<UndertaleBackground> allBackgrounds;
+List<GameMakerBackground> allBackgrounds;
 if (Data.IsGameMaker2())
 {
     allBackgrounds = Data.Backgrounds
@@ -59,8 +55,8 @@ else
 }
 PrintLine($"[ExportBackgrounds] Found {allBackgrounds.Count} backgrounds to export (excluding tilesets).");
 
-JsonSerializerOptions jsonWriteOptions = new JsonSerializerOptions 
-{ 
+JsonSerializerOptions jsonWriteOptions = new JsonSerializerOptions
+{
     WriteIndented = true,
     Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
 };
@@ -73,7 +69,7 @@ using (TextureWorker worker = new TextureWorker())
     await Task.Run(() => Parallel.ForEach(allBackgrounds, bg => ExportBackground(bg, worker, bgOut)));
 }
 
-void ExportBackground(UndertaleBackground bg, TextureWorker worker, string outputDir)
+void ExportBackground(GameMakerBackground bg, TextureWorker worker, string outputDir)
 {
     if (bg?.Name?.Content == null)
     {
@@ -87,14 +83,14 @@ void ExportBackground(UndertaleBackground bg, TextureWorker worker, string outpu
         string resourceDir = Path.Combine(outputDir, name);
         Directory.CreateDirectory(resourceDir);
 
-        
+
         if (bg.Texture != null)
         {
             string pngPath = Path.Combine(resourceDir, name + ".png");
             worker.ExportAsPNG(bg.Texture, pngPath);
         }
 
-        
+
         var bgMeta = new Dictionary<string, object>
         {
             ["name"] = bg.Name?.Content ?? "",
@@ -103,7 +99,7 @@ void ExportBackground(UndertaleBackground bg, TextureWorker worker, string outpu
             ["preload"] = bg.Preload
         };
 
-        
+
         if (Data.IsGameMaker2())
         {
             bgMeta["gms2UnknownAlways2"] = bg.GMS2UnknownAlways2;
@@ -125,7 +121,3 @@ await StopProgressBarUpdater();
 HideProgressBar();
 
 PrintLine($"[ExportBackgrounds] Export complete. {allBackgrounds.Count} backgrounds exported to {bgOut}");
-
-
-
-

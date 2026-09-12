@@ -1,6 +1,3 @@
-
-
-
 using System;
 using System.IO;
 using System.Text;
@@ -8,8 +5,8 @@ using System.Text.Json;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
-using UndertaleModLib;
-using UndertaleModLib.Models;
+using G3MLib.DataFile;
+using G3MLib.DataFile.Models;
 
 
 
@@ -28,7 +25,7 @@ string GetOutputDirectory()
 {
     string outputDir = OutputDir;
     if (string.IsNullOrEmpty(outputDir))
-        throw new Exception("OUTPUT_DIR environment variable is not set.");
+        throw new Exception("Output directory is not set.");
     string typeDir = Path.Combine(outputDir, "Extensions");
     if (!Directory.Exists(typeDir))
         Directory.CreateDirectory(typeDir);
@@ -43,7 +40,7 @@ EnsureDataLoaded();
 string extensionsOut = GetOutputDirectory();
 PrintLine($"[ExportExtensions] Exporting to: {extensionsOut}");
 
-List<UndertaleExtension> allExtensions = Data.Extensions?.ToList() ?? new List<UndertaleExtension>();
+List<GameMakerExtension> allExtensions = Data.Extensions?.ToList() ?? new List<GameMakerExtension>();
 PrintLine($"[ExportExtensions] Found {allExtensions.Count} extensions to export.");
 
 SetProgressBar(null, "Exporting Extensions", 0, allExtensions.Count);
@@ -51,7 +48,7 @@ StartProgressBarUpdater();
 
 await Task.Run(() => Parallel.ForEach(allExtensions, ext => ExportExtension(ext, extensionsOut)));
 
-void ExportExtension(UndertaleExtension extension, string outputDir)
+void ExportExtension(GameMakerExtension extension, string outputDir)
 {
     if (extension?.Name?.Content == null)
     {
@@ -154,6 +151,3 @@ await StopProgressBarUpdater();
 HideProgressBar();
 
 PrintLine($"[ExportExtensions] Export complete. {allExtensions.Count} extensions exported to {extensionsOut}");
-
-
-

@@ -1,6 +1,0 @@
-<Project>
-  <PropertyGroup>
-    <DebugType>embedded</DebugType>
-    <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
-  </PropertyGroup>
-</Project>

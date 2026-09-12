@@ -1,0 +1,109 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="G3MToolGUI.MainWindow"
+        Width="850" Height="680" MinWidth="760" MinHeight="560" SizeToContent="Manual"
+        Title="G3MTool"
+        Icon="avares://G3MToolGUI/Assets/icons/G3MTool_icon.ico">
+  <Grid>
+    <Image Source="avares://G3MToolGUI/Assets/images/G3MTool_bg.png" Stretch="Fill" Opacity="0.18" IsHitTestVisible="False" />
+    <Grid RowDefinitions="Auto,*" Margin="24,16,24,16">
+      <Grid Name="TopBar">
+        <StackPanel HorizontalAlignment="Left" VerticalAlignment="Center" Spacing="2">
+          <TextBlock Name="BuildVersionText" Classes="muted" FontSize="12" />
+          <StackPanel Orientation="Horizontal" Spacing="0">
+            <TextBlock Text="Made by " Classes="muted" FontSize="11" />
+            <Button Classes="website" Click="OpenWebsite" ToolTip.Tip="https://y114.space"><TextBlock Text="Y114" Classes="muted" FontSize="11" TextDecorations="Underline" /></Button>
+            <TextBlock Text=" with ❤" Classes="muted" FontSize="11" />
+          </StackPanel>
+        </StackPanel>
+        <Image Name="Logo" Source="avares://G3MToolGUI/Assets/images/G3MTool_logo.png" Height="68" HorizontalAlignment="Center" />
+        <StackPanel HorizontalAlignment="Right" VerticalAlignment="Center" Orientation="Horizontal" Spacing="6">
+          <Button Classes="social" Click="OpenBoosty" ToolTip.Tip="Boosty"><Image Source="avares://G3MToolGUI/Assets/icons/boosty_logo.png" /></Button>
+          <Button Classes="social" Click="OpenTelegram" ToolTip.Tip="Telegram"><Image Source="avares://G3MToolGUI/Assets/icons/telegram_logo.png" /></Button>
+          <Button Classes="social" Click="OpenDiscord" ToolTip.Tip="Discord"><Image Source="avares://G3MToolGUI/Assets/icons/discord_logo.png" /></Button>
+        </StackPanel>
+      </Grid>
+
+      <ScrollViewer Name="ContentScroll" Grid.Row="1" HorizontalScrollBarVisibility="Disabled" Margin="0,12,0,0">
+        <StackPanel Spacing="12">
+          <Grid Name="PageHeader" ColumnDefinitions="*,Auto">
+            <StackPanel Spacing="4">
+              <TextBlock Name="PageTitle" Text="Create a patch" FontSize="30" FontWeight="SemiBold" />
+              <TextBlock Name="PageDescription" Text="Turn a modified data file, patch, XDelta file, or script into a portable G3M patch." Classes="muted" TextWrapping="Wrap" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+              <Button Click="ClearForm">Clear</Button>
+              <Button Name="RunButton" Classes="primary" Click="RunOperation">Create patch</Button>
+            </StackPanel>
+          </Grid>
+
+          <Border Name="OperationCard" Classes="card" MinHeight="268">
+            <Border.Transitions>
+              <Transitions><DoubleTransition Property="Opacity" Duration="0:0:0.14" /></Transitions>
+            </Border.Transitions>
+            <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="155,*,Auto" RowSpacing="4" ColumnSpacing="10">
+              <TextBlock Grid.Row="0" Text="Operation" VerticalAlignment="Center" FontWeight="SemiBold" />
+              <ComboBox Name="OperationPicker" Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2" SelectionChanged="OperationChanged" />
+
+              <TextBlock Name="OriginalLabel" Grid.Row="1" Text="Original data" VerticalAlignment="Center" FontWeight="SemiBold" />
+              <TextBox Name="OriginalPathBox" Grid.Row="1" Grid.Column="1" PlaceholderText="Original data.win" />
+              <Button Name="OriginalBrowseButton" Grid.Row="1" Grid.Column="2" Click="BrowseOriginal">Browse</Button>
+
+              <TextBlock Name="PrimaryLabel" Grid.Row="2" Text="Modified input" VerticalAlignment="Center" FontWeight="SemiBold" />
+              <TextBox Name="PrimaryPathBox" Grid.Row="2" Grid.Column="1" PlaceholderText="Modified data.win or patch input" />
+              <Button Name="PrimaryBrowseButton" Grid.Row="2" Grid.Column="2" Click="BrowsePrimary">Browse</Button>
+
+              <TextBlock Name="AdditionalLabel" Grid.Row="3" Text="Additional inputs" VerticalAlignment="Top" FontWeight="SemiBold" />
+              <TextBox Name="AdditionalPathsBox" Grid.Row="3" Grid.Column="1" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="64" PlaceholderText="One file per line; lower priority first" />
+              <Button Name="AdditionalBrowseButton" Grid.Row="3" Grid.Column="2" Click="BrowseAdditional" VerticalAlignment="Top">Add files</Button>
+
+              <TextBlock Name="OutputLabel" Grid.Row="4" Text="Output" VerticalAlignment="Center" FontWeight="SemiBold" />
+              <TextBox Name="OutputPathBox" Grid.Row="4" Grid.Column="1" PlaceholderText="Choose a destination" />
+              <Button Name="OutputBrowseButton" Grid.Row="4" Grid.Column="2" Click="BrowseOutput">Browse</Button>
+
+              <TextBlock Grid.Row="5" Text="Cache folder" VerticalAlignment="Center" FontWeight="SemiBold" />
+              <TextBox Name="CachePathBox" Grid.Row="5" Grid.Column="1" PlaceholderText="Optional reusable analysis cache" />
+              <Button Grid.Row="5" Grid.Column="2" Click="BrowseCache">Browse</Button>
+
+              <TextBlock Name="OptionsLabel" Grid.Row="6" Text="Options" VerticalAlignment="Top" FontWeight="SemiBold" />
+              <StackPanel Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="2" Spacing="2">
+                <WrapPanel Name="InputOptionsPanel" Orientation="Horizontal" ItemHeight="28" ItemWidth="205">
+                  <CheckBox Name="BatchModeCheck" Content="Batch mode" Click="BatchModeChanged" />
+                  <CheckBox Name="XDeltaFallbackCheck" Content="Use XDelta fallback" />
+                  <CheckBox Name="CreateXDeltaCheck" Content="Create XDelta output" />
+                  <CheckBox Name="ContinueOnErrorCheck" Content="Continue after errors" />
+                </WrapPanel>
+                <WrapPanel Name="MergeOptionsPanel" Orientation="Horizontal" ItemHeight="28" ItemWidth="205">
+                  <CheckBox Name="CodeMergeCheck" Content="Merge GML code" />
+                  <CheckBox Name="PropertiesMergeCheck" Content="Merge JSON properties" />
+                  <CheckBox Name="SequentialMergeCheck" Content="Low-memory merge" />
+                  <CheckBox Name="FullReportCheck" Content="Write detailed report" />
+                </WrapPanel>
+              </StackPanel>
+
+            </Grid>
+          </Border>
+
+          <Border Name="ActivityCard" Classes="card" Padding="14">
+            <Grid RowDefinitions="Auto,Auto,*" ColumnDefinitions="*,Auto,Auto,Auto">
+              <TextBlock Text="Activity" FontSize="16" FontWeight="SemiBold" />
+              <Button Name="ExpandLogsButton" Grid.Column="1" Click="ToggleLogs">Expand</Button>
+              <Button Grid.Column="2" Click="SaveLog" Padding="10,5" Margin="8,0,0,0">Save</Button>
+              <Button Grid.Column="3" Click="ClearLog" Padding="10,5" Margin="8,0,0,0">Clear</Button>
+              <Grid Grid.Row="1" Grid.ColumnSpan="4" ColumnDefinitions="Auto,*,Auto" Margin="0,10,0,0">
+                <TextBlock Name="ProgressText" Text="Waiting for an operation." Classes="muted" Margin="0,0,12,0" VerticalAlignment="Center" />
+                <ProgressBar Name="OperationProgress" Grid.Column="1" Minimum="0" Maximum="100" Value="0" Margin="0,0,12,0" VerticalAlignment="Center" />
+                <TextBlock Name="ProgressPercentText" Grid.Column="2" Text="0%" Classes="accent" FontWeight="SemiBold" VerticalAlignment="Center" />
+              </Grid>
+              <Border Name="LogPanel" Grid.Row="2" Grid.ColumnSpan="4" Background="#CC171717" BorderBrush="#70616B78" BorderThickness="2" CornerRadius="5" Height="110" Margin="0,10,0,0">
+                <ScrollViewer Name="LogScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                  <SelectableTextBlock Name="LogBox" Padding="10,7" TextWrapping="Wrap" FontFamily="Cascadia Mono, Consolas" FontSize="12" />
+                </ScrollViewer>
+              </Border>
+            </Grid>
+          </Border>
+        </StackPanel>
+      </ScrollViewer>
+    </Grid>
+  </Grid>
+</Window>

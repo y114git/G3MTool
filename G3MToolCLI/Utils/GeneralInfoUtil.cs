@@ -1,16 +1,19 @@
+using System;
+using G3MLib.DataFile;
+using G3MLib.DataFile.Models;
 using G3MToolCLI.Models;
-using UndertaleModLib;
-using UndertaleModLib.Models;
 
 namespace G3MToolCLI.Utils;
 
 public static class GeneralInfoUtil
 {
-    public static GeneralInfoData? ExtractGeneralInfo(UndertaleData data)
+    public static GeneralInfoData? ExtractGeneralInfo(GameMakerData data)
     {
-        var gi = data.GeneralInfo;
-        if (gi == null) return null;
-
+        GameMakerGeneralInfo gi = data.GeneralInfo;
+        if (gi == null)
+        {
+            return null;
+        }
         return new GeneralInfoData
         {
             DisplayName = gi.DisplayName?.Content,
@@ -31,57 +34,57 @@ public static class GeneralInfoUtil
             ActiveTargets = gi.ActiveTargets,
             FunctionClassifications = (ulong)gi.FunctionClassifications,
             SteamAppID = gi.SteamAppID,
-            DebuggerPort = gi.BytecodeVersion >= 14 ? (int)gi.DebuggerPort : 0,
-            GMS2FPS = gi.Major >= 2 ? gi.GMS2FPS : 0,
-            GMS2AllowStatistics = gi.Major >= 2 && gi.GMS2AllowStatistics,
-            RoomOrderCount = gi.RoomOrder?.Count ?? 0
+            DebuggerPort = (int)((gi.BytecodeVersion >= 14) ? gi.DebuggerPort : 0),
+            GMS2FPS = ((gi.Major >= 2) ? gi.GMS2FPS : 0f),
+            GMS2AllowStatistics = (gi.Major >= 2 && gi.GMS2AllowStatistics),
+            RoomOrderCount = (gi.RoomOrder?.Count ?? 0)
         };
     }
 
-    public static string GetVersionDisplay(UndertaleGeneralInfo? info)
+    public static string GetVersionDisplay(GameMakerGeneralInfo? info)
     {
-        if (info == null) return "Unknown";
-
-        var rawVersion = $"{info.Major}.{info.Minor}.{info.Release}.{info.Build}";
-
+        if (info == null)
+        {
+            return "Unknown";
+        }
+        string rawVersion = $"{info.Major}.{info.Minor}.{info.Release}.{info.Build}";
         string interpretedVersion;
-        if (info.Branch == UndertaleGeneralInfo.BranchType.LTS2022_0)
+        if (info.Branch == GameMakerGeneralInfo.BranchType.LTS2022_0)
         {
             interpretedVersion = "2022.0";
         }
-        else if (info.Major == 1)
-        {
-            return $"GMS {rawVersion}";
-        }
         else
         {
+            if (info.Major == 1)
+            {
+                return "GMS " + rawVersion;
+            }
             interpretedVersion = $"{info.Major}.{info.Minor}";
             if (info.Release != 0)
             {
                 interpretedVersion += $".{info.Release}";
                 if (info.Build != 0)
+                {
                     interpretedVersion += $".{info.Build}";
+                }
             }
         }
-
-        var prefix = (info.Major < 2022 || (info.Major == 2022 && info.Minor < 3)) ? "GMS" : "GM";
-
-        if (rawVersion != interpretedVersion && info.Branch == UndertaleGeneralInfo.BranchType.LTS2022_0)
+        string prefix = ((info.Major < 2022 || (info.Major == 2022 && info.Minor < 3)) ? "GMS" : "GM");
+        if (rawVersion != interpretedVersion && info.Branch == GameMakerGeneralInfo.BranchType.LTS2022_0)
         {
             return $"{prefix} {interpretedVersion} (raw: {rawVersion})";
         }
-
-        return $"{prefix} {interpretedVersion}";
+        return prefix + " " + interpretedVersion;
     }
 
-    public static void PrintVerboseGeneralInfo(UndertaleGeneralInfo gi)
+    public static void PrintVerboseGeneralInfo(GameMakerGeneralInfo gi)
     {
         Console.WriteLine();
         Console.WriteLine("General Info (detailed):");
-        Console.WriteLine($"  Display Name: {gi.DisplayName?.Content ?? "N/A"}");
-        Console.WriteLine($"  Internal Name: {gi.Name?.Content ?? "N/A"}");
-        Console.WriteLine($"  File Name: {gi.FileName?.Content ?? "N/A"}");
-        Console.WriteLine($"  Config: {gi.Config?.Content ?? "N/A"}");
+        Console.WriteLine("  Display Name: " + (gi.DisplayName?.Content ?? "N/A"));
+        Console.WriteLine("  Internal Name: " + (gi.Name?.Content ?? "N/A"));
+        Console.WriteLine("  File Name: " + (gi.FileName?.Content ?? "N/A"));
+        Console.WriteLine("  Config: " + (gi.Config?.Content ?? "N/A"));
         Console.WriteLine($"  Game ID: {gi.GameID}");
         Console.WriteLine($"  DirectPlay GUID: {gi.DirectPlayGuid}");
         Console.WriteLine();
@@ -106,13 +109,11 @@ public static class GeneralInfoUtil
         Console.WriteLine($"  License CRC32: {gi.LicenseCRC32}");
         Console.WriteLine($"  Active Targets: {gi.ActiveTargets}");
         Console.WriteLine($"  Room Order Count: {gi.RoomOrder?.Count ?? 0}");
-
         if (gi.BytecodeVersion >= 14)
         {
             Console.WriteLine($"  Debugger Port: {gi.DebuggerPort}");
             Console.WriteLine($"  Debugger Disabled: {gi.IsDebuggerDisabled}");
         }
-
         if (gi.Major >= 2)
         {
             Console.WriteLine($"  GMS2 FPS: {gi.GMS2FPS}");
@@ -120,15 +121,15 @@ public static class GeneralInfoUtil
         }
     }
 
-    private static void PrintInfoFlags(UndertaleGeneralInfo.InfoFlags flags)
+    private static void PrintInfoFlags(GameMakerGeneralInfo.InfoFlags flags)
     {
-        Console.WriteLine($"  Fullscreen: {flags.HasFlag(UndertaleGeneralInfo.InfoFlags.Fullscreen)}");
-        Console.WriteLine($"  Interpolate: {flags.HasFlag(UndertaleGeneralInfo.InfoFlags.Interpolate)}");
-        Console.WriteLine($"  Scale: {flags.HasFlag(UndertaleGeneralInfo.InfoFlags.Scale)}");
-        Console.WriteLine($"  Show Cursor: {flags.HasFlag(UndertaleGeneralInfo.InfoFlags.ShowCursor)}");
-        Console.WriteLine($"  Sizeable: {flags.HasFlag(UndertaleGeneralInfo.InfoFlags.Sizeable)}");
-        Console.WriteLine($"  Steam Enabled: {flags.HasFlag(UndertaleGeneralInfo.InfoFlags.SteamEnabled)}");
-        Console.WriteLine($"  Borderless Window: {flags.HasFlag(UndertaleGeneralInfo.InfoFlags.BorderlessWindow)}");
-        Console.WriteLine($"  Use AppData Save Location: {flags.HasFlag(UndertaleGeneralInfo.InfoFlags.UseAppDataSaveLocation)}");
+        Console.WriteLine($"  Fullscreen: {flags.HasFlag(GameMakerGeneralInfo.InfoFlags.Fullscreen)}");
+        Console.WriteLine($"  Interpolate: {flags.HasFlag(GameMakerGeneralInfo.InfoFlags.Interpolate)}");
+        Console.WriteLine($"  Scale: {flags.HasFlag(GameMakerGeneralInfo.InfoFlags.Scale)}");
+        Console.WriteLine($"  Show Cursor: {flags.HasFlag(GameMakerGeneralInfo.InfoFlags.ShowCursor)}");
+        Console.WriteLine($"  Sizeable: {flags.HasFlag(GameMakerGeneralInfo.InfoFlags.Sizeable)}");
+        Console.WriteLine($"  Steam Enabled: {flags.HasFlag(GameMakerGeneralInfo.InfoFlags.SteamEnabled)}");
+        Console.WriteLine($"  Borderless Window: {flags.HasFlag(GameMakerGeneralInfo.InfoFlags.BorderlessWindow)}");
+        Console.WriteLine($"  Use AppData Save Location: {flags.HasFlag(GameMakerGeneralInfo.InfoFlags.UseAppDataSaveLocation)}");
     }
 }

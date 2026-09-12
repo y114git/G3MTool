@@ -1,14 +1,11 @@
-
-
-
 using System;
 using System.IO;
 using System.Text;
 using System.Linq;
 using System.Collections.Generic;
 using System.Text.Json;
-using UndertaleModLib;
-using UndertaleModLib.Models;
+using G3MLib.DataFile;
+using G3MLib.DataFile.Models;
 
 
 
@@ -21,7 +18,7 @@ string GetInputDirectory()
     if (string.IsNullOrEmpty(inputDir))
         throw new Exception("InputDir is not set.");
     if (!Directory.Exists(inputDir))
-        throw new Exception($"INPUT_DIR directory does not exist: {inputDir}");
+        throw new Exception($"Input directory does not exist: {inputDir}");
     return inputDir;
 }
 
@@ -57,23 +54,23 @@ foreach (string textureGroupDir in textureGroupDirs)
     try
     {
         string textureGroupFile = Path.Combine(textureGroupDir, textureGroupName + ".json");
-        
+
         if (!File.Exists(textureGroupFile))
         {
             PrintLine($"[ImportTextureGroupInfo] Warning: No .json file found in {textureGroupName}");
             IncrementProgress();
             continue;
         }
-        
+
         string jsonContent = File.ReadAllText(textureGroupFile, Encoding.UTF8);
-        
+
         JsonDocument jsonDoc = JsonDocument.Parse(jsonContent);
         JsonElement root = jsonDoc.RootElement;
-        
-        UndertaleTextureGroupInfo textureGroup = Data.TextureGroupInfo.FirstOrDefault(tg => tg.Name?.Content == textureGroupName);
+
+        GameMakerTextureGroupInfo textureGroup = Data.TextureGroupInfo.FirstOrDefault(tg => tg.Name?.Content == textureGroupName);
         if (textureGroup == null)
         {
-            textureGroup = new UndertaleTextureGroupInfo();
+            textureGroup = new GameMakerTextureGroupInfo();
             textureGroup.Name = Data.Strings.MakeString(textureGroupName);
             Data.TextureGroupInfo.Add(textureGroup);
             PrintLine($"[ImportTextureGroupInfo] Created new texture group info: {textureGroupName}");
@@ -82,9 +79,9 @@ foreach (string textureGroupDir in textureGroupDirs)
         {
             PrintLine($"[ImportTextureGroupInfo] Updating existing texture group info: {textureGroupName}");
         }
-        
+
         UpdateTextureGroupFromJson(textureGroup, root);
-        
+
         jsonDoc.Dispose();
         IncrementProgress();
     }
@@ -100,23 +97,23 @@ HideProgressBar();
 
 PrintLine("[ImportTextureGroupInfo] Texture group info import completed.");
 
-void UpdateTextureGroupFromJson(UndertaleTextureGroupInfo textureGroup, JsonElement data)
+void UpdateTextureGroupFromJson(GameMakerTextureGroupInfo textureGroup, JsonElement data)
 {
     if (data.TryGetProperty("name", out JsonElement nameElm) && nameElm.ValueKind == JsonValueKind.String)
         textureGroup.Name = Data.Strings.MakeString(nameElm.GetString());
-    
+
     if (Data.IsVersionAtLeast(2022, 9))
     {
         if (data.TryGetProperty("directory", out JsonElement dirElm) && dirElm.ValueKind == JsonValueKind.String)
             textureGroup.Directory = Data.Strings.MakeString(dirElm.GetString());
-        
+
         if (data.TryGetProperty("extension", out JsonElement extElm) && extElm.ValueKind == JsonValueKind.String)
             textureGroup.Extension = Data.Strings.MakeString(extElm.GetString());
-        
+
         if (data.TryGetProperty("loadType", out JsonElement loadTypeElm) && loadTypeElm.ValueKind == JsonValueKind.Number)
-            textureGroup.LoadType = (UndertaleTextureGroupInfo.TextureGroupLoadType)loadTypeElm.GetInt32();
+            textureGroup.LoadType = (GameMakerTextureGroupInfo.TextureGroupLoadType)loadTypeElm.GetInt32();
     }
-    
+
     if (data.TryGetProperty("texturePages", out JsonElement texPagesElm) && texPagesElm.ValueKind == JsonValueKind.Array)
     {
         textureGroup.TexturePages.Clear();
@@ -129,14 +126,14 @@ void UpdateTextureGroupFromJson(UndertaleTextureGroupInfo textureGroup, JsonElem
                 {
                     var texPage = Data.EmbeddedTextures.FirstOrDefault(t => t.Name?.Content == texPageName);
                     if (texPage != null)
-                        textureGroup.TexturePages.Add(new UndertaleResourceById<UndertaleEmbeddedTexture, UndertaleChunkTXTR>(texPage));
+                        textureGroup.TexturePages.Add(new GameMakerResourceById<GameMakerEmbeddedTexture, GameMakerChunkTXTR>(texPage));
                     else
                         PrintLine($"[ImportTextureGroupInfo] Warning: Texture page '{texPageName}' not found in game data.");
                 }
             }
         }
     }
-    
+
     if (data.TryGetProperty("sprites", out JsonElement spritesElm) && spritesElm.ValueKind == JsonValueKind.Array)
     {
         textureGroup.Sprites.Clear();
@@ -149,14 +146,14 @@ void UpdateTextureGroupFromJson(UndertaleTextureGroupInfo textureGroup, JsonElem
                 {
                     var sprite = Data.Sprites.ByName(spriteName);
                     if (sprite != null)
-                        textureGroup.Sprites.Add(new UndertaleResourceById<UndertaleSprite, UndertaleChunkSPRT>(sprite));
+                        textureGroup.Sprites.Add(new GameMakerResourceById<GameMakerSprite, GameMakerChunkSPRT>(sprite));
                     else
                         PrintLine($"[ImportTextureGroupInfo] Warning: Sprite '{spriteName}' not found in game data.");
                 }
             }
         }
     }
-    
+
     if (!Data.IsNonLTSVersionAtLeast(2023, 1))
     {
         if (data.TryGetProperty("spineSprites", out JsonElement spineSpritesElm) && spineSpritesElm.ValueKind == JsonValueKind.Array)
@@ -171,7 +168,7 @@ void UpdateTextureGroupFromJson(UndertaleTextureGroupInfo textureGroup, JsonElem
                     {
                         var spineSprite = Data.Sprites.ByName(spineSpriteName);
                         if (spineSprite != null)
-                            textureGroup.SpineSprites.Add(new UndertaleResourceById<UndertaleSprite, UndertaleChunkSPRT>(spineSprite));
+                            textureGroup.SpineSprites.Add(new GameMakerResourceById<GameMakerSprite, GameMakerChunkSPRT>(spineSprite));
                         else
                             PrintLine($"[ImportTextureGroupInfo] Warning: Spine sprite '{spineSpriteName}' not found in game data.");
                     }
@@ -179,7 +176,7 @@ void UpdateTextureGroupFromJson(UndertaleTextureGroupInfo textureGroup, JsonElem
             }
         }
     }
-    
+
     if (data.TryGetProperty("fonts", out JsonElement fontsElm) && fontsElm.ValueKind == JsonValueKind.Array)
     {
         textureGroup.Fonts.Clear();
@@ -192,14 +189,14 @@ void UpdateTextureGroupFromJson(UndertaleTextureGroupInfo textureGroup, JsonElem
                 {
                     var font = Data.Fonts.ByName(fontName);
                     if (font != null)
-                        textureGroup.Fonts.Add(new UndertaleResourceById<UndertaleFont, UndertaleChunkFONT>(font));
+                        textureGroup.Fonts.Add(new GameMakerResourceById<GameMakerFont, GameMakerChunkFONT>(font));
                     else
                         PrintLine($"[ImportTextureGroupInfo] Warning: Font '{fontName}' not found in game data.");
                 }
             }
         }
     }
-    
+
     if (data.TryGetProperty("tilesets", out JsonElement tilesetsElm) && tilesetsElm.ValueKind == JsonValueKind.Array)
     {
         textureGroup.Tilesets.Clear();
@@ -212,7 +209,7 @@ void UpdateTextureGroupFromJson(UndertaleTextureGroupInfo textureGroup, JsonElem
                 {
                     var tileset = Data.Backgrounds.ByName(tilesetName);
                     if (tileset != null)
-                        textureGroup.Tilesets.Add(new UndertaleResourceById<UndertaleBackground, UndertaleChunkBGND>(tileset));
+                        textureGroup.Tilesets.Add(new GameMakerResourceById<GameMakerBackground, GameMakerChunkBGND>(tileset));
                     else
                         PrintLine($"[ImportTextureGroupInfo] Warning: Tileset '{tilesetName}' not found in game data.");
                 }
@@ -220,8 +217,3 @@ void UpdateTextureGroupFromJson(UndertaleTextureGroupInfo textureGroup, JsonElem
         }
     }
 }
-
-
-
-
-

@@ -1,14 +1,11 @@
-
-
-
 using System;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Collections.ObjectModel;
 using System.Text.Json;
-using UndertaleModLib;
-using UndertaleModLib.Models;
+using G3MLib.DataFile;
+using G3MLib.DataFile.Models;
 
 
 
@@ -21,7 +18,7 @@ string GetInputDirectory()
     if (string.IsNullOrEmpty(inputDir))
         throw new Exception("InputDir is not set.");
     if (!Directory.Exists(inputDir))
-        throw new Exception($"INPUT_DIR directory does not exist: {inputDir}");
+        throw new Exception($"Input directory does not exist: {inputDir}");
     return inputDir;
 }
 
@@ -56,32 +53,32 @@ foreach (string timelineDir in timelineDirs)
     try
     {
         string timelineFile = Path.Combine(timelineDir, timelineName + ".json");
-        
+
         if (!File.Exists(timelineFile))
         {
             PrintLine($"[ImportTimelines] Warning: No .json file found in {timelineName}");
             IncrementProgress();
             continue;
         }
-        
+
         string jsonContent = File.ReadAllText(timelineFile, Encoding.UTF8);
-        
+
         JsonDocument jsonDoc = JsonDocument.Parse(jsonContent);
         JsonElement root = jsonDoc.RootElement;
-        
+
         if (root.TryGetProperty("name", out JsonElement nameElm))
         {
             timelineName = nameElm.GetString() ?? timelineName;
         }
-        
-        UndertaleTimeline timeline = Data.Timelines?.ByName(timelineName);
+
+        GameMakerTimeline timeline = Data.Timelines?.ByName(timelineName);
         bool isNew = false;
-        
+
         if (timeline == null)
         {
-            timeline = new UndertaleTimeline();
+            timeline = new GameMakerTimeline();
             timeline.Name = Data.Strings.MakeString(timelineName);
-            timeline.Moments = new ObservableCollection<UndertaleTimeline.UndertaleTimelineMoment>();
+            timeline.Moments = new ObservableCollection<GameMakerTimeline.GameMakerTimelineMoment>();
             isNew = true;
             timelinesCreated++;
         }
@@ -93,54 +90,54 @@ foreach (string timelineDir in timelineDirs)
         if (root.TryGetProperty("moments", out JsonElement momentsElm) && momentsElm.ValueKind == JsonValueKind.Array)
         {
             var momentsArray = momentsElm.EnumerateArray().ToArray();
-            
+
             for (int momentIndex = 0; momentIndex < momentsArray.Length; momentIndex++)
             {
                 JsonElement momentElm = momentsArray[momentIndex];
-                
-                UndertaleTimeline.UndertaleTimelineMoment moment;
-                
+
+                GameMakerTimeline.GameMakerTimelineMoment moment;
+
                 if (momentIndex < timeline.Moments.Count)
                 {
                     moment = timeline.Moments[momentIndex];
                 }
                 else
                 {
-                    moment = new UndertaleTimeline.UndertaleTimelineMoment();
-                    moment.Event = new UndertalePointerList<UndertaleGameObject.EventAction>();
+                    moment = new GameMakerTimeline.GameMakerTimelineMoment();
+                    moment.Event = new GameMakerPointerList<GameMakerGameObject.EventAction>();
                     timeline.Moments.Add(moment);
                 }
-                
+
                 if (momentElm.TryGetProperty("step", out JsonElement stepElm))
                 {
                     moment.Step = (uint)stepElm.GetInt64();
                 }
-                
+
                 if (momentElm.TryGetProperty("actions", out JsonElement actionsElm) && actionsElm.ValueKind == JsonValueKind.Array)
                 {
                     if (moment.Event == null)
                     {
-                        moment.Event = new UndertalePointerList<UndertaleGameObject.EventAction>();
+                        moment.Event = new GameMakerPointerList<GameMakerGameObject.EventAction>();
                     }
-                    
+
                     var actionsArray = actionsElm.EnumerateArray().ToArray();
-                    
+
                     for (int actionIndex = 0; actionIndex < actionsArray.Length; actionIndex++)
                     {
                         JsonElement actionElm = actionsArray[actionIndex];
-                        
-                        UndertaleGameObject.EventAction action;
-                        
+
+                        GameMakerGameObject.EventAction action;
+
                         if (actionIndex < moment.Event.Count)
                         {
                             action = moment.Event[actionIndex];
                         }
                         else
                         {
-                            action = new UndertaleGameObject.EventAction();
+                            action = new GameMakerGameObject.EventAction();
                             moment.Event.Add(action);
                         }
-                        
+
                         if (actionElm.TryGetProperty("libId", out JsonElement libIdElm))
                             action.LibID = (uint)libIdElm.GetInt64();
                         if (actionElm.TryGetProperty("id", out JsonElement idElm))
@@ -168,7 +165,7 @@ foreach (string timelineDir in timelineDirs)
                                 string codeName = codeIdElm.GetString() ?? "";
                                 if (!string.IsNullOrEmpty(codeName))
                                 {
-                                    UndertaleCode code = Data.Code.ByName(codeName);
+                                    GameMakerCode code = Data.Code.ByName(codeName);
                                     if (code != null)
                                     {
                                         action.CodeId = code;
@@ -212,8 +209,3 @@ foreach (string timelineDir in timelineDirs)
 await StopProgressBarUpdater();
 HideProgressBar();
 PrintLine($"[ImportTimelines] Done. Created: {timelinesCreated}, Updated: {timelinesUpdated}");
-
-
-
-
-

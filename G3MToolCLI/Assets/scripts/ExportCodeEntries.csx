@@ -6,9 +6,9 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Security.Cryptography;
-using UndertaleModLib;
-using UndertaleModLib.Models;
-using UndertaleModLib.Decompiler;
+using G3MLib.DataFile;
+using G3MLib.DataFile.Models;
+using G3MLib.DataFile.Decompiler;
 
 void PrintLine(string s) { if (Verbose) Console.WriteLine(s); }
 
@@ -26,7 +26,7 @@ string ShortHash(string value)
     return Convert.ToHexString(bytes, 0, 6).ToLowerInvariant();
 }
 
-string BuildEntryFolderName(UndertaleCode code)
+string BuildEntryFolderName(GameMakerCode code)
 {
     string originalName = code.Name?.Content ?? "__unnamed_code__";
     int codeIndex = Data.Code.IndexOf(code);
@@ -60,20 +60,20 @@ if (Data.IsYYC())
 string codeOut = GetOutputDirectory();
 PrintLine($"[ExportCodeEntries] Exporting to: {codeOut}");
 
-List<UndertaleCode> allCode = Data.Code.Where(c => c?.Name?.Content != null).ToList();
+List<GameMakerCode> allCode = Data.Code.Where(c => c?.Name?.Content != null).ToList();
 int topLevel = allCode.Count(c => c.ParentEntry is null);
 int children = allCode.Count - topLevel;
 PrintLine($"[ExportCodeEntries] Found {allCode.Count} code entries to export ({topLevel} top-level, {children} child).");
 
 GlobalDecompileContext globalDecompileContext = new(Data);
-Underanalyzer.Decompiler.IDecompileSettings decompilerSettings = Data.ToolInfo.DecompilerSettings;
+G3MLib.Analyzer.Decompiler.IDecompileSettings decompilerSettings = Data.ToolInfo.DecompilerSettings;
 
 SetProgressBar(null, "Exporting Code Entries", 0, allCode.Count);
 StartProgressBarUpdater();
 
 await Task.Run(() => Parallel.ForEach(allCode, code => ExportCode(code, codeOut)));
 
-void ExportCode(UndertaleCode code, string outputDir)
+void ExportCode(GameMakerCode code, string outputDir)
 {
     if (code?.Name?.Content == null)
     {
@@ -121,7 +121,7 @@ void ExportCode(UndertaleCode code, string outputDir)
         string gmlPath = Path.Combine(resourceDir, "entry.gml");
         try
         {
-            string decompiled = new Underanalyzer.Decompiler.DecompileContext(globalDecompileContext, code, decompilerSettings).DecompileToString();
+            string decompiled = new G3MLib.Analyzer.Decompiler.DecompileContext(globalDecompileContext, code, decompilerSettings).DecompileToString();
             File.WriteAllText(gmlPath, decompiled, Encoding.UTF8);
         }
         catch (Exception e)

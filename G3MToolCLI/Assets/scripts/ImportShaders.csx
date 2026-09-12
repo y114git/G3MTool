@@ -1,11 +1,8 @@
-
-
-
 using System;
 using System.IO;
 using System.Linq;
-using UndertaleModLib;
-using UndertaleModLib.Models;
+using G3MLib.DataFile;
+using G3MLib.DataFile.Models;
 
 
 
@@ -18,7 +15,7 @@ string GetInputDirectory()
     if (string.IsNullOrEmpty(inputDir))
         throw new Exception("InputDir is not set.");
     if (!Directory.Exists(inputDir))
-        throw new Exception($"INPUT_DIR directory does not exist: {inputDir}");
+        throw new Exception($"Input directory does not exist: {inputDir}");
     return inputDir;
 }
 
@@ -36,11 +33,11 @@ void ImportShader(string shaderDir)
     if (string.IsNullOrEmpty(shaderName))
         return;
 
-    UndertaleShader shader = Data.Shaders.ByName(shaderName);
+    GameMakerShader shader = Data.Shaders.ByName(shaderName);
     if (shader == null)
     {
-        shader = new UndertaleShader();
-        shader.Name = new UndertaleString(shaderName);
+        shader = new GameMakerShader();
+        shader.Name = new GameMakerString(shaderName);
         Data.Strings.Add(shader.Name);
         Data.Shaders.Add(shader);
     }
@@ -51,7 +48,7 @@ void ImportShader(string shaderDir)
         try
         {
             string shaderTypeStr = File.ReadAllText(typeFile);
-            if (!string.IsNullOrEmpty(shaderTypeStr) && Enum.TryParse<UndertaleShader.ShaderType>(shaderTypeStr, out var shaderType))
+            if (!string.IsNullOrEmpty(shaderTypeStr) && Enum.TryParse<GameMakerShader.ShaderType>(shaderTypeStr, out var shaderType))
             {
                 shader.Type = shaderType;
             }
@@ -73,47 +70,47 @@ void ImportShader(string shaderDir)
             try
             {
                 string code = File.ReadAllText(filePath);
-                UndertaleString shaderString = null;
+                GameMakerString shaderString = null;
                 switch (fileName)
                 {
                     case "GLSL_ES_Fragment.txt":
                         if (shader.GLSL_ES_Fragment == null)
-                            shader.GLSL_ES_Fragment = new UndertaleString(code);
+                            shader.GLSL_ES_Fragment = new GameMakerString(code);
                         else
                             shader.GLSL_ES_Fragment.Content = code;
                         shaderString = shader.GLSL_ES_Fragment;
                         break;
                     case "GLSL_ES_Vertex.txt":
                         if (shader.GLSL_ES_Vertex == null)
-                            shader.GLSL_ES_Vertex = new UndertaleString(code);
+                            shader.GLSL_ES_Vertex = new GameMakerString(code);
                         else
                             shader.GLSL_ES_Vertex.Content = code;
                         shaderString = shader.GLSL_ES_Vertex;
                         break;
                     case "GLSL_Fragment.txt":
                         if (shader.GLSL_Fragment == null)
-                            shader.GLSL_Fragment = new UndertaleString(code);
+                            shader.GLSL_Fragment = new GameMakerString(code);
                         else
                             shader.GLSL_Fragment.Content = code;
                         shaderString = shader.GLSL_Fragment;
                         break;
                     case "GLSL_Vertex.txt":
                         if (shader.GLSL_Vertex == null)
-                            shader.GLSL_Vertex = new UndertaleString(code);
+                            shader.GLSL_Vertex = new GameMakerString(code);
                         else
                             shader.GLSL_Vertex.Content = code;
                         shaderString = shader.GLSL_Vertex;
                         break;
                     case "HLSL9_Fragment.txt":
                         if (shader.HLSL9_Fragment == null)
-                            shader.HLSL9_Fragment = new UndertaleString(code);
+                            shader.HLSL9_Fragment = new GameMakerString(code);
                         else
                             shader.HLSL9_Fragment.Content = code;
                         shaderString = shader.HLSL9_Fragment;
                         break;
                     case "HLSL9_Vertex.txt":
                         if (shader.HLSL9_Vertex == null)
-                            shader.HLSL9_Vertex = new UndertaleString(code);
+                            shader.HLSL9_Vertex = new GameMakerString(code);
                         else
                             shader.HLSL9_Vertex.Content = code;
                         shaderString = shader.HLSL9_Vertex;
@@ -147,49 +144,49 @@ void ImportShader(string shaderDir)
                     {
                         case "HLSL11_VertexData.bin":
                             if (shader.HLSL11_VertexData == null)
-                                shader.HLSL11_VertexData = new UndertaleShader.UndertaleRawShaderData();
+                                shader.HLSL11_VertexData = new GameMakerShader.GameMakerRawShaderData();
                             shader.HLSL11_VertexData.Data = data;
                             shader.HLSL11_VertexData.IsNull = false;
                             break;
                         case "HLSL11_PixelData.bin":
                             if (shader.HLSL11_PixelData == null)
-                                shader.HLSL11_PixelData = new UndertaleShader.UndertaleRawShaderData();
+                                shader.HLSL11_PixelData = new GameMakerShader.GameMakerRawShaderData();
                             shader.HLSL11_PixelData.Data = data;
                             shader.HLSL11_PixelData.IsNull = false;
                             break;
                         case "PSSL_VertexData.bin":
                             if (shader.PSSL_VertexData == null)
-                                shader.PSSL_VertexData = new UndertaleShader.UndertaleRawShaderData();
+                                shader.PSSL_VertexData = new GameMakerShader.GameMakerRawShaderData();
                             shader.PSSL_VertexData.Data = data;
                             shader.PSSL_VertexData.IsNull = false;
                             break;
                         case "PSSL_PixelData.bin":
                             if (shader.PSSL_PixelData == null)
-                                shader.PSSL_PixelData = new UndertaleShader.UndertaleRawShaderData();
+                                shader.PSSL_PixelData = new GameMakerShader.GameMakerRawShaderData();
                             shader.PSSL_PixelData.Data = data;
                             shader.PSSL_PixelData.IsNull = false;
                             break;
                         case "Cg_PSVita_VertexData.bin":
                             if (shader.Cg_PSVita_VertexData == null)
-                                shader.Cg_PSVita_VertexData = new UndertaleShader.UndertaleRawShaderData();
+                                shader.Cg_PSVita_VertexData = new GameMakerShader.GameMakerRawShaderData();
                             shader.Cg_PSVita_VertexData.Data = data;
                             shader.Cg_PSVita_VertexData.IsNull = false;
                             break;
                         case "Cg_PSVita_PixelData.bin":
                             if (shader.Cg_PSVita_PixelData == null)
-                                shader.Cg_PSVita_PixelData = new UndertaleShader.UndertaleRawShaderData();
+                                shader.Cg_PSVita_PixelData = new GameMakerShader.GameMakerRawShaderData();
                             shader.Cg_PSVita_PixelData.Data = data;
                             shader.Cg_PSVita_PixelData.IsNull = false;
                             break;
                         case "Cg_PS3_VertexData.bin":
                             if (shader.Cg_PS3_VertexData == null)
-                                shader.Cg_PS3_VertexData = new UndertaleShader.UndertaleRawShaderData();
+                                shader.Cg_PS3_VertexData = new GameMakerShader.GameMakerRawShaderData();
                             shader.Cg_PS3_VertexData.Data = data;
                             shader.Cg_PS3_VertexData.IsNull = false;
                             break;
                         case "Cg_PS3_PixelData.bin":
                             if (shader.Cg_PS3_PixelData == null)
-                                shader.Cg_PS3_PixelData = new UndertaleShader.UndertaleRawShaderData();
+                                shader.Cg_PS3_PixelData = new GameMakerShader.GameMakerRawShaderData();
                             shader.Cg_PS3_PixelData.Data = data;
                             shader.Cg_PS3_PixelData.IsNull = false;
                             break;
@@ -200,7 +197,7 @@ void ImportShader(string shaderDir)
         }
     }
 
-    
+
     string attrsFile = Path.Combine(shaderDir, "VertexShaderAttributes.txt");
     if (File.Exists(attrsFile))
     {
@@ -210,15 +207,15 @@ void ImportShader(string shaderDir)
             if (!string.IsNullOrEmpty(attrsText))
             {
                 if (shader.VertexShaderAttributes == null)
-                    shader.VertexShaderAttributes = new UndertaleSimpleList<UndertaleShader.VertexShaderAttribute>();
+                    shader.VertexShaderAttributes = new GameMakerSimpleList<GameMakerShader.VertexShaderAttribute>();
                 shader.VertexShaderAttributes.Clear();
                 foreach (var line in attrsText.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
                 {
                     if (!string.IsNullOrWhiteSpace(line))
                     {
-                        var attrName = new UndertaleString(line.Trim());
+                        var attrName = new GameMakerString(line.Trim());
                         Data.Strings.Add(attrName);
-                        var attr = new UndertaleShader.VertexShaderAttribute();
+                        var attr = new GameMakerShader.VertexShaderAttribute();
                         attr.Name = attrName;
                         shader.VertexShaderAttributes.Add(attr);
                     }
@@ -249,8 +246,3 @@ foreach (var shaderDir in shaderDirs)
 }
 
 PrintLine($"[ImportShaders] Import complete. {shadersImported} new, {shadersUpdated} updated.");
-
-
-
-
-

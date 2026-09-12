@@ -6,19 +6,16 @@ using System.Collections.Generic;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using UndertaleModLib;
-using UndertaleModLib.Util;
-using UndertaleModLib.Decompiler;
-using UndertaleModLib.Models;
-using UndertaleModLib.Compiler;
-using Underanalyzer.Decompiler;
-
-// ============================================================================
+using G3MLib.DataFile;
+using G3MLib.DataFile.Util;
+using G3MLib.DataFile.Decompiler;
+using G3MLib.DataFile.Models;
+using G3MLib.DataFile.Compiler;
+using G3MLib.Analyzer.Decompiler;
 // ImportCodeEntries.csx - Selective compilation approach
-// ============================================================================
 // Only CHANGED/NEW code entries are in the patch. After ImportAssetOrder
 // reorders resources to match TARGET, we compile only those entries.
-// Unchanged entries keep their original bytecode — UndertaleModLib stores
+// Unchanged entries keep their original bytecode — G3MLib.DataFile stores
 // object references (not raw indices), so the serializer auto-resolves
 // correct indices at save time. Phases:
 //   1. Queue patch code entries for compilation (incl. collision events)
@@ -27,8 +24,6 @@ using Underanalyzer.Decompiler;
 //   4. Restore ALL objects to pre-compilation event state
 //   5. Clean up Functions table (remove compiler-added spurious entries)
 //   6. Assembly reassembly for byte-perfect bytecode from .asm files
-// ============================================================================
-
 void PrintLine(string s) { if (Verbose) Console.WriteLine(s); }
 
 string GetInputDirectory()
@@ -37,7 +32,7 @@ string GetInputDirectory()
     if (string.IsNullOrEmpty(inputDir))
         throw new Exception("InputDir is not set.");
     if (!Directory.Exists(inputDir))
-        throw new Exception($"INPUT_DIR directory does not exist: {inputDir}");
+        throw new Exception($"Input directory does not exist: {inputDir}");
     return inputDir;
 }
 
@@ -64,8 +59,8 @@ bool IsCollisionEvent(string codeName)
 }
 
 // Find or create collision event for an object
-// Returns the UndertaleCode entry for this collision event
-UndertaleCode GetOrCreateCollisionEvent(UndertaleGameObject obj, uint collisionObjectIndex, string objectName)
+// Returns the GameMakerCode entry for this collision event
+GameMakerCode GetOrCreateCollisionEvent(GameMakerGameObject obj, uint collisionObjectIndex, string objectName)
 {
     var collisionEvents = obj.Events[(int)EventType.Collision];
 
@@ -83,21 +78,21 @@ UndertaleCode GetOrCreateCollisionEvent(UndertaleGameObject obj, uint collisionO
             // Event exists but has no code entry (e.g. ImportGameObjects created event
             // but code entry didn't exist yet) - create code entry and link it
             string codeName = $"gml_Object_{objectName}_Collision_{collisionObjectIndex}";
-            UndertaleCode codeEntry = Data.Code.ByName(codeName);
+            GameMakerCode codeEntry = Data.Code.ByName(codeName);
             if (codeEntry == null)
             {
-                codeEntry = new UndertaleCode();
+                codeEntry = new GameMakerCode();
                 codeEntry.Name = Data.Strings.MakeString(codeName);
                 Data.Code.Add(codeEntry);
 
-                UndertaleCodeLocals locals = new UndertaleCodeLocals();
+                GameMakerCodeLocals locals = new GameMakerCodeLocals();
                 locals.Name = codeEntry.Name;
                 Data.CodeLocals.Add(locals);
             }
 
             if (evt.Actions.Count == 0)
             {
-                var action = new UndertaleGameObject.EventAction();
+                var action = new GameMakerGameObject.EventAction();
                 action.CodeId = codeEntry;
                 evt.Actions.Add(action);
             }
@@ -113,22 +108,22 @@ UndertaleCode GetOrCreateCollisionEvent(UndertaleGameObject obj, uint collisionO
     // Collision event doesn't exist at all - create new event
     string newCodeName = $"gml_Object_{objectName}_Collision_{collisionObjectIndex}";
 
-    UndertaleCode newCodeEntry = Data.Code.ByName(newCodeName);
+    GameMakerCode newCodeEntry = Data.Code.ByName(newCodeName);
     if (newCodeEntry == null)
     {
-        newCodeEntry = new UndertaleCode();
+        newCodeEntry = new GameMakerCode();
         newCodeEntry.Name = Data.Strings.MakeString(newCodeName);
         Data.Code.Add(newCodeEntry);
 
-        UndertaleCodeLocals locals = new UndertaleCodeLocals();
+        GameMakerCodeLocals locals = new GameMakerCodeLocals();
         locals.Name = newCodeEntry.Name;
         Data.CodeLocals.Add(locals);
     }
 
-    var newEvent = new UndertaleGameObject.Event();
+    var newEvent = new GameMakerGameObject.Event();
     newEvent.EventSubtype = collisionObjectIndex;
 
-    var newAction = new UndertaleGameObject.EventAction();
+    var newAction = new GameMakerGameObject.EventAction();
     newAction.CodeId = newCodeEntry;
     newEvent.Actions.Add(newAction);
 
@@ -151,7 +146,7 @@ void ImportCollisionEvent(string codeName, string gmlCode, CodeImportGroup impor
     string objectName = parsed.Value.objectName;
     string identifier = parsed.Value.collisionIdentifier;
 
-    UndertaleGameObject obj = Data.GameObjects.ByName(objectName);
+    GameMakerGameObject obj = Data.GameObjects.ByName(objectName);
     if (obj == null)
     {
         PrintLine($"[ImportCodeEntries] Object not found: {objectName}");
@@ -177,7 +172,7 @@ void ImportCollisionEvent(string codeName, string gmlCode, CodeImportGroup impor
         collisionIndex = (uint)Data.GameObjects.IndexOf(collisionObj);
     }
 
-    UndertaleCode codeEntry = GetOrCreateCollisionEvent(obj, collisionIndex, objectName);
+    GameMakerCode codeEntry = GetOrCreateCollisionEvent(obj, collisionIndex, objectName);
     importGroup.QueueReplace(codeEntry, gmlCode);
 
     PrintLine($"[ImportCodeEntries] Collision: {objectName} + idx {collisionIndex}");
@@ -562,7 +557,7 @@ var localVarLookup = new Dictionary<string, int>();
 for (int vi = 0; vi < Data.Variables.Count; vi++)
 {
     var v = Data.Variables[vi];
-    if (v?.Name?.Content != null && v.InstanceType == UndertaleInstruction.InstanceType.Local)
+    if (v?.Name?.Content != null && v.InstanceType == GameMakerInstruction.InstanceType.Local)
     {
         if (!localVarLookup.ContainsKey(v.Name.Content))
             localVarLookup[v.Name.Content] = vi;

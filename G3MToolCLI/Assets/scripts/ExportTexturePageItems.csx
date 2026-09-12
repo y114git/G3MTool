@@ -1,4 +1,3 @@
-
 using System;
 using System.IO;
 using System.Text;
@@ -6,8 +5,8 @@ using System.Text.Json;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
-using UndertaleModLib;
-using UndertaleModLib.Models;
+using G3MLib.DataFile;
+using G3MLib.DataFile.Models;
 
 void PrintLine(string s) { if (Verbose) Console.WriteLine(s); }
 
@@ -31,7 +30,7 @@ var allItems = Data.TexturePageItems.ToList();
 PrintLine($"[ExportTexturePageItems] Found {allItems.Count} texture page items to export.");
 
 // Build texture page index lookup
-var texturePageIndexMap = new Dictionary<UndertaleEmbeddedTexture, int>();
+var texturePageIndexMap = new Dictionary<GameMakerEmbeddedTexture, int>();
 for (int i = 0; i < Data.EmbeddedTextures.Count; i++)
 {
     texturePageIndexMap[Data.EmbeddedTextures[i]] = i;
@@ -62,8 +61,8 @@ for (int i = 0; i < allItems.Count; i++)
     itemsData.Add(itemData);
 }
 
-var jsonOptions = new JsonSerializerOptions 
-{ 
+var jsonOptions = new JsonSerializerOptions
+{
     WriteIndented = true,
     Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
 };

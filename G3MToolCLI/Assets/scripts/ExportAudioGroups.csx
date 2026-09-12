@@ -1,6 +1,3 @@
-
-
-
 using System;
 using System.IO;
 using System.Text;
@@ -8,8 +5,8 @@ using System.Text.Json;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
-using UndertaleModLib;
-using UndertaleModLib.Models;
+using G3MLib.DataFile;
+using G3MLib.DataFile.Models;
 
 
 
@@ -28,7 +25,7 @@ string GetOutputDirectory()
 {
     string outputDir = OutputDir;
     if (string.IsNullOrEmpty(outputDir))
-        throw new Exception("OUTPUT_DIR environment variable is not set.");
+        throw new Exception("Output directory is not set.");
     string typeDir = Path.Combine(outputDir, "AudioGroups");
     if (!Directory.Exists(typeDir))
         Directory.CreateDirectory(typeDir);
@@ -43,7 +40,7 @@ EnsureDataLoaded();
 string audioGroupsOut = GetOutputDirectory();
 PrintLine($"[ExportAudioGroups] Exporting to: {audioGroupsOut}");
 
-List<UndertaleAudioGroup> allAudioGroups = Data.AudioGroups?.ToList() ?? new List<UndertaleAudioGroup>();
+List<GameMakerAudioGroup> allAudioGroups = Data.AudioGroups?.ToList() ?? new List<GameMakerAudioGroup>();
 PrintLine($"[ExportAudioGroups] Found {allAudioGroups.Count} audio groups to export.");
 
 SetProgressBar(null, "Exporting Audio Groups", 0, allAudioGroups.Count);
@@ -51,7 +48,7 @@ StartProgressBarUpdater();
 
 await Task.Run(() => Parallel.ForEach(allAudioGroups, ag => ExportAudioGroup(ag, audioGroupsOut)));
 
-void ExportAudioGroup(UndertaleAudioGroup audioGroup, string outputDir)
+void ExportAudioGroup(GameMakerAudioGroup audioGroup, string outputDir)
 {
     if (audioGroup?.Name?.Content == null)
     {
@@ -88,6 +85,3 @@ await StopProgressBarUpdater();
 HideProgressBar();
 
 PrintLine($"[ExportAudioGroups] Export complete. {allAudioGroups.Count} audio groups exported to {audioGroupsOut}");
-
-
-

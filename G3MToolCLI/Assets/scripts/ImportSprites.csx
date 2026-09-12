@@ -1,6 +1,3 @@
-
-
-
 using System;
 using System.IO;
 using System.Collections;
@@ -9,63 +6,13 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using UndertaleModLib;
-using UndertaleModLib.Models;
-using UndertaleModLib.Util;
+using G3MLib.DataFile;
+using G3MLib.DataFile.Models;
+using G3MLib.DataFile.Util;
 using ImageMagick;
 
-// ============================================================================
-// DETAILED LOGGING SYSTEM
-// ============================================================================
-static StreamWriter _logWriter = null;
-static string _logPath = null;
-
-void InitLog(string scriptName)
-{
-    if (!Verbose) return;
-    string logDir = Path.Combine(Path.GetTempPath(), "g3mtool_logs");
-    Directory.CreateDirectory(logDir);
-    _logPath = Path.Combine(logDir, $"{scriptName}_{DateTime.Now:yyyyMMdd_HHmmss}.log");
-    _logWriter = new StreamWriter(_logPath, false, Encoding.UTF8);
-    _logWriter.AutoFlush = true;
-    Log($"=== {scriptName} Log Started at {DateTime.Now} ===");
-    Console.WriteLine($"[{scriptName}] Detailed log: {_logPath}");
-}
-
-void Log(string message)
-{
-    if (_logWriter != null)
-    {
-        _logWriter.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] {message}");
-    }
-}
-
-void CloseLog()
-{
-    if (_logWriter != null)
-    {
-        Log("=== Log Ended ===");
-        _logWriter.Close();
-        _logWriter = null;
-        if (!string.IsNullOrEmpty(_logPath))
-        {
-            try { File.Delete(_logPath); } catch { }
-            try
-            {
-                string logDir = Path.GetDirectoryName(_logPath);
-                if (!string.IsNullOrEmpty(logDir) &&
-                    Directory.Exists(logDir) &&
-                    !Directory.EnumerateFileSystemEntries(logDir).Any())
-                {
-                    Directory.Delete(logDir);
-                }
-            }
-            catch { }
-        }
-    }
-}
-
-void PrintLine(string s) { if (Verbose) Console.WriteLine(s); Log(s); }
+void Log(string message) { if (Verbose) ScriptMessage(message); }
+void PrintLine(string message) => Log(message);
 
 string GetInputDirectory()
 {
@@ -73,7 +20,7 @@ string GetInputDirectory()
     if (string.IsNullOrEmpty(inputDir))
         throw new Exception("InputDir is not set.");
     if (!Directory.Exists(inputDir))
-        throw new Exception($"INPUT_DIR directory does not exist: {inputDir}");
+        throw new Exception($"Input directory does not exist: {inputDir}");
     return inputDir;
 }
 
@@ -82,8 +29,7 @@ string GetInputDirectory()
 
 EnsureDataLoaded();
 
-// Initialize detailed logging
-InitLog("ImportSprites");
+
 
 static List<MagickImage> imagesToCleanup = new();
 Regex sprFrameRegex = new(@"^(.+?)(?:_(\d+))$", RegexOptions.Compiled);
@@ -91,19 +37,6 @@ bool noMasksForBasicRectangles = Data.IsVersionAtLeast(2022, 9);
 
 string spritesPath = GetInputDirectory();
 PrintLine($"[ImportSprites] Importing from: {spritesPath}");
-
-// Log initial state
-Log($"INITIAL STATE: Data.Sprites.Count = {Data.Sprites.Count}");
-Log($"INITIAL STATE: Data.EmbeddedTextures.Count = {Data.EmbeddedTextures.Count}");
-Log($"INITIAL STATE: Data.TexturePageItems.Count = {Data.TexturePageItems.Count}");
-
-// Log first 20 sprites for reference
-Log("INITIAL SPRITES (first 20):");
-for (int i = 0; i < Math.Min(20, Data.Sprites.Count); i++)
-{
-    var spr = Data.Sprites[i];
-    Log($"  [{i}] {spr?.Name?.Content ?? "(null)"} - Textures: {spr?.Textures?.Count ?? 0}");
-}
 
 var pngFiles = Directory.GetFiles(spritesPath, "*.png", SearchOption.AllDirectories);
 var jsonFiles = Directory.GetFiles(spritesPath, "*.json", SearchOption.AllDirectories);
@@ -153,7 +86,7 @@ JsonElement? TryLoadSpriteMetadata(string spritesFolder, string spriteName)
     }
 }
 
-void ApplySpriteMetadata(UndertaleSprite sprite, JsonElement meta)
+void ApplySpriteMetadata(GameMakerSprite sprite, JsonElement meta)
 {
     // Size - critical for rendering
     if (meta.TryGetProperty("width", out JsonElement width))
@@ -185,7 +118,7 @@ void ApplySpriteMetadata(UndertaleSprite sprite, JsonElement meta)
     if (meta.TryGetProperty("bboxMode", out JsonElement bboxMode))
         sprite.BBoxMode = (uint)bboxMode.GetInt64();
     if (meta.TryGetProperty("sepMasks", out JsonElement sepMasks))
-        sprite.SepMasks = (UndertaleSprite.SepMaskType)sepMasks.GetInt32();
+        sprite.SepMasks = (GameMakerSprite.SepMaskType)sepMasks.GetInt32();
 
     if (Data.IsGameMaker2())
     {
@@ -195,7 +128,7 @@ void ApplySpriteMetadata(UndertaleSprite sprite, JsonElement meta)
         if (meta.TryGetProperty("sVersion", out JsonElement sVersion))
             sprite.SVersion = (uint)sVersion.GetInt64();
         if (meta.TryGetProperty("sSpriteType", out JsonElement sSpriteType))
-            sprite.SSpriteType = (UndertaleSprite.SpriteType)sSpriteType.GetInt32();
+            sprite.SSpriteType = (GameMakerSprite.SpriteType)sSpriteType.GetInt32();
 
         if (meta.TryGetProperty("gms2PlaybackSpeed", out JsonElement playbackSpeed))
             sprite.GMS2PlaybackSpeed = (float)playbackSpeed.GetDouble();
@@ -209,7 +142,7 @@ void ApplySpriteMetadata(UndertaleSprite sprite, JsonElement meta)
         sprite.CollisionMasks.Clear();
         foreach (var maskElm in collisionMasks.EnumerateArray())
         {
-            var mask = new UndertaleSprite.MaskEntry();
+            var mask = new GameMakerSprite.MaskEntry();
             if (maskElm.TryGetProperty("width", out JsonElement widthElm))
                 mask.Width = (int)widthElm.GetInt64();
             if (maskElm.TryGetProperty("height", out JsonElement heightElm))
@@ -227,7 +160,7 @@ void ApplySpriteMetadata(UndertaleSprite sprite, JsonElement meta)
     if (meta.TryGetProperty("nineSlice", out JsonElement nineSlice) && Data.IsVersionAtLeast(2, 3, 2))
     {
         if (sprite.V3NineSlice == null)
-            sprite.V3NineSlice = new UndertaleSprite.NineSlice();
+            sprite.V3NineSlice = new GameMakerSprite.NineSlice();
 
         if (nineSlice.TryGetProperty("left", out JsonElement nsLeft))
             sprite.V3NineSlice.Left = nsLeft.GetInt32();
@@ -244,7 +177,7 @@ void ApplySpriteMetadata(UndertaleSprite sprite, JsonElement meta)
         {
             var modesArray = tileModes.EnumerateArray().ToArray();
             for (int i = 0; i < Math.Min(5, modesArray.Length); i++)
-                sprite.V3NineSlice.TileModes[i] = (UndertaleSprite.NineSlice.TileMode)modesArray[i].GetInt32();
+                sprite.V3NineSlice.TileModes[i] = (GameMakerSprite.NineSlice.TileMode)modesArray[i].GetInt32();
         }
     }
 }
@@ -297,7 +230,7 @@ List<Dictionary<string, object>> TryGetTextureFrameData(string spritesFolder, st
     return null;
 }
 
-void ApplyTextureFrameProperties(UndertaleTexturePageItem tpi, string spriteName, int frameIndex, List<Dictionary<string, object>> frameData)
+void ApplyTextureFrameProperties(GameMakerTexturePageItem tpi, string spriteName, int frameIndex, List<Dictionary<string, object>> frameData)
 {
     if (frameData == null || frameIndex >= frameData.Count)
         return;
@@ -336,10 +269,7 @@ bool TryDirectImportFromMetadata()
     // Get all sprite folders that have JSON metadata
     var spriteFolders = Directory.GetDirectories(spritesPath);
     if (spriteFolders.Length == 0) return false;
-
-    // ============================================================================
     // PHASE 1: Collect all sprite data and determine which are new vs existing
-    // ============================================================================
     var importDataList = new List<SpriteImportData>();
     int maxTargetIndex = -1;
 
@@ -391,10 +321,7 @@ bool TryDirectImportFromMetadata()
     }
 
     Console.WriteLine($"[ImportSprites] Collected {importDataList.Count} sprites. New: {importDataList.Count(d => d.IsNew)}, Existing: {importDataList.Count(d => !d.IsNew)}");
-
-    // ============================================================================
     // PHASE 2: Append new sprites (ImportAssetOrder will reorder later)
-    // ============================================================================
     var newSpritesWithValidTextures = importDataList
         .Where(d => d.IsNew && d.HasValidTextureIndex)
         .ToList();
@@ -418,13 +345,10 @@ bool TryDirectImportFromMetadata()
     }
 
     Console.WriteLine($"[ImportSprites] After additions: {Data.Sprites.Count} sprites");
-
-    // ============================================================================
     // PHASE 3: Update existing sprites (metadata + texture frame references)
-    // ============================================================================
     foreach (var importData in importDataList.Where(d => !d.IsNew))
     {
-        UndertaleSprite sprite = Data.Sprites.ByName(importData.Name);
+        GameMakerSprite sprite = Data.Sprites.ByName(importData.Name);
         if (sprite != null && importData.Meta.HasValue)
         {
             ApplySpriteMetadata(sprite, importData.Meta.Value);
@@ -433,7 +357,7 @@ bool TryDirectImportFromMetadata()
             // Save old TPIs so we can reuse them (avoids changing TPI count)
             if (importData.FrameData != null)
             {
-                var oldTPIs = new List<UndertaleTexturePageItem>();
+                var oldTPIs = new List<GameMakerTexturePageItem>();
                 foreach (var texEntry in sprite.Textures)
                 {
                     if (texEntry?.Texture != null)
@@ -448,7 +372,7 @@ bool TryDirectImportFromMetadata()
                 {
                     if (frame.ContainsKey("isNull") && (bool)frame["isNull"])
                     {
-                        var nullEntry = new UndertaleSprite.TextureEntry();
+                        var nullEntry = new GameMakerSprite.TextureEntry();
                         nullEntry.Texture = null;
                         sprite.Textures.Add(nullEntry);
                         continue;
@@ -491,8 +415,8 @@ bool TryDirectImportFromMetadata()
                     else if (tpi == null)
                     {
                         // No old TPI to reuse and no existing match — create new
-                        tpi = new UndertaleTexturePageItem();
-                        tpi.Name = new UndertaleString($"PageItem {Data.TexturePageItems.Count}");
+                        tpi = new GameMakerTexturePageItem();
+                        tpi.Name = new GameMakerString($"PageItem {Data.TexturePageItems.Count}");
                         tpi.TexturePage = Data.EmbeddedTextures[texturePageIndex];
                         tpi.SourceX = sourceX;
                         tpi.SourceY = sourceY;
@@ -513,7 +437,7 @@ bool TryDirectImportFromMetadata()
                         ApplyTextureFrameProperties(tpi, importData.Name, sprite.Textures.Count, importData.FrameData);
                     }
 
-                    var texEntry = new UndertaleSprite.TextureEntry();
+                    var texEntry = new GameMakerSprite.TextureEntry();
                     texEntry.Texture = tpi;
                     sprite.Textures.Add(texEntry);
                 }
@@ -546,7 +470,7 @@ bool TryDirectImportFromMetadata()
 }
 
 // Helper to find existing TPI by texture page and source coordinates
-UndertaleTexturePageItem FindExistingTPI(int texturePageIndex, ushort sourceX, ushort sourceY, ushort sourceWidth, ushort sourceHeight)
+GameMakerTexturePageItem FindExistingTPI(int texturePageIndex, ushort sourceX, ushort sourceY, ushort sourceWidth, ushort sourceHeight)
 {
     if (texturePageIndex < 0 || texturePageIndex >= Data.EmbeddedTextures.Count)
         return null;
@@ -567,13 +491,13 @@ UndertaleTexturePageItem FindExistingTPI(int texturePageIndex, ushort sourceX, u
     return null;
 }
 
-UndertaleSprite CreateSpriteFromMetadata(SpriteImportData importData)
+GameMakerSprite CreateSpriteFromMetadata(SpriteImportData importData)
 {
     // Allow sprites with 0 textures (e.g., spr_notasprite) - they just have empty Textures list
     if (importData.FrameData == null)
         return null;
 
-    var sprite = new UndertaleSprite();
+    var sprite = new GameMakerSprite();
     sprite.Name = Data.Strings.MakeString(importData.Name);
 
     if (importData.Meta.HasValue)
@@ -585,8 +509,8 @@ UndertaleSprite CreateSpriteFromMetadata(SpriteImportData importData)
     {
         if (frame.ContainsKey("isNull") && (bool)frame["isNull"])
         {
-            // CRITICAL FIX: Don't add null to Textures list - add TextureEntry with null Texture instead
-            var nullEntry = new UndertaleSprite.TextureEntry();
+            // Empty frames require a TextureEntry with a null Texture.
+            var nullEntry = new GameMakerSprite.TextureEntry();
             nullEntry.Texture = null;
             sprite.Textures.Add(nullEntry);
             continue;
@@ -614,8 +538,8 @@ UndertaleSprite CreateSpriteFromMetadata(SpriteImportData importData)
         if (tpi == null)
         {
             // Create new TPI only if no existing one found
-            tpi = new UndertaleTexturePageItem();
-            tpi.Name = new UndertaleString($"PageItem {Data.TexturePageItems.Count}");
+            tpi = new GameMakerTexturePageItem();
+            tpi.Name = new GameMakerString($"PageItem {Data.TexturePageItems.Count}");
             tpi.TexturePage = Data.EmbeddedTextures[texturePageIndex];
             tpi.SourceX = sourceX;
             tpi.SourceY = sourceY;
@@ -637,7 +561,7 @@ UndertaleSprite CreateSpriteFromMetadata(SpriteImportData importData)
             Log($"  Found EXISTING TPI for {importData.Name}: index={Data.TexturePageItems.IndexOf(tpi)}, TexPage={texturePageIndex}, Src=({sourceX},{sourceY})");
         }
 
-        var texEntry = new UndertaleSprite.TextureEntry();
+        var texEntry = new GameMakerSprite.TextureEntry();
         texEntry.Texture = tpi;
         sprite.Textures.Add(texEntry);
     }
@@ -656,7 +580,7 @@ UndertaleSprite CreateSpriteFromMetadata(SpriteImportData importData)
 TryDirectImportFromMetadata();
 
 // Check if there are any new sprites that need texture repacking
-// NOTE: We need to check the actual sprite name from JSON metadata, not the folder name
+// Sprite identity comes from JSON metadata, which may differ from the folder name.
 // because unnamed sprites use folder names like __unnamed_sprite__idx5890 but have empty actual names
 var spriteFolders = Directory.GetDirectories(spritesPath);
 var newSpriteFolders = spriteFolders.Where(folder =>
@@ -746,7 +670,7 @@ try
     Log($"[REPACK] Initial state: {lastTextPage + 1} texture pages, {lastTextPageItem + 1} texture page items");
 
     bool bboxMasks = Data.IsVersionAtLeast(2024, 6);
-    Dictionary<UndertaleSprite, Node> maskNodes = new();
+    Dictionary<GameMakerSprite, Node> maskNodes = new();
 
     string prefix = outName.Replace(Path.GetExtension(outName), "");
     int atlasCount = 0;
@@ -762,8 +686,8 @@ try
         Log($"[REPACK] Atlas image loaded: {atlasImage.Width}x{atlasImage.Height}");
 
         Log($"[REPACK] Creating EmbeddedTexture {lastTextPage + 1}");
-        UndertaleEmbeddedTexture texture = new();
-        texture.Name = new UndertaleString($"Texture {++lastTextPage}");
+        GameMakerEmbeddedTexture texture = new();
+        texture.Name = new GameMakerString($"Texture {++lastTextPage}");
         texture.TextureData.Image = GMImage.FromMagickImage(atlasImage).ConvertToPng();
         Data.EmbeddedTextures.Add(texture);
         Log($"[REPACK] EmbeddedTexture added to Data");
@@ -799,11 +723,11 @@ try
                 }
 
                 // Check if sprite exists - will update existing or create new
-                UndertaleSprite existingSprite = Data.Sprites.ByName(spriteName);
+                GameMakerSprite existingSprite = Data.Sprites.ByName(spriteName);
 
                 // Create TexturePageItem for this frame
-                UndertaleTexturePageItem texturePageItem = new();
-                texturePageItem.Name = new UndertaleString($"PageItem {++lastTextPageItem}");
+                GameMakerTexturePageItem texturePageItem = new();
+                texturePageItem.Name = new GameMakerString($"PageItem {++lastTextPageItem}");
                 texturePageItem.SourceX = (ushort)n.Bounds.X;
                 texturePageItem.SourceY = (ushort)n.Bounds.Y;
                 texturePageItem.SourceWidth = (ushort)n.Bounds.Width;
@@ -818,20 +742,20 @@ try
 
                 Data.TexturePageItems.Add(texturePageItem);
 
-                UndertaleSprite.TextureEntry texentry = new();
+                GameMakerSprite.TextureEntry texentry = new();
                 texentry.Texture = texturePageItem;
 
                 var frameData = TryGetTextureFrameData(spritesPath, spriteName);
                 if (frameData != null)
                     ApplyTextureFrameProperties(texturePageItem, spriteName, frame, frameData);
 
-                UndertaleSprite sprite;
+                GameMakerSprite sprite;
 
                 if (existingSprite == null)
                 {
                     // Create new sprite
                     PrintLine($"[ImportSprites] Creating NEW sprite: {spriteName}");
-                    sprite = new UndertaleSprite();
+                    sprite = new GameMakerSprite();
                     sprite.Name = Data.Strings.MakeString(spriteName);
                     sprite.Width = (uint)n.Texture.BoundingWidth;
                     sprite.Height = (uint)n.Texture.BoundingHeight;
@@ -847,14 +771,14 @@ try
                         ApplySpriteMetadata(sprite, spriteMeta.Value);
 
                     // Fill preceding frames with valid empty TextureEntry objects
-                    // CRITICAL: Never use null - UndertaleSimpleList.Serialize skips null entries
+                    // GameMakerSimpleList.Serialize skips null entries.
                     // but still writes the count, causing read/write mismatch and data corruption
                     if (frame > 0)
                     {
                         Log($"  INFO: Sprite '{spriteName}' starts at frame {frame}, filling {frame} empty frames");
                         for (int i = 0; i < frame; i++)
                         {
-                            var emptyEntry = new UndertaleSprite.TextureEntry();
+                            var emptyEntry = new GameMakerSprite.TextureEntry();
                             emptyEntry.Texture = null;
                             sprite.Textures.Add(emptyEntry);
                         }
@@ -862,7 +786,7 @@ try
 
                     // Generate mask for new sprites if needed
                     if (!noMasksForBasicRectangles ||
-                        sprite.SepMasks is not (UndertaleSprite.SepMaskType.AxisAlignedRect or UndertaleSprite.SepMaskType.RotatedRect))
+                        sprite.SepMasks is not (GameMakerSprite.SepMaskType.AxisAlignedRect or GameMakerSprite.SepMaskType.RotatedRect))
                     {
                         if (sprite.CollisionMasks.Count == 0)
                             maskNodes[sprite] = n;
@@ -878,20 +802,20 @@ try
                     sprite = existingSprite;
 
                     // Extend Textures list with valid empty TextureEntry objects if needed
-                    // CRITICAL: Never use null - causes serialization corruption
+                    // Null list entries corrupt serialization.
                     if (frame >= sprite.Textures.Count)
                     {
                         Log($"  INFO: Extending '{spriteName}' Textures from {sprite.Textures.Count} to {frame + 1}");
                         while (frame >= sprite.Textures.Count)
                         {
-                            var emptyEntry = new UndertaleSprite.TextureEntry();
+                            var emptyEntry = new GameMakerSprite.TextureEntry();
                             emptyEntry.Texture = null;
                             sprite.Textures.Add(emptyEntry);
                         }
                     }
 
                     // Preserve texture properties from existing texture
-                    UndertaleTexturePageItem oldTex =
+                    GameMakerTexturePageItem oldTex =
                         (sprite.Textures[frame]?.Texture)
                         ?? sprite.Textures.FirstOrDefault(te => te != null)?.Texture;
 
@@ -919,7 +843,7 @@ try
 
                 // Generate mask only if sprite needs precise collision and has no masks
                 bool needMaskInit =
-                    sprite.SepMasks is UndertaleSprite.SepMaskType.Precise &&
+                    sprite.SepMasks is GameMakerSprite.SepMaskType.Precise &&
                     sprite.CollisionMasks.Count == 0;
 
                 if (needMaskInit)
@@ -929,7 +853,7 @@ try
 
 
         // Match UTMT mask generation logic - wrap in try-catch to handle edge cases
-        foreach ((UndertaleSprite maskSpr, Node maskNode) in maskNodes)
+        foreach ((GameMakerSprite maskSpr, Node maskNode) in maskNodes)
         {
             try
             {
@@ -1006,10 +930,7 @@ try
 
     PrintLine($"[ImportSprites] Import complete! Processed {pngFiles.Length} PNG files. New: {newSpritesCreated}, Updated: {existingSpritesUpdated}");
     Log($"[ImportSprites] Repacking finished - New: {newSpritesCreated}, Updated: {existingSpritesUpdated}");
-
-    // =========================================================================
     // VALIDATION: Ensure ALL sprites are safe to serialize
-    // =========================================================================
     Console.WriteLine("[ImportSprites] Validating all sprites before save...");
     int validationFixed = 0;
     int validationNullTexEntries = 0;
@@ -1034,7 +955,7 @@ try
             Log($"  VALIDATION FIX: {sprName} - setting IsSpecialType=true (was false in GMS2 game)");
             spr.IsSpecialType = true;
             if (spr.SVersion == 0) spr.SVersion = 3;
-            spr.SSpriteType = UndertaleSprite.SpriteType.Normal;
+            spr.SSpriteType = GameMakerSprite.SpriteType.Normal;
             if (spr.GMS2PlaybackSpeed == 0) spr.GMS2PlaybackSpeed = 15.0f;
             validationFixed++;
         }
@@ -1047,7 +968,7 @@ try
                 if (spr.Textures[ti] == null)
                 {
                     Log($"  VALIDATION FIX: {sprName} - replacing NULL Textures[{ti}] with empty TextureEntry");
-                    spr.Textures[ti] = new UndertaleSprite.TextureEntry() { Texture = null };
+                    spr.Textures[ti] = new GameMakerSprite.TextureEntry() { Texture = null };
                     validationNullTexEntries++;
                     validationFixed++;
                 }
@@ -1065,36 +986,7 @@ try
     }
     Log($"VALIDATION COMPLETE: fixed={validationFixed}, nullTexEntries={validationNullTexEntries}, nullSprites={validationNullSprites}");
 
-    // Log final state
-    Log($"FINAL STATE: Data.Sprites.Count = {Data.Sprites.Count}");
-    Log($"FINAL STATE: Data.EmbeddedTextures.Count = {Data.EmbeddedTextures.Count}");
-    Log($"FINAL STATE: Data.TexturePageItems.Count = {Data.TexturePageItems.Count}");
 
-    // Log first 20 sprites after import
-    Log("FINAL SPRITES (first 20):");
-    for (int i = 0; i < Math.Min(20, Data.Sprites.Count); i++)
-    {
-        var spr = Data.Sprites[i];
-        Log($"  [{i}] {spr?.Name?.Content ?? "(null)"} - Textures: {spr?.Textures?.Count ?? 0}");
-    }
-
-    // Log spr_heart specifically
-    var sprHeart = Data.Sprites.ByName("spr_heart");
-    if (sprHeart != null)
-    {
-        int heartIdx = Data.Sprites.IndexOf(sprHeart);
-        Log($"SPECIFIC CHECK: spr_heart at index {heartIdx}, Textures: {sprHeart.Textures?.Count ?? 0}");
-        if (sprHeart.Textures != null && sprHeart.Textures.Count > 0 && sprHeart.Textures[0]?.Texture != null)
-        {
-            var tex = sprHeart.Textures[0].Texture;
-            int tpIdx = Data.EmbeddedTextures.IndexOf(tex.TexturePage);
-            Log($"  -> TexturePage index: {tpIdx}, SourceX: {tex.SourceX}, SourceY: {tex.SourceY}, SourceW: {tex.SourceWidth}, SourceH: {tex.SourceHeight}");
-        }
-    }
-    else
-    {
-        Log("SPECIFIC CHECK: spr_heart NOT FOUND!");
-    }
 }
 catch (Exception ex)
 {
@@ -1120,9 +1012,8 @@ finally
         Log($"[REPACK] Failed to delete temp dir: {ex.Message}");
     }
 
-    // Close log file
-    Log($"[REPACK] Cleanup complete, closing log");
-    CloseLog();
+    Log("[REPACK] Cleanup complete");
+
 }
 
 
@@ -1437,8 +1328,3 @@ public class Packer
         return img;
     }
 }
-
-
-
-
-

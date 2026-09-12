@@ -1,0 +1,38 @@
+name: Test G3MTool
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            runner: windows-latest
+          - name: Windows arm64
+            runner: windows-11-arm
+          - name: Linux x64
+            runner: ubuntu-latest
+          - name: Linux arm64
+            runner: ubuntu-24.04-arm
+          - name: macOS x64
+            runner: macos-26-intel
+          - name: macOS arm64
+            runner: macos-26
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet restore G3MTool.sln
+      - run: dotnet test G3MToolCLI.Tests/G3MToolCLI.Tests.csproj --configuration Release --no-restore
+      - run: dotnet test G3MToolGUI.Tests/G3MToolGUI.Tests.csproj --configuration Release --no-restore

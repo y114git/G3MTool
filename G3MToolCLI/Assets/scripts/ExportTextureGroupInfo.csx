@@ -1,6 +1,3 @@
-
-
-
 using System;
 using System.IO;
 using System.Text;
@@ -8,8 +5,8 @@ using System.Text.Json;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
-using UndertaleModLib;
-using UndertaleModLib.Models;
+using G3MLib.DataFile;
+using G3MLib.DataFile.Models;
 
 
 
@@ -28,7 +25,7 @@ string GetOutputDirectory()
 {
     string outputDir = OutputDir;
     if (string.IsNullOrEmpty(outputDir))
-        throw new Exception("OUTPUT_DIR environment variable is not set.");
+        throw new Exception("Output directory is not set.");
     string typeDir = Path.Combine(outputDir, "TextureGroupInfo");
     if (!Directory.Exists(typeDir))
         Directory.CreateDirectory(typeDir);
@@ -49,7 +46,7 @@ if (Data.TextureGroupInfo == null || Data.TextureGroupInfo.Count == 0)
 string textureGroupsOut = GetOutputDirectory();
 PrintLine($"[ExportTextureGroupInfo] Exporting to: {textureGroupsOut}");
 
-List<UndertaleTextureGroupInfo> allTextureGroups = Data.TextureGroupInfo?.ToList() ?? new List<UndertaleTextureGroupInfo>();
+List<GameMakerTextureGroupInfo> allTextureGroups = Data.TextureGroupInfo?.ToList() ?? new List<GameMakerTextureGroupInfo>();
 PrintLine($"[ExportTextureGroupInfo] Found {allTextureGroups.Count} texture group info entries to export.");
 
 SetProgressBar(null, "Exporting Texture Group Info", 0, allTextureGroups.Count);
@@ -57,7 +54,7 @@ StartProgressBarUpdater();
 
 await Task.Run(() => Parallel.ForEach(allTextureGroups, tg => ExportTextureGroup(tg, textureGroupsOut)));
 
-void ExportTextureGroup(UndertaleTextureGroupInfo textureGroup, string outputDir)
+void ExportTextureGroup(GameMakerTextureGroupInfo textureGroup, string outputDir)
 {
     if (textureGroup?.Name?.Content == null)
     {
@@ -76,9 +73,9 @@ void ExportTextureGroup(UndertaleTextureGroupInfo textureGroup, string outputDir
         using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
         {
             writer.WriteStartObject();
-            
+
             writer.WriteString("name", textureGroup.Name.Content);
-            
+
             if (Data.IsVersionAtLeast(2022, 9))
             {
                 if (textureGroup.Directory != null)
@@ -88,7 +85,7 @@ void ExportTextureGroup(UndertaleTextureGroupInfo textureGroup, string outputDir
                 writer.WriteNumber("loadType", (int)textureGroup.LoadType);
                 writer.WriteString("loadTypeDescription", textureGroup.LoadType.ToString());
             }
-            
+
             writer.WriteStartArray("texturePages");
             if (textureGroup.TexturePages != null)
             {
@@ -100,7 +97,7 @@ void ExportTextureGroup(UndertaleTextureGroupInfo textureGroup, string outputDir
                 }
             }
             writer.WriteEndArray();
-            
+
             writer.WriteStartArray("sprites");
             if (textureGroup.Sprites != null)
             {
@@ -112,7 +109,7 @@ void ExportTextureGroup(UndertaleTextureGroupInfo textureGroup, string outputDir
                 }
             }
             writer.WriteEndArray();
-            
+
             if (!Data.IsNonLTSVersionAtLeast(2023, 1))
             {
                 writer.WriteStartArray("spineSprites");
@@ -127,7 +124,7 @@ void ExportTextureGroup(UndertaleTextureGroupInfo textureGroup, string outputDir
                 }
                 writer.WriteEndArray();
             }
-            
+
             writer.WriteStartArray("fonts");
             if (textureGroup.Fonts != null)
             {
@@ -139,7 +136,7 @@ void ExportTextureGroup(UndertaleTextureGroupInfo textureGroup, string outputDir
                 }
             }
             writer.WriteEndArray();
-            
+
             writer.WriteStartArray("tilesets");
             if (textureGroup.Tilesets != null)
             {
@@ -151,7 +148,7 @@ void ExportTextureGroup(UndertaleTextureGroupInfo textureGroup, string outputDir
                 }
             }
             writer.WriteEndArray();
-            
+
             writer.WriteEndObject();
         }
     }
@@ -167,6 +164,3 @@ await StopProgressBarUpdater();
 HideProgressBar();
 
 PrintLine($"[ExportTextureGroupInfo] Export complete. {allTextureGroups.Count} texture group info entries exported to {textureGroupsOut}");
-
-
-

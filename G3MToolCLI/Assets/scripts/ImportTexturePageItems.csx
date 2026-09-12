@@ -1,12 +1,11 @@
-
 using System;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Collections.Generic;
-using UndertaleModLib;
-using UndertaleModLib.Models;
+using G3MLib.DataFile;
+using G3MLib.DataFile.Models;
 
 void PrintLine(string s) { if (Verbose) Console.WriteLine(s); }
 
@@ -16,7 +15,7 @@ string GetInputDirectory()
     if (string.IsNullOrEmpty(inputDir))
         throw new Exception("InputDir is not set.");
     if (!Directory.Exists(inputDir))
-        throw new Exception($"INPUT_DIR directory does not exist: {inputDir}");
+        throw new Exception($"Input directory does not exist: {inputDir}");
     return inputDir;
 }
 
@@ -33,7 +32,7 @@ if (!File.Exists(jsonPath))
 }
 
 string jsonContent = File.ReadAllText(jsonPath, Encoding.UTF8);
-using JsonDocument jsonDoc = JsonDocument.Parse(jsonContent);
+JsonDocument jsonDoc = JsonDocument.Parse(jsonContent);
 
 if (jsonDoc.RootElement.ValueKind != JsonValueKind.Array)
 {
@@ -65,8 +64,8 @@ foreach (var itemElm in items)
         ushort boundingHeight = itemElm.TryGetProperty("boundingHeight", out var bhElm) ? (ushort)bhElm.GetInt32() : (ushort)0;
         int texturePageIndex = itemElm.TryGetProperty("texturePageIndex", out var tpElm) ? tpElm.GetInt32() : -1;
 
-        UndertaleTexturePageItem item;
-        
+        GameMakerTexturePageItem item;
+
         if (index >= 0 && index < Data.TexturePageItems.Count)
         {
             // Update existing item
@@ -76,8 +75,8 @@ foreach (var itemElm in items)
         else
         {
             // Create new item
-            item = new UndertaleTexturePageItem();
-            item.Name = new UndertaleString(name.Length > 0 ? name : $"PageItem {Data.TexturePageItems.Count}");
+            item = new GameMakerTexturePageItem();
+            item.Name = new GameMakerString(name.Length > 0 ? name : $"PageItem {Data.TexturePageItems.Count}");
             Data.TexturePageItems.Add(item);
             created++;
         }
@@ -105,3 +104,4 @@ foreach (var itemElm in items)
 }
 
 PrintLine($"[ImportTexturePageItems] Import complete. {updated} updated, {created} created.");
+jsonDoc.Dispose();

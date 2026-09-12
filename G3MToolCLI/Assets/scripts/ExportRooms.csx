@@ -1,6 +1,3 @@
-
-
-
 using System;
 using System.IO;
 using System.Text;
@@ -8,8 +5,8 @@ using System.Text.Json;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
-using UndertaleModLib;
-using UndertaleModLib.Models;
+using G3MLib.DataFile;
+using G3MLib.DataFile.Models;
 
 
 
@@ -43,7 +40,7 @@ EnsureDataLoaded();
 string roomsOut = GetOutputDirectory();
 PrintLine($"[ExportRooms] Exporting to: {roomsOut}");
 
-List<UndertaleRoom> allRooms = Data.Rooms.ToList();
+List<GameMakerRoom> allRooms = Data.Rooms.ToList();
 PrintLine($"[ExportRooms] Found {allRooms.Count} rooms to export.");
 
 SetProgressBar(null, "Exporting Rooms", 0, allRooms.Count);
@@ -51,7 +48,7 @@ StartProgressBarUpdater();
 
 await Task.Run(() => Parallel.ForEach(allRooms, room => ExportRoom(room, roomsOut)));
 
-void ExportRoom(UndertaleRoom room, string outputDir)
+void ExportRoom(GameMakerRoom room, string outputDir)
 {
     if (room?.Name?.Content == null)
     {
@@ -62,11 +59,11 @@ void ExportRoom(UndertaleRoom room, string outputDir)
     try
     {
         string name = SafeName(room.Name.Content);
-        
+
         // Create subdirectory for this room
         string roomDir = Path.Combine(outputDir, name);
         Directory.CreateDirectory(roomDir);
-        
+
         string jsonPath = Path.Combine(roomDir, "room.json");
 
         using (var stream = new FileStream(jsonPath, FileMode.Create, FileAccess.Write))
@@ -96,7 +93,7 @@ void ExportRoom(UndertaleRoom room, string outputDir)
             writer.WriteNumber("gridHeight", (float)room.GridHeight);
             writer.WriteNumber("gridThicknessPx", (float)room.GridThicknessPx);
 
-            
+
             writer.WriteStartArray("backgrounds");
             foreach (var bg in room.Backgrounds)
             {
@@ -115,7 +112,7 @@ void ExportRoom(UndertaleRoom room, string outputDir)
             }
             writer.WriteEndArray();
 
-            
+
             writer.WriteStartArray("views");
             foreach (var view in room.Views)
             {
@@ -138,7 +135,7 @@ void ExportRoom(UndertaleRoom room, string outputDir)
             }
             writer.WriteEndArray();
 
-            
+
             writer.WriteStartArray("gameObjects");
             foreach (var obj in room.GameObjects)
             {
@@ -162,7 +159,7 @@ void ExportRoom(UndertaleRoom room, string outputDir)
             }
             writer.WriteEndArray();
 
-            
+
             writer.WriteStartArray("tiles");
             foreach (var tile in room.Tiles)
             {
@@ -187,7 +184,7 @@ void ExportRoom(UndertaleRoom room, string outputDir)
             }
             writer.WriteEndArray();
 
-            
+
             if (Data.IsGameMaker2() && room.Layers != null && room.Layers.Count > 0)
             {
                 writer.WriteStartArray("layers");
@@ -203,14 +200,14 @@ void ExportRoom(UndertaleRoom room, string outputDir)
                     writer.WriteNumber("hSpeed", layer.HSpeed);
                     writer.WriteNumber("vSpeed", layer.VSpeed);
                     writer.WriteBoolean("isVisible", layer.IsVisible);
-                    
+
                     if (Data.IsVersionAtLeast(2022, 1))
                     {
                         writer.WriteBoolean("effectEnabled", layer.EffectEnabled);
                         writer.WriteString("effectType", layer.EffectType?.Content ?? "");
                     }
 
-                    if (layer.LayerType == UndertaleRoom.LayerType.Instances && layer.InstancesData != null)
+                    if (layer.LayerType == GameMakerRoom.LayerType.Instances && layer.InstancesData != null)
                     {
                         writer.WriteStartArray("instanceIds");
                         if (layer.InstancesData.Instances != null)
@@ -220,7 +217,7 @@ void ExportRoom(UndertaleRoom room, string outputDir)
                         }
                         writer.WriteEndArray();
                     }
-                    else if (layer.LayerType == UndertaleRoom.LayerType.Tiles && layer.TilesData != null)
+                    else if (layer.LayerType == GameMakerRoom.LayerType.Tiles && layer.TilesData != null)
                     {
                         var tilesData = layer.TilesData;
                         writer.WriteString("tilesBackground", tilesData.Background?.Name?.Content ?? "");
@@ -240,7 +237,7 @@ void ExportRoom(UndertaleRoom room, string outputDir)
                         }
                         writer.WriteEndArray();
                     }
-                    else if (layer.LayerType == UndertaleRoom.LayerType.Background && layer.BackgroundData != null)
+                    else if (layer.LayerType == GameMakerRoom.LayerType.Background && layer.BackgroundData != null)
                     {
                         var bgData = layer.BackgroundData;
                         writer.WriteStartObject("backgroundData");
@@ -256,7 +253,7 @@ void ExportRoom(UndertaleRoom room, string outputDir)
                         writer.WriteNumber("animationSpeedType", (int)bgData.AnimationSpeedType);
                         writer.WriteEndObject();
                     }
-                    else if (layer.LayerType == UndertaleRoom.LayerType.Assets && layer.AssetsData != null)
+                    else if (layer.LayerType == GameMakerRoom.LayerType.Assets && layer.AssetsData != null)
                     {
                         var assetsData = layer.AssetsData;
                         writer.WriteStartObject("assetsData");
@@ -314,7 +311,7 @@ void ExportRoom(UndertaleRoom room, string outputDir)
                 writer.WriteEndArray();
             }
 
-            
+
             if (Data.IsVersionAtLeast(2, 3) && room.Sequences != null && room.Sequences.Count > 0)
             {
                 writer.WriteStartArray("sequences");
@@ -323,7 +320,7 @@ void ExportRoom(UndertaleRoom room, string outputDir)
                 writer.WriteEndArray();
             }
 
-            
+
             if (Data.IsVersionAtLeast(2024, 13) && room.InstanceCreationOrderIDs?.InstanceIDs != null && room.InstanceCreationOrderIDs.InstanceIDs.Count > 0)
             {
                 writer.WriteStartArray("instanceCreationOrderIDs");
@@ -347,7 +344,3 @@ await StopProgressBarUpdater();
 HideProgressBar();
 
 PrintLine($"[ExportRooms] Export complete. {allRooms.Count} rooms exported to {roomsOut}");
-
-
-
-

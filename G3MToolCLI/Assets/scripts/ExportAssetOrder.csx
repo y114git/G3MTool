@@ -17,7 +17,7 @@ if (string.IsNullOrEmpty(outputDir))
 
 string outputPath = Path.Combine(outputDir, "asset_order.txt");
 
-void WriteAssetNames<T>(StreamWriter writer, IList<T> assets) where T : UndertaleNamedResource
+void WriteAssetNames<T>(StreamWriter writer, IList<T> assets) where T : GameMakerNamedResource
 {
     if (assets == null || assets.Count == 0)
         return;

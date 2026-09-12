@@ -1,6 +1,3 @@
-
-
-
 using System;
 using System.IO;
 using System.Text;
@@ -8,9 +5,9 @@ using System.Text.Json;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
-using UndertaleModLib;
-using UndertaleModLib.Models;
-using UndertaleModLib.Util;
+using G3MLib.DataFile;
+using G3MLib.DataFile.Models;
+using G3MLib.DataFile.Util;
 
 
 
@@ -44,7 +41,7 @@ EnsureDataLoaded();
 string fontsOut = GetOutputDirectory();
 PrintLine($"[ExportFonts] Exporting to: {fontsOut}");
 
-List<UndertaleFont> allFonts = Data.Fonts.ToList();
+List<GameMakerFont> allFonts = Data.Fonts.ToList();
 PrintLine($"[ExportFonts] Found {allFonts.Count} fonts to export.");
 
 SetProgressBar(null, "Exporting Fonts", 0, allFonts.Count);
@@ -55,7 +52,7 @@ using (TextureWorker worker = new TextureWorker())
     await Task.Run(() => Parallel.ForEach(allFonts, font => ExportFont(font, worker, fontsOut)));
 }
 
-void ExportFont(UndertaleFont font, TextureWorker worker, string outputDir)
+void ExportFont(GameMakerFont font, TextureWorker worker, string outputDir)
 {
     if (font?.Name?.Content == null)
     {
@@ -66,25 +63,25 @@ void ExportFont(UndertaleFont font, TextureWorker worker, string outputDir)
     try
     {
         string name = SafeName(font.Name.Content);
-        
+
         // Create subdirectory for this font
         string fontDir = Path.Combine(outputDir, name);
         Directory.CreateDirectory(fontDir);
 
-        
+
         if (font.Texture != null)
         {
             string pngPath = Path.Combine(fontDir, "texture.png");
             worker.ExportAsPNG(font.Texture, pngPath);
         }
 
-        
+
         using (var stream = new FileStream(Path.Combine(fontDir, "font.json"), FileMode.Create))
         using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
         {
             writer.WriteStartObject();
 
-            
+
             writer.WriteString("name", font.Name?.Content ?? "");
             writer.WriteString("displayName", font.DisplayName?.Content ?? "");
             writer.WriteNumber("emSize", font.EmSize);
@@ -97,7 +94,7 @@ void ExportFont(UndertaleFont font, TextureWorker worker, string outputDir)
             writer.WriteNumber("scaleX", font.ScaleX);
             writer.WriteNumber("scaleY", font.ScaleY);
 
-            
+
             writer.WriteBoolean("emSizeIsFloat", font.EmSizeIsFloat);
 
             if (Data.GeneralInfo?.BytecodeVersion >= 17)
@@ -112,7 +109,7 @@ void ExportFont(UndertaleFont font, TextureWorker worker, string outputDir)
             if (Data.IsVersionAtLeast(2023, 6))
                 writer.WriteNumber("lineHeight", font.LineHeight);
 
-            
+
             writer.WritePropertyName("glyphs");
             writer.WriteStartArray();
             foreach (var g in font.Glyphs)
@@ -126,7 +123,7 @@ void ExportFont(UndertaleFont font, TextureWorker worker, string outputDir)
                 writer.WriteNumber("shift", g.Shift);
                 writer.WriteNumber("offset", g.Offset);
 
-                
+
                 if (g.Kerning != null && g.Kerning.Count > 0)
                 {
                     writer.WritePropertyName("kerning");
@@ -160,7 +157,3 @@ await StopProgressBarUpdater();
 HideProgressBar();
 
 PrintLine($"[ExportFonts] Export complete. {allFonts.Count} fonts exported to {fontsOut}");
-
-
-
-

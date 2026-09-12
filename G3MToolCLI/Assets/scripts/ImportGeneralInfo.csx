@@ -1,13 +1,11 @@
-
-
 using System;
 using System.IO;
 using System.Text;
 using System.Text.Json;
 using System.Linq;
 using System.Collections.Generic;
-using UndertaleModLib;
-using UndertaleModLib.Models;
+using G3MLib.DataFile;
+using G3MLib.DataFile.Models;
 
 
 void PrintLine(string s) { if (Verbose) Console.WriteLine(s); }
@@ -18,7 +16,7 @@ string GetInputDirectory()
     if (string.IsNullOrEmpty(inputDir))
         throw new Exception("InputDir is not set.");
     if (!Directory.Exists(inputDir))
-        throw new Exception($"INPUT_DIR directory does not exist: {inputDir}");
+        throw new Exception($"Input directory does not exist: {inputDir}");
     return inputDir;
 }
 
@@ -55,7 +53,7 @@ try
     JsonDocument jsonDoc = JsonDocument.Parse(jsonContent);
     JsonElement root = jsonDoc.RootElement;
 
-    
+
     if (root.TryGetProperty("isDebuggerDisabled", out JsonElement isDebuggerElm))
         Data.GeneralInfo.IsDebuggerDisabled = isDebuggerElm.GetBoolean();
 
@@ -65,7 +63,7 @@ try
     if (root.TryGetProperty("padding", out JsonElement paddingElm))
         Data.GeneralInfo.Padding = (ushort)paddingElm.GetInt32();
 
-    
+
     if (root.TryGetProperty("fileName", out JsonElement fileNameElm))
     {
         string fileName = fileNameElm.GetString();
@@ -80,18 +78,18 @@ try
             Data.GeneralInfo.Config = Data.Strings.MakeString(config);
     }
 
-    
+
     if (root.TryGetProperty("lastObj", out JsonElement lastObjElm))
         Data.GeneralInfo.LastObj = (uint)lastObjElm.GetInt64();
 
     if (root.TryGetProperty("lastTile", out JsonElement lastTileElm))
         Data.GeneralInfo.LastTile = (uint)lastTileElm.GetInt64();
 
-    
+
     if (root.TryGetProperty("gameID", out JsonElement gameIDElm))
         Data.GeneralInfo.GameID = (uint)gameIDElm.GetInt64();
 
-    
+
     if (root.TryGetProperty("directPlayGuid", out JsonElement directPlayGuidElm))
     {
         string guidStr = directPlayGuidElm.GetString();
@@ -102,7 +100,7 @@ try
         }
     }
 
-    
+
     if (root.TryGetProperty("name", out JsonElement nameElm))
     {
         string name = nameElm.GetString();
@@ -110,7 +108,7 @@ try
             Data.GeneralInfo.Name = Data.Strings.MakeString(name);
     }
 
-    
+
     if (root.TryGetProperty("major", out JsonElement majorElm))
         Data.GeneralInfo.Major = (uint)majorElm.GetInt64();
 
@@ -123,20 +121,20 @@ try
     if (root.TryGetProperty("build", out JsonElement buildElm))
         Data.GeneralInfo.Build = (uint)buildElm.GetInt64();
 
-    
+
     if (root.TryGetProperty("defaultWindowWidth", out JsonElement windowWidthElm))
         Data.GeneralInfo.DefaultWindowWidth = (uint)windowWidthElm.GetInt64();
 
     if (root.TryGetProperty("defaultWindowHeight", out JsonElement windowHeightElm))
         Data.GeneralInfo.DefaultWindowHeight = (uint)windowHeightElm.GetInt64();
 
-    
+
     if (root.TryGetProperty("infoFlags", out JsonElement infoFlagsElm))
     {
-        Data.GeneralInfo.Info = (UndertaleGeneralInfo.InfoFlags)infoFlagsElm.GetUInt32();
+        Data.GeneralInfo.Info = (GameMakerGeneralInfo.InfoFlags)infoFlagsElm.GetUInt32();
     }
 
-    
+
     if (root.TryGetProperty("licenseCRC32", out JsonElement licenseCRC32Elm))
         Data.GeneralInfo.LicenseCRC32 = (uint)licenseCRC32Elm.GetInt64();
 
@@ -150,11 +148,11 @@ try
         Data.GeneralInfo.LicenseMD5 = md5List.ToArray();
     }
 
-    
+
     if (root.TryGetProperty("timestamp", out JsonElement timestampElm))
         Data.GeneralInfo.Timestamp = (ulong)timestampElm.GetUInt64();
 
-    
+
     if (root.TryGetProperty("displayName", out JsonElement displayNameElm))
     {
         string displayName = displayNameElm.GetString();
@@ -162,30 +160,30 @@ try
             Data.GeneralInfo.DisplayName = Data.Strings.MakeString(displayName);
     }
 
-    
+
     if (root.TryGetProperty("activeTargets", out JsonElement activeTargetsElm))
         Data.GeneralInfo.ActiveTargets = activeTargetsElm.GetUInt64();
 
-    
-    if (root.TryGetProperty("functionClassifications", out JsonElement funcClassElm))
-        Data.GeneralInfo.FunctionClassifications = (UndertaleGeneralInfo.FunctionClassification)funcClassElm.GetUInt64();
 
-    
+    if (root.TryGetProperty("functionClassifications", out JsonElement funcClassElm))
+        Data.GeneralInfo.FunctionClassifications = (GameMakerGeneralInfo.FunctionClassification)funcClassElm.GetUInt64();
+
+
     if (root.TryGetProperty("steamAppID", out JsonElement steamAppIDElm))
         Data.GeneralInfo.SteamAppID = steamAppIDElm.GetInt32();
 
-    
+
     if (Data.GeneralInfo.BytecodeVersion >= 14)
     {
         if (root.TryGetProperty("debuggerPort", out JsonElement debuggerPortElm))
             Data.GeneralInfo.DebuggerPort = (uint)debuggerPortElm.GetInt64();
     }
 
-    
+
     if (root.TryGetProperty("roomOrder", out JsonElement roomOrderElm) && roomOrderElm.ValueKind == JsonValueKind.Array)
     {
         Data.GeneralInfo.RoomOrder.Clear();
-        
+
         foreach (JsonElement roomNameElm in roomOrderElm.EnumerateArray())
         {
             if (roomNameElm.ValueKind == JsonValueKind.Null)
@@ -201,10 +199,10 @@ try
                 continue;
             }
 
-            UndertaleRoom room = Data.Rooms.ByName(roomName);
+            GameMakerRoom room = Data.Rooms.ByName(roomName);
             if (room != null)
             {
-                Data.GeneralInfo.RoomOrder.Add(new UndertaleResourceById<UndertaleRoom, UndertaleChunkROOM>() { Resource = room });
+                Data.GeneralInfo.RoomOrder.Add(new GameMakerResourceById<GameMakerRoom, GameMakerChunkROOM>() { Resource = room });
                 PrintLine($"[ImportGeneralInfo] Added room to order: {roomName}");
             }
             else
@@ -214,10 +212,10 @@ try
         }
     }
 
-    
+
     if (Data.GeneralInfo.Major >= 2)
     {
-        
+
         if (root.TryGetProperty("gms2RandomUID", out JsonElement gms2UIDElm) && gms2UIDElm.ValueKind == JsonValueKind.Array)
         {
             Data.GeneralInfo.GMS2RandomUID = new List<long>();
@@ -227,15 +225,15 @@ try
             }
         }
 
-        
+
         if (root.TryGetProperty("gms2FPS", out JsonElement gms2FPSElm))
             Data.GeneralInfo.GMS2FPS = (float)gms2FPSElm.GetDouble();
 
-        
+
         if (root.TryGetProperty("gms2AllowStatistics", out JsonElement gms2AllowStatsElm))
             Data.GeneralInfo.GMS2AllowStatistics = gms2AllowStatsElm.GetBoolean();
 
-        
+
         if (root.TryGetProperty("gms2GameGUID", out JsonElement gms2GameGUIDElm) && gms2GameGUIDElm.ValueKind == JsonValueKind.Array)
         {
             var guidList = new List<byte>();
@@ -260,8 +258,3 @@ catch (Exception ex)
     PrintLine($"[ImportGeneralInfo] Import failed: {ex.Message}");
     ScriptError($"Failed to import GeneralInfo: {ex.Message}\n{ex.StackTrace}");
 }
-
-
-
-
-

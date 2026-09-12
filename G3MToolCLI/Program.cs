@@ -1,160 +1,180 @@
+using System;
+using System.Collections.Generic;
 using System.CommandLine;
-using System.CommandLine.Builder;
 using System.CommandLine.Parsing;
+using System.IO;
+using System.Text;
+using System.Threading.Tasks;
+using G3MLib.DataFile.Decompiler;
+using G3MLib.Modding;
 using G3MToolCLI.Commands;
-using G3MToolCLI.Services;
+using G3MToolCLI.Services.Application;
+using G3MToolCLI.Services.Execution;
+using G3MToolCLI.Services.Logging;
 using G3MToolCLI.Utils;
-using UndertaleModLib.Decompiler;
 
 namespace G3MToolCLI;
 
-class Program
+internal static class Program
 {
     public static bool JsonOutput { get; set; }
+
     public static string? XDeltaPathOverride { get; private set; }
 
-    static async Task<int> Main(string[] args)
+    private static async Task<int> Main(string[] args)
     {
         GameSpecificResolver.BaseDirectory = PlatformUtil.GetExecutableDirectory();
-
-        var rootCommand = new RootCommand("Create, apply, merge, inspect, and compare GameMaker data-file patches.")
+        ModdingMetadata.ToolName = "G3MTool";
+        ModdingMetadata.ToolVersion = AppVersionService.Version;
+        G3MLib.Modding.Logging.LogService.MessageLogged += ForwardModdingLog;
+        G3MLib.Modding.Logging.LogService.ProgressReported += ForwardModdingProgress;
+        for (int i = 0; i < args.Length; i++)
         {
-            Name = "G3MTool"
-        };
-
-        rootCommand.AddCommand(XPatchCommand.Create());
-        rootCommand.AddCommand(ExecuteCommand.Create());
-        rootCommand.AddCommand(PatchCommand.Create());
-        rootCommand.AddCommand(InfoCommand.Create());
-        rootCommand.AddCommand(DiffCommand.Create());
-
-        var verboseOption = new Option<bool>(
-            aliases: ["--verbose", "-v"],
-            description: "Enable verbose output");
-        rootCommand.AddGlobalOption(verboseOption);
-
-        var logOption = new Option<string?>(
-            aliases: ["--log", "-l"],
-            description: "Enable logging. Default: logs/{command}_{timestamp}.log");
-
-        var jsonOption = new Option<bool>(
-            name: "--json",
-            description: "Output machine-readable JSON for supported commands");
-        var xdeltaPathOption = new Option<string?>(
-            name: "--xdelta-path",
-            description: "Use this xdelta executable instead of the bundled binary.");
-
-        rootCommand.AddGlobalOption(logOption);
-        rootCommand.AddGlobalOption(jsonOption);
-        rootCommand.AddGlobalOption(xdeltaPathOption);
-
-        var parser = new CommandLineBuilder(rootCommand)
-            .UseDefaults()
-            .UseVersionOption(["--version", "-V"])
-            .AddMiddleware(async (context, next) =>
+            if (args[i] == "--") break;
+            if (args[i] == "-V")
             {
-                var parseResult = context.ParseResult;
-                LogService.Verbose = parseResult.GetValueForOption(verboseOption);
-                JsonOutput = parseResult.GetValueForOption(jsonOption);
-                XDeltaPathOverride = parseResult.GetValueForOption(xdeltaPathOption);
-                LogService.Suppress = JsonOutput;
-                var requestedLogPath = parseResult.GetValueForOption(logOption);
-                var resolvedLogPath = ResolveLogPath(parseResult.CommandResult.Command.Name, requestedLogPath);
-                LogService.SetFileLogging(resolvedLogPath);
-                try
-                {
-                    await next(context);
-                }
-                finally
-                {
-                    LogService.Shutdown();
-                }
-            })
-            .Build();
-
+                args[i] = "--version";
+            }
+        }
+        RootCommand rootCommand = new RootCommand("Create, apply, merge, inspect, and compare GameMaker data-file patches.");
+        rootCommand.Add(XPatchCommand.Create());
+        rootCommand.Add(ExecuteCommand.Create());
+        rootCommand.Add(PatchCommand.Create());
+        rootCommand.Add(InfoCommand.Create());
+        rootCommand.Add(DiffCommand.Create());
+        Option<bool> verboseOption = new Option<bool>("--verbose", ["-v"]) { Description = "Enable verbose output" };
+        verboseOption.Recursive = true;
+        rootCommand.Add(verboseOption);
+        Option<string?> logOption = new Option<string?>("--log", ["-l"]) { Description = "Enable logging. Default: logs/{command}_{timestamp}.log" };
+        Option<bool> jsonOption = new Option<bool>("--json") { Description = "Output machine-readable JSON for supported commands" };
+        Option<string?> xdeltaPathOption = new Option<string?>("--xdelta-path") { Description = "Use this xdelta executable instead of the bundled binary." };
+        logOption.Recursive = true;
+        jsonOption.Recursive = true;
+        xdeltaPathOption.Recursive = true;
+        rootCommand.Add(logOption);
+        rootCommand.Add(jsonOption);
+        rootCommand.Add(xdeltaPathOption);
         if (args.Length == 0)
         {
-            return await RunInteractiveMode(parser);
+            return await RunInteractiveMode(rootCommand, verboseOption, logOption, jsonOption, xdeltaPathOption);
         }
-
         if (args.Length == 1 && (args[0] == "--version" || args[0] == "-V"))
         {
             Console.WriteLine(AppVersionService.Version);
             return 0;
         }
-
-        var exitCode = await parser.InvokeAsync(args);
-
+        int exitCode = await InvokeAsync(rootCommand, args, verboseOption, logOption, jsonOption, xdeltaPathOption);
         if (exitCode == 0 && Environment.ExitCode != 0)
         {
             return Environment.ExitCode;
         }
-
         return exitCode;
     }
 
-    static async Task<int> RunInteractiveMode(Parser parser)
+    private static async Task<int> RunInteractiveMode(RootCommand rootCommand, Option<bool> verboseOption, Option<string?> logOption, Option<bool> jsonOption, Option<string?> xdeltaPathOption)
     {
-        Console.WriteLine($"{AppVersionService.GetBannerText()} - by Y114");
+        Console.WriteLine(AppVersionService.GetBannerText() + " - by Y114");
         Console.WriteLine("Type 'help' for available commands or 'exit' to quit");
         Console.WriteLine();
-
         while (true)
         {
             Console.Write("(G3MTool) ");
-            var input = Console.ReadLine();
-
+            string? input = Console.ReadLine();
+            if (input is null) return 0;
             if (string.IsNullOrWhiteSpace(input))
-                continue;
-
-            var trimmedInput = input.Trim();
-
-            if (trimmedInput.Equals("exit", StringComparison.OrdinalIgnoreCase) ||
-                trimmedInput.Equals("quit", StringComparison.OrdinalIgnoreCase))
             {
-                Console.WriteLine("Exiting G3MTool...");
-                return 0;
+                continue;
             }
-
-            if (trimmedInput.Equals("clear", StringComparison.OrdinalIgnoreCase) ||
-                trimmedInput.Equals("cls", StringComparison.OrdinalIgnoreCase))
+            string trimmedInput = input.Trim();
+            if (trimmedInput.Equals("exit", StringComparison.OrdinalIgnoreCase) || trimmedInput.Equals("quit", StringComparison.OrdinalIgnoreCase))
+            {
+                break;
+            }
+            if (trimmedInput.Equals("clear", StringComparison.OrdinalIgnoreCase) || trimmedInput.Equals("cls", StringComparison.OrdinalIgnoreCase))
             {
                 Console.Clear();
                 continue;
             }
-
             if (trimmedInput.Equals("help", StringComparison.OrdinalIgnoreCase))
             {
                 trimmedInput = "--help";
             }
-
-            var commandArgs = ParseCommandLine(trimmedInput);
-
+            string[] commandArgs = ParseCommandLine(trimmedInput);
             try
             {
-                await parser.InvokeAsync(commandArgs);
+                await InvokeAsync(rootCommand, commandArgs, verboseOption, logOption, jsonOption, xdeltaPathOption);
             }
             catch (Exception ex)
             {
                 Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine($"Error: {ex.Message}");
+                Console.WriteLine("Error: " + ex.Message);
                 Console.ResetColor();
             }
-
             Console.WriteLine();
+        }
+        Console.WriteLine("Exiting G3MTool...");
+        return 0;
+    }
+
+    private static async Task<int> InvokeAsync(RootCommand rootCommand, string[] args, Option<bool> verboseOption, Option<string?> logOption, Option<bool> jsonOption, Option<string?> xdeltaPathOption)
+    {
+        ParseResult parseResult = rootCommand.Parse(args);
+        LogService.Verbose = parseResult.GetValue(verboseOption);
+        JsonOutput = parseResult.GetValue(jsonOption);
+        XDeltaPathOverride = parseResult.GetValue(xdeltaPathOption);
+        G3MLib.Modding.XDelta.XDeltaService.DefaultExecutablePath = XDeltaPathOverride ?? EmbeddedXDeltaPathProvider.GetPath();
+        LogService.Suppress = JsonOutput;
+        G3MLib.Modding.Logging.LogService.Verbose = LogService.Verbose;
+        G3MLib.Modding.Logging.LogService.Suppress = LogService.Suppress;
+        LogService.SetFileLogging(ResolveLogPath(parseResult.CommandResult.Command.Name, parseResult.GetValue(logOption)));
+        try
+        {
+            return await parseResult.InvokeAsync();
+        }
+        finally
+        {
+            LogService.Shutdown();
         }
     }
 
-    static string[] ParseCommandLine(string input)
+    private static void ForwardModdingLog(G3MLib.Modding.Logging.ModdingLogMessage message)
     {
-        var args = new List<string>();
-        var currentArg = new System.Text.StringBuilder();
-        bool inQuotes = false;
-
-        for (int i = 0; i < input.Length; i++)
+        switch (message.Level)
         {
-            char c = input[i];
+            case G3MLib.Modding.Logging.ModdingLogLevel.Information:
+                LogService.Info(message.Message);
+                break;
+            case G3MLib.Modding.Logging.ModdingLogLevel.Warning:
+                LogService.Warning(message.Message);
+                break;
+            case G3MLib.Modding.Logging.ModdingLogLevel.Error:
+                LogService.Error(message.Message);
+                break;
+            default:
+                LogService.Log(message.Message);
+                break;
+        }
+    }
 
+    private static void ForwardModdingProgress(G3MLib.Modding.Logging.ModdingProgress progress)
+    {
+        if (progress.IsComplete)
+        {
+            LogService.ProgressComplete();
+            return;
+        }
+
+        LogService.SetOperation(progress.Operation);
+        LogService.Progress(progress.Current, progress.Total);
+    }
+
+    private static string[] ParseCommandLine(string input)
+    {
+        List<string> args = new List<string>();
+        StringBuilder currentArg = new StringBuilder();
+        bool inQuotes = false;
+        foreach (char c in input)
+        {
             if (c == '"')
             {
                 inQuotes = !inQuotes;
@@ -172,27 +192,24 @@ class Program
                 currentArg.Append(c);
             }
         }
-
         if (currentArg.Length > 0)
         {
             args.Add(currentArg.ToString());
         }
-
-        return [.. args];
+        return args.ToArray();
     }
 
-    static string? ResolveLogPath(string commandName, string? requestedPath)
+    private static string? ResolveLogPath(string commandName, string? requestedPath)
     {
         if (string.IsNullOrWhiteSpace(requestedPath))
+        {
             return null;
-
+        }
         if (!requestedPath.Equals("default", StringComparison.OrdinalIgnoreCase))
+        {
             return Path.GetFullPath(requestedPath);
-
-        var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-        return Path.Combine(
-            PlatformUtil.GetExecutableDirectory(),
-            "logs",
-            $"{commandName}_{timestamp}.log");
+        }
+        string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+        return Path.Combine(PlatformUtil.GetExecutableDirectory(), "logs", commandName + "_" + timestamp + ".log");
     }
 }

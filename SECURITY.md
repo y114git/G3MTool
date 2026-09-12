@@ -38,7 +38,7 @@ Please report security issues privately.
 
 ## Scope Notes
 
-- `execute` runs scripts/programs with user permissions and is inherently
-  powerful. Treat untrusted scripts as untrusted code execution.
-- G3MTool is an offline CLI by default and does not implement telemetry or
-  auto-update mechanisms.
+- CLI `execute` and the GUI script/program workflows run with user permissions.
+  Treat untrusted scripts and programs as untrusted code execution.
+- G3MTool runs locally. Neither application implements telemetry or automatic
+  updates.

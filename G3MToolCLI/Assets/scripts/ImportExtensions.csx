@@ -1,13 +1,10 @@
-
-
-
 using System;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
-using UndertaleModLib;
-using UndertaleModLib.Models;
+using G3MLib.DataFile;
+using G3MLib.DataFile.Models;
 
 
 
@@ -20,7 +17,7 @@ string GetInputDirectory()
     if (string.IsNullOrEmpty(inputDir))
         throw new Exception("InputDir is not set.");
     if (!Directory.Exists(inputDir))
-        throw new Exception($"INPUT_DIR directory does not exist: {inputDir}");
+        throw new Exception($"Input directory does not exist: {inputDir}");
     return inputDir;
 }
 
@@ -55,33 +52,36 @@ foreach (string extensionDir in extensionDirs)
     try
     {
         string extensionFile = Path.Combine(extensionDir, extensionName + ".json");
-        
+
         if (!File.Exists(extensionFile))
         {
             PrintLine($"[ImportExtensions] Warning: No .json file found in {extensionName}");
             IncrementProgress();
             continue;
         }
-        
+
         string jsonContent = File.ReadAllText(extensionFile, Encoding.UTF8);
-        
+
         JsonDocument jsonDoc = JsonDocument.Parse(jsonContent);
         JsonElement root = jsonDoc.RootElement;
-        
+
         if (root.TryGetProperty("name", out JsonElement nameFromJson))
         {
             extensionName = nameFromJson.GetString() ?? extensionName;
         }
-        
-        UndertaleExtension extension = Data.Extensions?.ByName(extensionName);
+
+        GameMakerExtension extension = Data.Extensions?.ByName(extensionName);
         bool isNew = false;
-        
+
         if (extension == null)
         {
-            extension = new UndertaleExtension();
+            extension = new GameMakerExtension();
             extension.Name = Data.Strings.MakeString(extensionName);
-            extension.Files = new UndertalePointerList<UndertaleExtensionFile>();
-            extension.Options = new UndertalePointerList<UndertaleExtensionOption>();
+            extension.FolderName = Data.Strings.MakeString("");
+            extension.Version = Data.Strings.MakeString("");
+            extension.ClassName = Data.Strings.MakeString("");
+            extension.Files = new GameMakerPointerList<GameMakerExtensionFile>();
+            extension.Options = new GameMakerPointerList<GameMakerExtensionOption>();
             isNew = true;
             extensionsCreated++;
         }
@@ -93,10 +93,7 @@ foreach (string extensionDir in extensionDirs)
         if (root.TryGetProperty("folderName", out JsonElement folderNameElm))
         {
             string folderName = folderNameElm.GetString() ?? "";
-            if (!string.IsNullOrEmpty(folderName))
-            {
-                extension.FolderName = Data.Strings.MakeString(folderName);
-            }
+            extension.FolderName = Data.Strings.MakeString(folderName);
         }
 
         if (root.TryGetProperty("version", out JsonElement versionElm))
@@ -120,24 +117,24 @@ foreach (string extensionDir in extensionDirs)
         if (root.TryGetProperty("files", out JsonElement filesElm) && filesElm.ValueKind == JsonValueKind.Array)
         {
             var filesArray = filesElm.EnumerateArray().ToArray();
-            
+
             for (int fileIndex = 0; fileIndex < filesArray.Length; fileIndex++)
             {
                 JsonElement fileElm = filesArray[fileIndex];
-                
-                UndertaleExtensionFile file;
-                
+
+                GameMakerExtensionFile file;
+
                 if (fileIndex < extension.Files.Count)
                 {
                     file = extension.Files[fileIndex];
                 }
                 else
                 {
-                    file = new UndertaleExtensionFile();
-                    file.Functions = new UndertalePointerList<UndertaleExtensionFunction>();
+                    file = new GameMakerExtensionFile();
+                    file.Functions = new GameMakerPointerList<GameMakerExtensionFunction>();
                     extension.Files.Add(file);
                 }
-                
+
                 if (fileElm.TryGetProperty("filename", out JsonElement filenameElm))
                 {
                     string filename = filenameElm.GetString() ?? "";
@@ -149,7 +146,7 @@ foreach (string extensionDir in extensionDirs)
 
                 if (fileElm.TryGetProperty("kind", out JsonElement kindElm))
                 {
-                    file.Kind = (UndertaleExtensionKind)kindElm.GetInt32();
+                    file.Kind = (GameMakerExtensionKind)kindElm.GetInt32();
                 }
 
                 if (fileElm.TryGetProperty("initScript", out JsonElement initScriptElm))
@@ -167,24 +164,24 @@ foreach (string extensionDir in extensionDirs)
                 if (fileElm.TryGetProperty("functions", out JsonElement functionsElm) && functionsElm.ValueKind == JsonValueKind.Array)
                 {
                     var functionsArray = functionsElm.EnumerateArray().ToArray();
-                    
+
                     for (int funcIndex = 0; funcIndex < functionsArray.Length; funcIndex++)
                     {
                         JsonElement funcElm = functionsArray[funcIndex];
-                        
-                        UndertaleExtensionFunction func;
-                        
+
+                        GameMakerExtensionFunction func;
+
                         if (funcIndex < file.Functions.Count)
                         {
                             func = file.Functions[funcIndex];
                         }
                         else
                         {
-                            func = new UndertaleExtensionFunction();
-                            func.Arguments = new UndertaleSimpleList<UndertaleExtensionFunctionArg>();
+                            func = new GameMakerExtensionFunction();
+                            func.Arguments = new GameMakerSimpleList<GameMakerExtensionFunctionArg>();
                             file.Functions.Add(func);
                         }
-                        
+
                         if (funcElm.TryGetProperty("name", out JsonElement funcNameElm))
                         {
                             string funcName = funcNameElm.GetString() ?? "";
@@ -215,32 +212,32 @@ foreach (string extensionDir in extensionDirs)
 
                         if (funcElm.TryGetProperty("retType", out JsonElement retTypeElm))
                         {
-                            func.RetType = (UndertaleExtensionVarType)retTypeElm.GetInt32();
+                            func.RetType = (GameMakerExtensionVarType)retTypeElm.GetInt32();
                         }
 
                         if (funcElm.TryGetProperty("arguments", out JsonElement argsElm) && argsElm.ValueKind == JsonValueKind.Array)
                         {
                             var argsArray = argsElm.EnumerateArray().ToArray();
-                            
+
                             for (int argIndex = 0; argIndex < argsArray.Length; argIndex++)
                             {
                                 JsonElement argElm = argsArray[argIndex];
-                                
-                                UndertaleExtensionFunctionArg arg;
-                                
+
+                                GameMakerExtensionFunctionArg arg;
+
                                 if (argIndex < func.Arguments.Count)
                                 {
                                     arg = func.Arguments[argIndex];
                                 }
                                 else
                                 {
-                                    arg = new UndertaleExtensionFunctionArg();
+                                    arg = new GameMakerExtensionFunctionArg();
                                     func.Arguments.Add(arg);
                                 }
-                                
+
                                 if (argElm.TryGetProperty("type", out JsonElement argTypeElm))
                                 {
-                                    arg.Type = (UndertaleExtensionVarType)argTypeElm.GetInt32();
+                                    arg.Type = (GameMakerExtensionVarType)argTypeElm.GetInt32();
                                 }
                             }
                         }
@@ -252,23 +249,23 @@ foreach (string extensionDir in extensionDirs)
         if (root.TryGetProperty("options", out JsonElement optionsElm) && optionsElm.ValueKind == JsonValueKind.Array)
         {
             var optionsArray = optionsElm.EnumerateArray().ToArray();
-            
+
             for (int optionIndex = 0; optionIndex < optionsArray.Length; optionIndex++)
             {
                 JsonElement optionElm = optionsArray[optionIndex];
-                
-                UndertaleExtensionOption option;
-                
+
+                GameMakerExtensionOption option;
+
                 if (optionIndex < extension.Options.Count)
                 {
                     option = extension.Options[optionIndex];
                 }
                 else
                 {
-                    option = new UndertaleExtensionOption();
+                    option = new GameMakerExtensionOption();
                     extension.Options.Add(option);
                 }
-                
+
                 if (optionElm.TryGetProperty("name", out JsonElement optionNameElm))
                 {
                     string optionName = optionNameElm.GetString() ?? "";
@@ -283,10 +280,10 @@ foreach (string extensionDir in extensionDirs)
                     string optionValue = optionValueElm.GetString() ?? "";
                     option.Value = Data.Strings.MakeString(optionValue);
                 }
-                
+
                 if (optionElm.TryGetProperty("kind", out JsonElement optionKindElm))
                 {
-                    option.Kind = (UndertaleExtensionOption.OptionKind)optionKindElm.GetInt32();
+                    option.Kind = (GameMakerExtensionOption.OptionKind)optionKindElm.GetInt32();
                 }
             }
         }
@@ -310,8 +307,3 @@ foreach (string extensionDir in extensionDirs)
 await StopProgressBarUpdater();
 HideProgressBar();
 PrintLine($"[ImportExtensions] Done. Created: {extensionsCreated}, Updated: {extensionsUpdated}");
-
-
-
-
-

@@ -1,6 +1,3 @@
-
-
-
 using System;
 using System.IO;
 using System.Text;
@@ -8,8 +5,8 @@ using System.Text.Json;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
-using UndertaleModLib;
-using UndertaleModLib.Models;
+using G3MLib.DataFile;
+using G3MLib.DataFile.Models;
 
 void PrintLine(string s) { if (Verbose) Console.WriteLine(s); }
 
@@ -40,7 +37,7 @@ EnsureDataLoaded();
 string objOut = GetOutputDirectory();
 PrintLine($"[ExportGameObjects] Exporting to: {objOut}");
 
-List<UndertaleGameObject> allGameObjects = Data.GameObjects?.ToList() ?? new List<UndertaleGameObject>();
+List<GameMakerGameObject> allGameObjects = Data.GameObjects?.ToList() ?? new List<GameMakerGameObject>();
 PrintLine($"[ExportGameObjects] Found {allGameObjects.Count} game objects to export.");
 
 SetProgressBar(null, "Exporting Game Objects", 0, allGameObjects.Count);
@@ -48,7 +45,7 @@ StartProgressBarUpdater();
 
 await Task.Run(() => Parallel.ForEach(allGameObjects, obj => ExportGameObject(obj, objOut)));
 
-void ExportGameObject(UndertaleGameObject gameObject, string outputDir)
+void ExportGameObject(GameMakerGameObject gameObject, string outputDir)
 {
     if (gameObject?.Name?.Content == null)
     {
@@ -183,7 +180,3 @@ await StopProgressBarUpdater();
 HideProgressBar();
 
 PrintLine($"[ExportGameObjects] Export complete. {allGameObjects.Count} game objects exported to {objOut}");
-
-
-
-
