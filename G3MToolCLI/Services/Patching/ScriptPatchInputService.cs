@@ -1,28 +1,23 @@
-using System;
-using System.IO;
-using System.Linq;
-using System.Threading.Tasks;
 using G3MLib.DataFile;
-using G3MLib.Modding.Patching;
 using G3MToolCLI.Services.Execution;
 
 namespace G3MToolCLI.Services.Patching;
 
 public static class ScriptPatchInputService
 {
-    public static async Task<MergeResult> MergeAsync(string originalPath, List<string> inputs, MergeOptions options)
+    public static async Task<MergeResult> MergeAsync(string originalPath, List<string> inputs, MergeOptions options, CancellationToken cancellationToken = default)
     {
-        string temporaryDirectory = Path.Combine(Path.GetTempPath(), $"g3mtool_merge_{Guid.NewGuid():N}");
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"g3mtool_merge_{Guid.NewGuid():N}");
         try
         {
             List<string> materialized = [];
-            foreach (string input in inputs)
+            foreach (var input in inputs)
                 materialized.Add(Path.GetExtension(input).Equals(".csx", StringComparison.OrdinalIgnoreCase)
                     ? await MaterializeScriptAsync(originalPath, input, Path.Combine(temporaryDirectory, Guid.NewGuid().ToString("N")))
                     : input);
-            return await MergeService.MergePatchesAsync(originalPath, materialized, options);
+            return await MergeService.MergePatchesAsync(originalPath, materialized, options, cancellationToken);
         }
-        catch (Exception exception)
+        catch (Exception exception) when (exception is not OperationCanceledException)
         {
             return new MergeResult { Success = false, Error = exception.Message };
         }
@@ -53,8 +48,8 @@ public static class ScriptPatchInputService
         }
 
         Directory.CreateDirectory(tempDir);
-        string output = Path.Combine(tempDir, $"materialized_{Guid.NewGuid():N}{Path.GetExtension(originalPath)}");
-        ScriptResult result = await ExecuteService.ExecuteScriptAsync(scriptPath, originalPath, output, []);
+        var output = Path.Combine(tempDir, $"materialized_{Guid.NewGuid():N}{Path.GetExtension(originalPath)}");
+        var result = await ExecuteService.ExecuteScriptAsync(scriptPath, originalPath, output, []);
         if (!result.Success)
         {
             throw new InvalidOperationException("CSX execution failed for '" + Path.GetFileName(scriptPath) + "': " + result.Error);
@@ -70,7 +65,7 @@ public static class ScriptPatchInputService
         try
         {
             using FileStream stream = new(dataPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-            using GameMakerData data = GameMakerIO.Read(stream);
+            using var data = GameMakerIO.Read(stream);
         }
         catch (Exception ex)
         {

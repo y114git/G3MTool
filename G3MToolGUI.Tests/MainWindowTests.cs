@@ -57,8 +57,8 @@ public sealed class MainWindowTests
                 var paths = new[] { Path.GetFullPath("low.g3mpatch"), Path.GetFullPath("high.g3mpatch") };
                 var files = paths.Select(path => Mock<IStorageFile>((method, _) => method == "get_Path" ? new Uri(path) : throw new NotSupportedException(method))).ToArray();
                 FilePickerSaveOptions? saveOptions = null;
-                bool cancelSave = false;
-                IStorageProvider storage = Mock<IStorageProvider>((method, args) => method switch
+                var cancelSave = false;
+                var storage = Mock<IStorageProvider>((method, args) => method switch
                 {
                     "OpenFilePickerAsync" => Task.FromResult<IReadOnlyList<IStorageFile>>(files),
                     "SaveFilePickerAsync" => Save((FilePickerSaveOptions)args![0]!),
@@ -103,7 +103,7 @@ public sealed class MainWindowTests
                 Assert.Empty(Request().OutputPath);
                 Assert.False(Request().UseSequentialMerge);
 
-                foreach (object item in Control<ComboBox>("OperationPicker").Items.Cast<object>())
+                foreach (var item in Control<ComboBox>("OperationPicker").Items.Cast<object>())
                 {
                     Control<TextBox>("PrimaryPathBox").Text = "stale-input.win";
                     Control<ComboBox>("OperationPicker").SelectedItem = item;
@@ -116,14 +116,16 @@ public sealed class MainWindowTests
 
     private static T Mock<T>(Func<string, object?[]?, object?> invoke) where T : class
     {
-        T proxy = DispatchProxy.Create<T, StorageProxy>();
+        var proxy = DispatchProxy.Create<T, StorageProxy>();
         ((StorageProxy)(object)proxy).Handler = invoke;
         return proxy;
     }
 
+#pragma warning disable CA1034 // DispatchProxy builds its proxy from a public type
     public class StorageProxy : DispatchProxy
     {
         public Func<string, object?[]?, object?> Handler { get; set; } = null!;
-        protected override object? Invoke(MethodInfo? method, object?[]? args) => Handler(method!.Name, args);
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args) => Handler(targetMethod!.Name, args);
+#pragma warning restore CA1034
     }
 }

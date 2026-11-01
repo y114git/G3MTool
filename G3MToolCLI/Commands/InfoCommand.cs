@@ -1,15 +1,8 @@
-using System;
-using System.Collections.Generic;
 using System.CommandLine;
-using System.IO;
 using System.IO.Compression;
-using System.Linq;
 using System.Text.Json;
-using System.Threading.Tasks;
 using G3MLib.DataFile;
 using G3MLib.DataFile.Models;
-using G3MToolCLI.Models.Scripting;
-using G3MToolCLI.Services.Logging;
 using G3MToolCLI.Utils;
 
 namespace G3MToolCLI.Commands;
@@ -17,21 +10,21 @@ namespace G3MToolCLI.Commands;
 public static class InfoCommand
 {
 
-    private static readonly JsonSerializerOptions s_jsonOptions = new JsonSerializerOptions
+    private static readonly JsonSerializerOptions s_jsonOptions = new()
     {
         WriteIndented = true
     };
 
-    private static readonly string[] EventTypeNames = new string[15]
-    {
+    private static readonly string[] EventTypeNames =
+    [
         "Create", "Destroy", "Alarm", "Step", "Collision", "Keyboard", "Mouse", "Other", "Draw", "KeyPress",
         "KeyRelease", "Trigger", "CleanUp", "Gesture", "PreCreate"
-    };
+    ];
 
     private static bool IsPatchExtension(string? extension)
     {
-        string? text = extension?.ToLowerInvariant();
-        if (text == ".g3mpatch" || text == ".zip")
+        var text = extension?.ToLowerInvariant();
+        if (text is ".g3mpatch" or ".zip")
         {
             return true;
         }
@@ -40,20 +33,20 @@ public static class InfoCommand
 
     public static Command Create()
     {
-        Command command = new Command("info", "Show metadata for a data file or .g3mpatch.\n  Usage: info <target> [--cache <dir>]\n  Without -v: counts, GeneralInfo, and short breakdowns\n  With -v: full per-resource listing");
-        Argument<FileInfo> targetArg = new Argument<FileInfo>("target") { Description = "Path to data file (.win/.ios/.droid/.unx) or .g3mpatch" };
-        Option<bool> verboseOption = new Option<bool>("--verbose", ["-v"]) { Description = "Show full per-resource listing" };
-        Option<DirectoryInfo?> cacheOption = new Option<DirectoryInfo?>("--cache") { Description = "Read and write reusable .g3mcache info analysis in this directory." };
+        var command = new Command("info", "Show metadata for a data file or .g3mpatch.\n  Usage: info <target> [--cache <dir>]\n  Without -v: counts, GeneralInfo, and short breakdowns\n  With -v: full per-resource listing");
+        var targetArg = new Argument<FileInfo>("target") { Description = "Path to data file (.win/.ios/.droid/.unx) or .g3mpatch" };
+        var verboseOption = new Option<bool>("--verbose", ["-v"]) { Description = "Show full per-resource listing" };
+        var cacheOption = new Option<DirectoryInfo?>("--cache") { Description = "Read and write reusable .g3mcache info analysis in this directory." };
         command.Add(targetArg);
         command.Add(verboseOption);
         command.Add(cacheOption);
         command.SetAction(async parseResult =>
         {
-            FileInfo target = parseResult.GetValue(targetArg)!;
-            bool verbose = parseResult.GetValue(verboseOption);
-            DirectoryInfo? cacheDir = parseResult.GetValue(cacheOption);
-            bool jsonOutput = Program.JsonOutput;
-            G3MCacheOptions cacheOptions = G3MCacheOptions.FromDirectory(cacheDir?.FullName);
+            var target = parseResult.GetValue(targetArg)!;
+            var verbose = parseResult.GetValue(verboseOption);
+            var cacheDir = parseResult.GetValue(cacheOption);
+            var jsonOutput = Program.JsonOutput;
+            var cacheOptions = G3MCacheOptions.FromDirectory(cacheDir?.FullName);
             if (IsPatchExtension(Path.GetExtension(target.FullName)))
             {
                 await ShowPatchInfoAsync(target.FullName, verbose, jsonOutput);
@@ -72,54 +65,54 @@ public static class InfoCommand
         {
             if (!verbose)
             {
-                G3MDataInfoSnapshot? cached = G3MCacheService.TryReadDataInfoSnapshot(path, cacheOptions);
+                var cached = G3MCacheService.TryReadDataInfoSnapshot(path, cacheOptions);
                 if (cached != null)
                 {
                     PrintInfoSnapshot(cached, jsonOutput);
                     return;
                 }
             }
-            using FileStream stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1048576, FileOptions.SequentialScan);
-            using GameMakerData data = GameMakerIO.Read(stream);
-            G3MDataInfoSnapshot snapshot = G3MCacheService.BuildInfoSnapshot(path, data);
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1048576, FileOptions.SequentialScan);
+            using var data = await GameMakerIO.ReadAsync(stream);
+            var snapshot = G3MCacheService.BuildInfoSnapshot(path, data);
             if (!verbose)
             {
                 await G3MCacheService.WriteDataInfoCacheAsync(path, snapshot, cacheOptions);
             }
-            GameMakerGeneralInfo? generalInfo = data.GeneralInfo;
-            string versionDisplay = GeneralInfoUtil.GetVersionDisplay(generalInfo);
+            var generalInfo = data.GeneralInfo;
+            var versionDisplay = GeneralInfoUtil.GetVersionDisplay(generalInfo);
             if (jsonOutput)
             {
                 Console.WriteLine(JsonSerializer.Serialize(new
                 {
                     File = Path.GetFileName(path),
                     Size = new FileInfo(path).Length,
-                    Game = (generalInfo?.DisplayName?.Content ?? "Unknown"),
-                    BytecodeVersion = (generalInfo?.BytecodeVersion ?? 0),
+                    Game = generalInfo?.DisplayName?.Content ?? "Unknown",
+                    BytecodeVersion = generalInfo?.BytecodeVersion ?? 0,
                     Version = versionDisplay,
                     GeneralInfo = GeneralInfoUtil.ExtractGeneralInfo(data),
                     Resources = new
                     {
-                        Sprites = (data.Sprites?.Count ?? 0),
-                        Sounds = (data.Sounds?.Count ?? 0),
-                        Code = (data.Code?.Count ?? 0),
-                        GameObjects = (data.GameObjects?.Count ?? 0),
-                        Rooms = (data.Rooms?.Count ?? 0),
-                        Backgrounds = (data.Backgrounds?.Count ?? 0),
-                        Fonts = (data.Fonts?.Count ?? 0),
-                        Scripts = (data.Scripts?.Count ?? 0),
-                        Shaders = (data.Shaders?.Count ?? 0),
-                        Paths = (data.Paths?.Count ?? 0),
-                        Timelines = (data.Timelines?.Count ?? 0),
-                        Extensions = (data.Extensions?.Count ?? 0),
-                        Variables = (data.Variables?.Count ?? 0),
-                        Functions = (data.Functions?.Count ?? 0),
-                        Strings = (data.Strings?.Count ?? 0),
-                        AudioGroups = (data.AudioGroups?.Count ?? 0),
-                        EmbeddedTextures = (data.EmbeddedTextures?.Count ?? 0),
-                        TexturePageItems = (data.TexturePageItems?.Count ?? 0),
-                        TextureGroupInfo = (data.TextureGroupInfo?.Count ?? 0),
-                        Tilesets = (data.Backgrounds?.Count ?? 0)
+                        Sprites = data.Sprites?.Count ?? 0,
+                        Sounds = data.Sounds?.Count ?? 0,
+                        Code = data.Code?.Count ?? 0,
+                        GameObjects = data.GameObjects?.Count ?? 0,
+                        Rooms = data.Rooms?.Count ?? 0,
+                        Backgrounds = data.Backgrounds?.Count ?? 0,
+                        Fonts = data.Fonts?.Count ?? 0,
+                        Scripts = data.Scripts?.Count ?? 0,
+                        Shaders = data.Shaders?.Count ?? 0,
+                        Paths = data.Paths?.Count ?? 0,
+                        Timelines = data.Timelines?.Count ?? 0,
+                        Extensions = data.Extensions?.Count ?? 0,
+                        Variables = data.Variables?.Count ?? 0,
+                        Functions = data.Functions?.Count ?? 0,
+                        Strings = data.Strings?.Count ?? 0,
+                        AudioGroups = data.AudioGroups?.Count ?? 0,
+                        EmbeddedTextures = data.EmbeddedTextures?.Count ?? 0,
+                        TexturePageItems = data.TexturePageItems?.Count ?? 0,
+                        TextureGroupInfo = data.TextureGroupInfo?.Count ?? 0,
+                        Tilesets = data.Backgrounds?.Count ?? 0
                     }
                 }, s_jsonOptions));
                 return;
@@ -162,10 +155,7 @@ public static class InfoCommand
                 {
                     Console.WriteLine();
                     Console.WriteLine("Variables by InstanceType:");
-                    foreach (IGrouping<GameMakerInstruction.InstanceType, GameMakerVariable> g in from v in data.Variables
-                                                                                                  group v by v.InstanceType into source
-                                                                                                  orderby source.Count() descending
-                                                                                                  select source)
+                    foreach (var g in data.Variables.GroupBy(v => v.InstanceType).OrderByDescending(source => source.Count()))
                     {
                         Console.WriteLine($"  {g.Key,-12} {g.Count(),6}");
                     }
@@ -179,7 +169,7 @@ public static class InfoCommand
                 }
                 if (data.Code != null && data.Code.Count > 0)
                 {
-                    int topLevel = data.Code.Count((GameMakerCode c) => c.ParentEntry == null);
+                    var topLevel = data.Code.Count(c => c.ParentEntry == null);
                     Console.WriteLine();
                     Console.WriteLine($"Code entries: {topLevel} top-level, {data.Code.Count - topLevel} child");
                 }
@@ -187,7 +177,7 @@ public static class InfoCommand
                 {
                     Console.WriteLine();
                     Console.WriteLine("AudioGroups:");
-                    for (int i = 0; i < data.AudioGroups.Count; i++)
+                    for (var i = 0; i < data.AudioGroups.Count; i++)
                     {
                         Console.WriteLine($"  [{i}] {data.AudioGroups[i]?.Name?.Content}");
                     }
@@ -196,7 +186,7 @@ public static class InfoCommand
                 {
                     Console.WriteLine();
                     Console.WriteLine("Extensions:");
-                    foreach (GameMakerExtension extension in data.Extensions)
+                    foreach (var extension in data.Extensions)
                     {
                         Console.WriteLine("  " + extension?.Name?.Content);
                     }
@@ -205,9 +195,9 @@ public static class InfoCommand
                 {
                     Console.WriteLine();
                     Console.WriteLine($"Room order ({generalInfo.RoomOrder.Count} rooms):");
-                    for (int i2 = 0; i2 < Math.Min(10, generalInfo.RoomOrder.Count); i2++)
+                    for (var i2 = 0; i2 < Math.Min(10, generalInfo.RoomOrder.Count); i2++)
                     {
-                        GameMakerRoom? room = generalInfo.RoomOrder[i2]?.Resource;
+                        var room = generalInfo.RoomOrder[i2]?.Resource;
                         Console.WriteLine($"  [{i2}] {room?.Name?.Content ?? "?"}");
                     }
                     if (generalInfo.RoomOrder.Count > 10)
@@ -267,7 +257,7 @@ public static class InfoCommand
         {
             Console.WriteLine();
             Console.WriteLine("Variables by InstanceType:");
-            foreach (var (key, count) in info.VariablesByInstanceType.OrderByDescending<KeyValuePair<string, int>, int>((KeyValuePair<string, int> kvp) => kvp.Value))
+            foreach (var (key, count) in info.VariablesByInstanceType.OrderByDescending(kvp => kvp.Value))
             {
                 Console.WriteLine($"  {key,-12} {count,6}");
             }
@@ -288,7 +278,7 @@ public static class InfoCommand
         {
             Console.WriteLine();
             Console.WriteLine("AudioGroups:");
-            for (int i = 0; i < info.AudioGroups.Count; i++)
+            for (var i = 0; i < info.AudioGroups.Count; i++)
             {
                 Console.WriteLine($"  [{i}] {info.AudioGroups[i]}");
             }
@@ -297,7 +287,7 @@ public static class InfoCommand
         {
             Console.WriteLine();
             Console.WriteLine("Extensions:");
-            foreach (string ext in info.Extensions)
+            foreach (var ext in info.Extensions)
             {
                 Console.WriteLine("  " + ext);
             }
@@ -306,7 +296,7 @@ public static class InfoCommand
         {
             Console.WriteLine();
             Console.WriteLine($"Room order ({info.RoomOrderCount} rooms):");
-            for (int i2 = 0; i2 < info.RoomOrderPreview.Count; i2++)
+            for (var i2 = 0; i2 < info.RoomOrderPreview.Count; i2++)
             {
                 Console.WriteLine($"  [{i2}] {info.RoomOrderPreview[i2]}");
             }
@@ -355,9 +345,9 @@ public static class InfoCommand
         {
             Console.WriteLine();
             Console.WriteLine($"=== Sprites ({data.Sprites.Count}) ===");
-            for (int i = 0; i < data.Sprites.Count; i++)
+            for (var i = 0; i < data.Sprites.Count; i++)
             {
-                GameMakerSprite s = data.Sprites[i];
+                var s = data.Sprites[i];
                 Console.WriteLine($"  [{i}] {s.Name?.Content}  {s.Width}x{s.Height}  origin:({s.OriginX},{s.OriginY})  frames:{s.Textures.Count}  mask:{s.SepMasks}  bbox:({s.MarginLeft},{s.MarginTop},{s.MarginRight},{s.MarginBottom})  speed:{s.GMS2PlaybackSpeed}");
             }
         }
@@ -365,10 +355,10 @@ public static class InfoCommand
         {
             Console.WriteLine();
             Console.WriteLine($"=== Sounds ({data.Sounds.Count}) ===");
-            for (int j = 0; j < data.Sounds.Count; j++)
+            for (var j = 0; j < data.Sounds.Count; j++)
             {
-                GameMakerSound s2 = data.Sounds[j];
-                string grp = s2.AudioGroup?.Name?.Content ?? $"group{s2.GroupID}";
+                var s2 = data.Sounds[j];
+                var grp = s2.AudioGroup?.Name?.Content ?? $"group{s2.GroupID}";
                 Console.WriteLine($"  [{j}] {s2.Name?.Content}  type:{s2.Type?.Content}  flags:{s2.Flags}  vol:{s2.Volume:F2}  group:{grp}  file:{s2.File?.Content}");
             }
         }
@@ -376,10 +366,10 @@ public static class InfoCommand
         {
             Console.WriteLine();
             Console.WriteLine($"=== Backgrounds/Tilesets ({data.Backgrounds.Count}) ===");
-            for (int k = 0; k < data.Backgrounds.Count; k++)
+            for (var k = 0; k < data.Backgrounds.Count; k++)
             {
-                GameMakerBackground b = data.Backgrounds[k];
-                string tpi = ((b.Texture != null) ? $"tpi:{data.TexturePageItems.IndexOf(b.Texture)}" : "no-tex");
+                var b = data.Backgrounds[k];
+                var tpi = (b.Texture != null) ? $"tpi:{data.TexturePageItems.IndexOf(b.Texture)}" : "no-tex";
                 Console.WriteLine($"  [{k}] {b.Name?.Content}  {tpi}  tileWidth:{b.GMS2TileWidth}  tileHeight:{b.GMS2TileHeight}  cols:{b.GMS2TileColumns}  count:{b.GMS2TileCount}");
             }
         }
@@ -387,9 +377,9 @@ public static class InfoCommand
         {
             Console.WriteLine();
             Console.WriteLine($"=== Fonts ({data.Fonts.Count}) ===");
-            for (int l = 0; l < data.Fonts.Count; l++)
+            for (var l = 0; l < data.Fonts.Count; l++)
             {
-                GameMakerFont f = data.Fonts[l];
+                var f = data.Fonts[l];
                 Console.WriteLine($"  [{l}] {f.Name?.Content}  display:{f.DisplayName?.Content}  size:{f.EmSize}  bold:{f.Bold}  italic:{f.Italic}  glyphs:{f.Glyphs?.Count ?? 0}  range:{f.RangeStart}-{f.RangeEnd}");
             }
         }
@@ -397,9 +387,9 @@ public static class InfoCommand
         {
             Console.WriteLine();
             Console.WriteLine($"=== Paths ({data.Paths.Count}) ===");
-            for (int m = 0; m < data.Paths.Count; m++)
+            for (var m = 0; m < data.Paths.Count; m++)
             {
-                GameMakerPath p = data.Paths[m];
+                var p = data.Paths[m];
                 Console.WriteLine($"  [{m}] {p.Name?.Content}  smooth:{p.IsSmooth}  closed:{p.IsClosed}  precision:{p.Precision}  points:{p.Points.Count}");
             }
         }
@@ -407,10 +397,10 @@ public static class InfoCommand
         {
             Console.WriteLine();
             Console.WriteLine($"=== Scripts ({data.Scripts.Count}) ===");
-            for (int n = 0; n < data.Scripts.Count; n++)
+            for (var n = 0; n < data.Scripts.Count; n++)
             {
-                GameMakerScript s3 = data.Scripts[n];
-                string codeName = s3.Code?.Name?.Content ?? "<none>";
+                var s3 = data.Scripts[n];
+                var codeName = s3.Code?.Name?.Content ?? "<none>";
                 Console.WriteLine($"  [{n}] {s3.Name?.Content}  code:{codeName}");
             }
         }
@@ -418,9 +408,9 @@ public static class InfoCommand
         {
             Console.WriteLine();
             Console.WriteLine($"=== Shaders ({data.Shaders.Count}) ===");
-            for (int num = 0; num < data.Shaders.Count; num++)
+            for (var num = 0; num < data.Shaders.Count; num++)
             {
-                GameMakerShader s4 = data.Shaders[num];
+                var s4 = data.Shaders[num];
                 Console.WriteLine($"  [{num}] {s4.Name?.Content}  type:{s4.Type}  glsl_es_vtx:{(s4.GLSL_ES_Vertex?.Content?.Length).GetValueOrDefault()}ch  glsl_es_frag:{(s4.GLSL_ES_Fragment?.Content?.Length).GetValueOrDefault()}ch");
             }
         }
@@ -428,12 +418,12 @@ public static class InfoCommand
         {
             Console.WriteLine();
             Console.WriteLine($"=== GameObjects ({data.GameObjects.Count}) ===");
-            for (int num2 = 0; num2 < data.GameObjects.Count; num2++)
+            for (var num2 = 0; num2 < data.GameObjects.Count; num2++)
             {
-                GameMakerGameObject o = data.GameObjects[num2];
-                string spr = o.Sprite?.Name?.Content ?? "<none>";
-                string par = o.ParentId?.Name?.Content ?? "<none>";
-                List<string> flags = new List<string>();
+                var o = data.GameObjects[num2];
+                var spr = o.Sprite?.Name?.Content ?? "<none>";
+                var par = o.ParentId?.Name?.Content ?? "<none>";
+                List<string> flags = [];
                 if (o.Visible)
                 {
                     flags.Add("visible");
@@ -450,16 +440,16 @@ public static class InfoCommand
                 {
                     flags.Add("physics");
                 }
-                string flagStr = ((flags.Count > 0) ? string.Join(",", flags) : "-");
-                List<string> evNames = new List<string>();
-                for (int et = 0; et < o.Events.Count; et++)
+                var flagStr = (flags.Count > 0) ? string.Join(",", flags) : "-";
+                List<string> evNames = [];
+                for (var et = 0; et < o.Events.Count; et++)
                 {
-                    foreach (GameMakerGameObject.Event ev in o.Events[et])
+                    foreach (var ev in o.Events[et])
                     {
                         evNames.Add($"{EventTypeName(et)}_{ev.EventSubtype}");
                     }
                 }
-                string evStr = ((evNames.Count > 0) ? string.Join(", ", evNames) : "none");
+                var evStr = (evNames.Count > 0) ? string.Join(", ", evNames) : "none";
                 Console.WriteLine($"  [{num2}] {o.Name?.Content}  sprite:{spr}  parent:{par}  depth:{o.Depth}  [{flagStr}]");
                 Console.WriteLine("        events: " + evStr);
             }
@@ -468,27 +458,27 @@ public static class InfoCommand
         {
             Console.WriteLine();
             Console.WriteLine($"=== Rooms ({data.Rooms.Count}) ===");
-            for (int num3 = 0; num3 < data.Rooms.Count; num3++)
+            for (var num3 = 0; num3 < data.Rooms.Count; num3++)
             {
-                GameMakerRoom r = data.Rooms[num3];
-                int instanceCount = 0;
+                var r = data.Rooms[num3];
+                var instanceCount = 0;
                 IEnumerable<GameMakerRoom.Layer> layers = r.Layers;
-                foreach (GameMakerRoom.Layer layer in layers ?? Enumerable.Empty<GameMakerRoom.Layer>())
+                foreach (var layer in layers ?? [])
                 {
                     if (layer.InstancesData?.Instances != null)
                     {
                         instanceCount += layer.InstancesData.Instances.Count;
                     }
                 }
-                string cc = r.CreationCodeId?.Name?.Content ?? "<none>";
+                var cc = r.CreationCodeId?.Name?.Content ?? "<none>";
                 Console.WriteLine($"  [{num3}] {r.Name?.Content}  {r.Width}x{r.Height}  layers:{r.Layers?.Count ?? 0}  instances:{instanceCount}  speed:{r.Speed}  persistent:{r.Persistent}  creationCode:{cc}");
                 if (r.Layers == null)
                 {
                     continue;
                 }
-                foreach (GameMakerRoom.Layer layer2 in r.Layers)
+                foreach (var layer2 in r.Layers)
                 {
-                    int instInLayer = (layer2.InstancesData?.Instances?.Count).GetValueOrDefault();
+                    var instInLayer = (layer2.InstancesData?.Instances?.Count).GetValueOrDefault();
                     Console.WriteLine($"        layer: {layer2.LayerName?.Content}  type:{layer2.LayerType}  depth:{layer2.LayerDepth}  instances:{instInLayer}");
                 }
             }
@@ -497,11 +487,11 @@ public static class InfoCommand
         {
             Console.WriteLine();
             Console.WriteLine($"=== Code Entries ({data.Code.Count}) ===");
-            for (int num4 = 0; num4 < data.Code.Count; num4++)
+            for (var num4 = 0; num4 < data.Code.Count; num4++)
             {
-                GameMakerCode c = data.Code[num4];
-                string parent = c.ParentEntry?.Name?.Content ?? "-";
-                int children = c.ChildEntries.Count;
+                var c = data.Code[num4];
+                var parent = c.ParentEntry?.Name?.Content ?? "-";
+                var children = c.ChildEntries.Count;
                 Console.WriteLine($"  [{num4}] {c.Name?.Content}  len:{c.Length}  locals:{c.LocalsCount}  args:{c.ArgumentsCount}  parent:{parent}  children:{children}");
             }
         }
@@ -509,9 +499,9 @@ public static class InfoCommand
         {
             Console.WriteLine();
             Console.WriteLine($"=== Functions ({data.Functions.Count}) ===");
-            for (int num5 = 0; num5 < data.Functions.Count; num5++)
+            for (var num5 = 0; num5 < data.Functions.Count; num5++)
             {
-                GameMakerFunction f2 = data.Functions[num5];
+                var f2 = data.Functions[num5];
                 Console.WriteLine($"  [{num5}] {f2.Name?.Content}");
             }
         }
@@ -519,9 +509,9 @@ public static class InfoCommand
         {
             Console.WriteLine();
             Console.WriteLine($"=== Variables ({data.Variables.Count}) ===");
-            for (int num6 = 0; num6 < data.Variables.Count; num6++)
+            for (var num6 = 0; num6 < data.Variables.Count; num6++)
             {
-                GameMakerVariable v = data.Variables[num6];
+                var v = data.Variables[num6];
                 Console.WriteLine($"  [{num6}] {v.Name?.Content}  type:{v.InstanceType}  varId:{v.VarID}");
             }
         }
@@ -529,11 +519,11 @@ public static class InfoCommand
         {
             Console.WriteLine();
             Console.WriteLine($"=== Strings ({data.Strings.Count}) ===");
-            for (int num7 = 0; num7 < data.Strings.Count; num7++)
+            for (var num7 = 0; num7 < data.Strings.Count; num7++)
             {
-                string s5 = data.Strings[num7]?.Content ?? "";
-                string display = ((s5.Length > 80) ? string.Concat(s5.AsSpan(0, 77), "...".AsSpan()) : s5);
-                display = display.Replace("\n", "\\n").Replace("\r", "\\r").Replace("\t", "\\t");
+                var s5 = data.Strings[num7]?.Content ?? "";
+                var display = (s5.Length > 80) ? string.Concat(s5.AsSpan(0, 77), "...".AsSpan()) : s5;
+                display = display.Replace("\n", "\\n", StringComparison.Ordinal).Replace("\r", "\\r", StringComparison.Ordinal).Replace("\t", "\\t", StringComparison.Ordinal);
                 Console.WriteLine($"  [{num7}] \"{display}\"");
             }
         }
@@ -541,10 +531,10 @@ public static class InfoCommand
         {
             Console.WriteLine();
             Console.WriteLine($"=== EmbeddedTextures ({data.EmbeddedTextures.Count}) ===");
-            for (int num8 = 0; num8 < data.EmbeddedTextures.Count; num8++)
+            for (var num8 = 0; num8 < data.EmbeddedTextures.Count; num8++)
             {
-                GameMakerEmbeddedTexture t = data.EmbeddedTextures[num8];
-                string size = ((t.TextureData?.Image != null) ? $"{t.TextureData.Width}x{t.TextureData.Height}" : "no data");
+                var t = data.EmbeddedTextures[num8];
+                var size = (t.TextureData?.Image != null) ? $"{t.TextureData.Width}x{t.TextureData.Height}" : "no data";
                 Console.WriteLine($"  [{num8}] {t.Name?.Content}  {size}");
             }
         }
@@ -552,12 +542,12 @@ public static class InfoCommand
         {
             Console.WriteLine();
             Console.WriteLine($"=== TexturePageItems ({data.TexturePageItems.Count}) ===");
-            for (int num9 = 0; num9 < data.TexturePageItems.Count; num9++)
+            for (var num9 = 0; num9 < data.TexturePageItems.Count; num9++)
             {
-                GameMakerTexturePageItem t2 = data.TexturePageItems[num9];
+                var t2 = data.TexturePageItems[num9];
                 if (t2 != null)
                 {
-                    int texIdx = ((t2.TexturePage != null && data.EmbeddedTextures != null) ? data.EmbeddedTextures.IndexOf(t2.TexturePage) : (-1));
+                    var texIdx = (t2.TexturePage != null && data.EmbeddedTextures != null) ? data.EmbeddedTextures.IndexOf(t2.TexturePage) : (-1);
                     Console.WriteLine($"  [{num9}] src:({t2.SourceX},{t2.SourceY},{t2.SourceWidth},{t2.SourceHeight})  tgt:({t2.TargetX},{t2.TargetY},{t2.TargetWidth},{t2.TargetHeight})  bound:({t2.BoundingWidth},{t2.BoundingHeight})  texPage:{texIdx}");
                 }
             }
@@ -566,7 +556,7 @@ public static class InfoCommand
         {
             Console.WriteLine();
             Console.WriteLine($"=== AudioGroups ({data.AudioGroups.Count}) ===");
-            for (int num10 = 0; num10 < data.AudioGroups.Count; num10++)
+            for (var num10 = 0; num10 < data.AudioGroups.Count; num10++)
             {
                 Console.WriteLine($"  [{num10}] {data.AudioGroups[num10]?.Name?.Content}");
             }
@@ -575,15 +565,15 @@ public static class InfoCommand
         {
             Console.WriteLine();
             Console.WriteLine($"=== Extensions detail ({data.Extensions.Count}) ===");
-            for (int num11 = 0; num11 < data.Extensions.Count; num11++)
+            for (var num11 = 0; num11 < data.Extensions.Count; num11++)
             {
-                GameMakerExtension e = data.Extensions[num11];
+                var e = data.Extensions[num11];
                 Console.WriteLine($"  [{num11}] {e.Name?.Content}  className:{e.ClassName?.Content}  files:{e.Files?.Count ?? 0}");
                 if (e.Files == null)
                 {
                     continue;
                 }
-                foreach (GameMakerExtensionFile f3 in e.Files)
+                foreach (var f3 in e.Files)
                 {
                     Console.WriteLine($"        file: {f3.Filename?.Content}  kind:{f3.Kind}  functions:{f3.Functions?.Count ?? 0}");
                 }
@@ -593,9 +583,9 @@ public static class InfoCommand
         {
             Console.WriteLine();
             Console.WriteLine($"=== Timelines ({data.Timelines.Count}) ===");
-            for (int num12 = 0; num12 < data.Timelines.Count; num12++)
+            for (var num12 = 0; num12 < data.Timelines.Count; num12++)
             {
-                GameMakerTimeline t3 = data.Timelines[num12];
+                var t3 = data.Timelines[num12];
                 Console.WriteLine($"  [{num12}] {t3.Name?.Content}  moments:{t3.Moments?.Count ?? 0}");
             }
         }
@@ -603,7 +593,7 @@ public static class InfoCommand
 
     private static async Task ShowPatchInfoAsync(string path, bool verbose, bool jsonOutput)
     {
-        PatchValidateResult result = await PatchService.ValidatePatchAsync(path);
+        var result = await PatchService.ValidatePatchAsync(path);
         if (!result.Success || result.Manifest == null)
         {
             Console.WriteLine("Warning: " + result.Error);
@@ -611,13 +601,13 @@ public static class InfoCommand
             Console.WriteLine();
             try
             {
-                using FileStream zipStream = new FileStream(path, FileMode.Open, FileAccess.Read);
-                using ZipArchive archive = new ZipArchive(zipStream, ZipArchiveMode.Read);
-                List<string> entries = archive.Entries.Select((ZipArchiveEntry e) => e.FullName).ToList();
-                List<string> folders = (from e in entries
+                using var zipStream = new FileStream(path, FileMode.Open, FileAccess.Read);
+                using var archive = new ZipArchive(zipStream, ZipArchiveMode.Read);
+                List<string> entries = [.. archive.Entries.Select(e => e.FullName)];
+                List<string> folders = [.. (from e in entries
                                         select e.Split('/')[0] into f
                                         where !string.IsNullOrEmpty(f)
-                                        select f).Distinct().ToList();
+                                        select f).Distinct()];
                 Console.WriteLine("Patch File: " + Path.GetFileName(path));
                 Console.WriteLine($"Size: {new FileInfo(path).Length:N0} bytes");
                 Console.WriteLine($"Entries: {entries.Count}");
@@ -628,7 +618,7 @@ public static class InfoCommand
                 }
                 Console.WriteLine();
                 Console.WriteLine("Patch contents:");
-                foreach (string entry in entries.Take(50))
+                foreach (var entry in entries.Take(50))
                 {
                     Console.WriteLine("  " + entry);
                 }
@@ -645,7 +635,7 @@ public static class InfoCommand
                 return;
             }
         }
-        G3MPatchManifest manifest = result.Manifest;
+        var manifest = result.Manifest;
         if (jsonOutput)
         {
             Console.WriteLine(JsonSerializer.Serialize(manifest, s_jsonOptions));
@@ -670,14 +660,14 @@ public static class InfoCommand
         }
         Console.WriteLine();
         Console.WriteLine("Resources by type:");
-        foreach (KeyValuePair<string, ResourceTypeChanges> resource in manifest.Resources)
+        foreach (var resource in manifest.Resources)
         {
             resource.Deconstruct(out var key, out var value);
-            string type = key;
-            ResourceTypeChanges resourceTypeChanges = value;
-            int changed = resourceTypeChanges.Changed?.Count ?? 0;
-            int newRes = resourceTypeChanges.New?.Count ?? 0;
-            int deleted = resourceTypeChanges.Deleted?.Count ?? 0;
+            var type = key;
+            var resourceTypeChanges = value;
+            var changed = resourceTypeChanges.Changed?.Count ?? 0;
+            var newRes = resourceTypeChanges.New?.Count ?? 0;
+            var deleted = resourceTypeChanges.Deleted?.Count ?? 0;
             if (changed + newRes + deleted > 0)
             {
                 Console.WriteLine($"  {type}: {changed} changed, {newRes} new, {deleted} deleted");

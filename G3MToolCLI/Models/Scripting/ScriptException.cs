@@ -1,5 +1,3 @@
-using System;
-
 namespace G3MToolCLI.Models.Scripting;
 
 public class ScriptException : Exception

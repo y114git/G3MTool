@@ -1,10 +1,5 @@
-using System;
-using System.Collections.Generic;
 using System.CommandLine;
-using System.CommandLine.Parsing;
-using System.IO;
 using System.Text;
-using System.Threading.Tasks;
 using G3MLib.DataFile.Decompiler;
 using G3MLib.Modding;
 using G3MToolCLI.Commands;
@@ -21,6 +16,10 @@ internal static class Program
 
     public static string? XDeltaPathOverride { get; private set; }
 
+    public static CancellationToken Cancellation { get; private set; }
+
+    private static CancellationTokenSource? s_cancellation;
+
     private static async Task<int> Main(string[] args)
     {
         GameSpecificResolver.BaseDirectory = PlatformUtil.GetExecutableDirectory();
@@ -28,7 +27,7 @@ internal static class Program
         ModdingMetadata.ToolVersion = AppVersionService.Version;
         G3MLib.Modding.Logging.LogService.MessageLogged += ForwardModdingLog;
         G3MLib.Modding.Logging.LogService.ProgressReported += ForwardModdingProgress;
-        for (int i = 0; i < args.Length; i++)
+        for (var i = 0; i < args.Length; i++)
         {
             if (args[i] == "--") break;
             if (args[i] == "-V")
@@ -36,18 +35,30 @@ internal static class Program
                 args[i] = "--version";
             }
         }
-        RootCommand rootCommand = new RootCommand("Create, apply, merge, inspect, and compare GameMaker data-file patches.");
-        rootCommand.Add(XPatchCommand.Create());
-        rootCommand.Add(ExecuteCommand.Create());
-        rootCommand.Add(PatchCommand.Create());
-        rootCommand.Add(InfoCommand.Create());
-        rootCommand.Add(DiffCommand.Create());
-        Option<bool> verboseOption = new Option<bool>("--verbose", ["-v"]) { Description = "Enable verbose output" };
-        verboseOption.Recursive = true;
+        Console.CancelKeyPress += (_, e) =>
+        {
+            var running = s_cancellation;
+            if (running is null) return;
+            e.Cancel = true;
+            running.Cancel();
+        };
+        var rootCommand = new RootCommand("Create, apply, merge, inspect, and compare GameMaker data-file patches.")
+        {
+            XPatchCommand.Create(),
+            ExecuteCommand.Create(),
+            PatchCommand.Create(),
+            InfoCommand.Create(),
+            DiffCommand.Create()
+        };
+        var verboseOption = new Option<bool>("--verbose", ["-v"])
+        {
+            Description = "Enable verbose output",
+            Recursive = true
+        };
         rootCommand.Add(verboseOption);
-        Option<string?> logOption = new Option<string?>("--log", ["-l"]) { Description = "Enable logging. Default: logs/{command}_{timestamp}.log" };
-        Option<bool> jsonOption = new Option<bool>("--json") { Description = "Output machine-readable JSON for supported commands" };
-        Option<string?> xdeltaPathOption = new Option<string?>("--xdelta-path") { Description = "Use this xdelta executable instead of the bundled binary." };
+        var logOption = new Option<string?>("--log", ["-l"]) { Description = "Enable logging. Default: logs/{command}_{timestamp}.log" };
+        var jsonOption = new Option<bool>("--json") { Description = "Output machine-readable JSON for supported commands" };
+        var xdeltaPathOption = new Option<string?>("--xdelta-path") { Description = "Use this xdelta executable instead of the bundled binary." };
         logOption.Recursive = true;
         jsonOption.Recursive = true;
         xdeltaPathOption.Recursive = true;
@@ -63,7 +74,7 @@ internal static class Program
             Console.WriteLine(AppVersionService.Version);
             return 0;
         }
-        int exitCode = await InvokeAsync(rootCommand, args, verboseOption, logOption, jsonOption, xdeltaPathOption);
+        var exitCode = await InvokeAsync(rootCommand, args, verboseOption, logOption, jsonOption, xdeltaPathOption);
         if (exitCode == 0 && Environment.ExitCode != 0)
         {
             return Environment.ExitCode;
@@ -79,13 +90,13 @@ internal static class Program
         while (true)
         {
             Console.Write("(G3MTool) ");
-            string? input = Console.ReadLine();
+            var input = Console.ReadLine();
             if (input is null) return 0;
             if (string.IsNullOrWhiteSpace(input))
             {
                 continue;
             }
-            string trimmedInput = input.Trim();
+            var trimmedInput = input.Trim();
             if (trimmedInput.Equals("exit", StringComparison.OrdinalIgnoreCase) || trimmedInput.Equals("quit", StringComparison.OrdinalIgnoreCase))
             {
                 break;
@@ -99,7 +110,7 @@ internal static class Program
             {
                 trimmedInput = "--help";
             }
-            string[] commandArgs = ParseCommandLine(trimmedInput);
+            var commandArgs = ParseCommandLine(trimmedInput);
             try
             {
                 await InvokeAsync(rootCommand, commandArgs, verboseOption, logOption, jsonOption, xdeltaPathOption);
@@ -118,7 +129,7 @@ internal static class Program
 
     private static async Task<int> InvokeAsync(RootCommand rootCommand, string[] args, Option<bool> verboseOption, Option<string?> logOption, Option<bool> jsonOption, Option<string?> xdeltaPathOption)
     {
-        ParseResult parseResult = rootCommand.Parse(args);
+        var parseResult = rootCommand.Parse(args);
         LogService.Verbose = parseResult.GetValue(verboseOption);
         JsonOutput = parseResult.GetValue(jsonOption);
         XDeltaPathOverride = parseResult.GetValue(xdeltaPathOption);
@@ -127,12 +138,26 @@ internal static class Program
         G3MLib.Modding.Logging.LogService.Verbose = LogService.Verbose;
         G3MLib.Modding.Logging.LogService.Suppress = LogService.Suppress;
         LogService.SetFileLogging(ResolveLogPath(parseResult.CommandResult.Command.Name, parseResult.GetValue(logOption)));
+        using var cancellation = new CancellationTokenSource();
+        s_cancellation = cancellation;
+        Cancellation = cancellation.Token;
         try
         {
-            return await parseResult.InvokeAsync();
+            var exitCode = await parseResult.InvokeAsync();
+            if (!cancellation.IsCancellationRequested) return exitCode;
+            await Console.Error.WriteLineAsync("Cancelled.");
+            Environment.ExitCode = 130;
+            return 130;
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            await Console.Error.WriteLineAsync("Cancelled.");
+            Environment.ExitCode = 130;
+            return 130;
         }
         finally
         {
+            s_cancellation = null;
             LogService.Shutdown();
         }
     }
@@ -170,10 +195,10 @@ internal static class Program
 
     private static string[] ParseCommandLine(string input)
     {
-        List<string> args = new List<string>();
-        StringBuilder currentArg = new StringBuilder();
-        bool inQuotes = false;
-        foreach (char c in input)
+        List<string> args = [];
+        var currentArg = new StringBuilder();
+        var inQuotes = false;
+        foreach (var c in input)
         {
             if (c == '"')
             {
@@ -196,7 +221,7 @@ internal static class Program
         {
             args.Add(currentArg.ToString());
         }
-        return args.ToArray();
+        return [.. args];
     }
 
     private static string? ResolveLogPath(string commandName, string? requestedPath)
@@ -209,7 +234,7 @@ internal static class Program
         {
             return Path.GetFullPath(requestedPath);
         }
-        string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+        var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss", System.Globalization.CultureInfo.InvariantCulture);
         return Path.Combine(PlatformUtil.GetExecutableDirectory(), "logs", commandName + "_" + timestamp + ".log");
     }
 }

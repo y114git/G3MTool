@@ -1,7 +1,5 @@
-using System;
 using G3MLib.DataFile;
 using G3MLib.DataFile.Models;
-using G3MToolCLI.Models;
 
 namespace G3MToolCLI.Utils;
 
@@ -9,7 +7,7 @@ public static class GeneralInfoUtil
 {
     public static GeneralInfoData? ExtractGeneralInfo(GameMakerData data)
     {
-        GameMakerGeneralInfo gi = data.GeneralInfo;
+        var gi = data.GeneralInfo;
         if (gi == null)
         {
             return null;
@@ -35,9 +33,9 @@ public static class GeneralInfoUtil
             FunctionClassifications = (ulong)gi.FunctionClassifications,
             SteamAppID = gi.SteamAppID,
             DebuggerPort = (int)((gi.BytecodeVersion >= 14) ? gi.DebuggerPort : 0),
-            GMS2FPS = ((gi.Major >= 2) ? gi.GMS2FPS : 0f),
-            GMS2AllowStatistics = (gi.Major >= 2 && gi.GMS2AllowStatistics),
-            RoomOrderCount = (gi.RoomOrder?.Count ?? 0)
+            GMS2FPS = (gi.Major >= 2) ? gi.GMS2FPS : 0f,
+            GMS2AllowStatistics = gi.Major >= 2 && gi.GMS2AllowStatistics,
+            RoomOrderCount = gi.RoomOrder?.Count ?? 0
         };
     }
 
@@ -47,7 +45,7 @@ public static class GeneralInfoUtil
         {
             return "Unknown";
         }
-        string rawVersion = $"{info.Major}.{info.Minor}.{info.Release}.{info.Build}";
+        var rawVersion = $"{info.Major}.{info.Minor}.{info.Release}.{info.Build}";
         string interpretedVersion;
         if (info.Branch == GameMakerGeneralInfo.BranchType.LTS2022_0)
         {
@@ -69,7 +67,7 @@ public static class GeneralInfoUtil
                 }
             }
         }
-        string prefix = ((info.Major < 2022 || (info.Major == 2022 && info.Minor < 3)) ? "GMS" : "GM");
+        var prefix = (info.Major < 2022 || info.Major == 2022 && info.Minor < 3) ? "GMS" : "GM";
         if (rawVersion != interpretedVersion && info.Branch == GameMakerGeneralInfo.BranchType.LTS2022_0)
         {
             return $"{prefix} {interpretedVersion} (raw: {rawVersion})";

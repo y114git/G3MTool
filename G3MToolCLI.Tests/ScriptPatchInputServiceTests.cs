@@ -1,9 +1,5 @@
-using System;
-using System.IO;
-using System.Threading.Tasks;
 using G3MLib.DataFile;
 using G3MToolCLI.Services.Patching;
-using Xunit;
 
 namespace G3MToolCLI.Tests;
 
@@ -12,16 +8,16 @@ public sealed class ScriptPatchInputServiceTests
     [Fact("ScriptPatchInputServiceTests.cs", 12)]
     public async Task MaterializeDataAcceptsValidDataAndRejectsCorruptData()
     {
-        string directory = Path.Combine(Path.GetTempPath(), $"G3MToolTests-{Guid.NewGuid():N}");
+        var directory = Path.Combine(Path.GetTempPath(), $"G3MToolTests-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
         try
         {
-            string sourcePath = Path.Combine(directory, "source.win");
-            string corruptPath = Path.Combine(directory, "corrupt.win");
-            using (GameMakerData data = GameMakerData.CreateNew2026LTS())
-            using (FileStream stream = File.Create(sourcePath))
+            var sourcePath = Path.Combine(directory, "source.win");
+            var corruptPath = Path.Combine(directory, "corrupt.win");
+            using (var data = GameMakerData.CreateNew2026LTS())
+            using (var stream = File.Create(sourcePath))
             {
-                GameMakerIO.Write(stream, data);
+                await GameMakerIO.WriteAsync(stream, data, cancellationToken: TestContext.Current.CancellationToken);
             }
             await File.WriteAllTextAsync(corruptPath, "not a GameMaker data file", TestContext.Current.CancellationToken);
 
@@ -40,16 +36,16 @@ public sealed class ScriptPatchInputServiceTests
     [Fact("ScriptPatchInputServiceTests.cs", 39)]
     public async Task MaterializeDataRejectsUnsupportedInputsWithoutProducingData()
     {
-        string directory = Path.Combine(Path.GetTempPath(), $"G3MToolTests-{Guid.NewGuid():N}");
+        var directory = Path.Combine(Path.GetTempPath(), $"G3MToolTests-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
         try
         {
-            string sourcePath = Path.Combine(directory, "source.win");
-            string unsupportedPath = Path.Combine(directory, "input.txt");
-            using (GameMakerData data = GameMakerData.CreateNew2026LTS())
-            using (FileStream stream = File.Create(sourcePath))
+            var sourcePath = Path.Combine(directory, "source.win");
+            var unsupportedPath = Path.Combine(directory, "input.txt");
+            using (var data = GameMakerData.CreateNew2026LTS())
+            using (var stream = File.Create(sourcePath))
             {
-                GameMakerIO.Write(stream, data);
+                await GameMakerIO.WriteAsync(stream, data, cancellationToken: TestContext.Current.CancellationToken);
             }
             await File.WriteAllTextAsync(unsupportedPath, "input", TestContext.Current.CancellationToken);
 
@@ -69,25 +65,25 @@ public sealed class ScriptPatchInputServiceTests
     [Fact("ScriptPatchInputServiceTests.cs", 66)]
     public async Task MaterializeScriptAppliesChangesWithoutChangingTheSource()
     {
-        string directory = Path.Combine(Path.GetTempPath(), $"G3MToolTests-{Guid.NewGuid():N}");
+        var directory = Path.Combine(Path.GetTempPath(), $"G3MToolTests-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
         try
         {
-            string sourcePath = Path.Combine(directory, "source.win");
-            string scriptPath = Path.Combine(directory, "change.csx");
-            using (GameMakerData data = GameMakerData.CreateNew2026LTS())
-            using (FileStream stream = File.Create(sourcePath))
+            var sourcePath = Path.Combine(directory, "source.win");
+            var scriptPath = Path.Combine(directory, "change.csx");
+            using (var data = GameMakerData.CreateNew2026LTS())
+            using (var stream = File.Create(sourcePath))
             {
-                GameMakerIO.Write(stream, data);
+                await GameMakerIO.WriteAsync(stream, data, cancellationToken: TestContext.Current.CancellationToken);
             }
             await File.WriteAllTextAsync(scriptPath, "Data.GeneralInfo!.LastObj = 777;", TestContext.Current.CancellationToken);
 
-            string outputPath = await ScriptPatchInputService.MaterializeDataAsync(sourcePath, scriptPath, Path.Combine(directory, "output"));
+            var outputPath = await ScriptPatchInputService.MaterializeDataAsync(sourcePath, scriptPath, Path.Combine(directory, "output"));
 
-            using FileStream source = File.OpenRead(sourcePath);
-            using GameMakerData sourceData = GameMakerIO.Read(source);
-            using FileStream output = File.OpenRead(outputPath);
-            using GameMakerData outputData = GameMakerIO.Read(output);
+            using var source = File.OpenRead(sourcePath);
+            using var sourceData = await GameMakerIO.ReadAsync(source, null, cancellationToken: TestContext.Current.CancellationToken);
+            using var output = File.OpenRead(outputPath);
+            using var outputData = await GameMakerIO.ReadAsync(output, null, cancellationToken: TestContext.Current.CancellationToken);
             Assert.NotEqual(777u, sourceData.GeneralInfo.LastObj);
             Assert.Equal(777u, outputData.GeneralInfo.LastObj);
         }

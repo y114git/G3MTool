@@ -19,12 +19,12 @@ public static class ExternalProcessService
                 RedirectStandardError = true,
                 CreateNoWindow = true
             };
-            foreach (string argument in arguments) startInfo.ArgumentList.Add(argument);
+            foreach (var argument in arguments) startInfo.ArgumentList.Add(argument);
 
-            using Process? process = Process.Start(startInfo);
+            using var process = Process.Start(startInfo);
             if (process is null) return new(-1);
-            Task standardOutput = ReadLinesAsync(process.StandardOutput, LogService.Info);
-            Task standardError = ReadLinesAsync(process.StandardError, LogService.Error);
+            var standardOutput = ReadLinesAsync(process.StandardOutput, LogService.Info);
+            var standardError = ReadLinesAsync(process.StandardError, LogService.Error);
             await process.WaitForExitAsync();
             await Task.WhenAll(standardOutput, standardError);
             return new(process.ExitCode);

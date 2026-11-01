@@ -13,7 +13,7 @@ using G3MToolGUI.Services;
 
 namespace G3MToolGUI;
 
-public partial class MainWindow : Window
+public sealed partial class MainWindow : Window, IDisposable
 {
     private static readonly IReadOnlyDictionary<ModdingOperation, ModdingOperation> BatchOperations = new Dictionary<ModdingOperation, ModdingOperation>
     {
@@ -26,6 +26,7 @@ public partial class MainWindow : Window
     private readonly StringBuilder _log = new();
     private readonly Queue<LogLine> _logLines = new();
     private bool _isRunning;
+    private CancellationTokenSource? _cancellation;
     private bool _closeAfterOperation;
     private bool _logsExpanded;
     private ModdingOperation? _configuredOperation;
@@ -43,7 +44,7 @@ public partial class MainWindow : Window
             SaveFile = (filter, path) => Dispatcher.UIThread.InvokeAsync(() => PickScriptFileAsync(filter, path, true)),
             ChooseDirectory = () => Dispatcher.UIThread.InvokeAsync(() => PickFolderAsync("Choose script directory"))
         });
-        string version = typeof(MainWindow).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion?.Split('+')[0] ?? "unknown";
+        var version = typeof(MainWindow).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion?.Split('+')[0] ?? "unknown";
         BuildVersionText.Text = $"G3MTool (GUI) - {version}";
         OperationPicker.ItemsSource = OperationView.All.Where(view => !BatchOperations.Values.Contains(view.Operation)).ToArray();
         OperationPicker.SelectedIndex = 0;
@@ -61,7 +62,7 @@ public partial class MainWindow : Window
     }
 
     private OperationView SelectedBaseView => (OperationPicker.SelectedItem as OperationView) ?? OperationView.All[0];
-    private OperationView SelectedView => BatchModeCheck.IsChecked == true && BatchOperations.TryGetValue(SelectedBaseView.Operation, out ModdingOperation batchOperation)
+    private OperationView SelectedView => BatchModeCheck.IsChecked == true && BatchOperations.TryGetValue(SelectedBaseView.Operation, out var batchOperation)
         ? OperationView.All.First(view => view.Operation == batchOperation)
         : SelectedBaseView;
 
@@ -70,14 +71,14 @@ public partial class MainWindow : Window
 
     private void ConfigureOperation()
     {
-        bool supportsBatch = BatchOperations.ContainsKey(SelectedBaseView.Operation);
+        var supportsBatch = BatchOperations.ContainsKey(SelectedBaseView.Operation);
         BatchModeCheck.IsVisible = supportsBatch;
         if (!supportsBatch && BatchModeCheck.IsChecked == true)
         {
             BatchModeCheck.IsChecked = false;
         }
 
-        OperationView view = SelectedView;
+        var view = SelectedView;
         if (_configuredOperation != view.Operation)
         {
             ResetOperationFields();
@@ -114,7 +115,7 @@ public partial class MainWindow : Window
 
     private static void SetVisible(bool visible, params Control[] controls)
     {
-        foreach (Control control in controls) control.IsVisible = visible;
+        foreach (var control in controls) control.IsVisible = visible;
     }
 
     private async void BrowseOriginal(object? sender, RoutedEventArgs e)
@@ -124,7 +125,7 @@ public partial class MainWindow : Window
 
     private async void BrowsePrimary(object? sender, RoutedEventArgs e)
     {
-        ModdingOperation operation = SelectedView.Operation;
+        var operation = SelectedView.Operation;
         if (operation == ModdingOperation.BatchMerge)
         {
             PrimaryPathBox.Text = await PickFolderAsync("Choose data output directory") ?? PrimaryPathBox.Text;
@@ -132,7 +133,7 @@ public partial class MainWindow : Window
         }
         if (operation == ModdingOperation.MergePatches)
         {
-            string? extension = Path.GetExtension(OriginalPathBox.Text);
+            var extension = Path.GetExtension(OriginalPathBox.Text);
             PrimaryPathBox.Text = await SavePathAsync("Choose merged data output", "merged" + (string.IsNullOrEmpty(extension) ? ".win" : extension)) ?? PrimaryPathBox.Text;
             return;
         }
@@ -148,10 +149,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        IReadOnlyList<string> paths = await PickFilesAsync("Choose input files");
+        var paths = await PickFilesAsync("Choose input files");
         if (paths.Count == 0) return;
-        string prefix = string.IsNullOrWhiteSpace(AdditionalPathsBox.Text) ? string.Empty : AdditionalPathsBox.Text.TrimEnd() + Environment.NewLine;
-        if (SelectedView.Operation == ModdingOperation.BatchMerge && paths.Any(path => path.Contains(',') || path.Contains('\n') || path.Contains('\r')))
+        var prefix = string.IsNullOrWhiteSpace(AdditionalPathsBox.Text) ? string.Empty : AdditionalPathsBox.Text.TrimEnd() + Environment.NewLine;
+        if (SelectedView.Operation == ModdingOperation.BatchMerge && paths.Any(path => path.Contains(',', StringComparison.Ordinal) || path.Contains('\n', StringComparison.Ordinal) || path.Contains('\r', StringComparison.Ordinal)))
         {
             AddLog(new ModdingLogMessage { Level = ModdingLogLevel.Error, Message = "Merge-set paths cannot contain commas or line breaks." });
             return;
@@ -167,7 +168,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        string extension = SelectedView.Operation switch
+        var extension = SelectedView.Operation switch
         {
             ModdingOperation.Compare => "md",
             ModdingOperation.CreateXDelta => "xdelta",
@@ -190,24 +191,36 @@ public partial class MainWindow : Window
         OperationCard.IsEnabled = false;
         OperationProgress.IsIndeterminate = true;
         ProgressText.Text = "Starting…";
+        _cancellation = new CancellationTokenSource();
+        CancelButton.IsEnabled = true;
+        CancelButton.IsVisible = true;
         try
         {
-            ModdingOperationRequest request = CreateRequest();
-            ModdingOperationResult result = await Task.Run(() => _operations.RunAsync(request));
+            var request = CreateRequest();
+            var result = await Task.Run(() => _operations.RunAsync(request, _cancellation.Token));
             ProgressText.Text = result.Summary;
             ProgressPercentText.Text = result.Success ? "100%" : "—";
             OperationProgress.Value = result.Success ? 100 : 0;
             AddLog(new ModdingLogMessage { Level = result.Success ? ModdingLogLevel.Information : ModdingLogLevel.Error, Message = result.Summary });
-            foreach (string output in result.Outputs) AddLog(new ModdingLogMessage { Level = ModdingLogLevel.Information, Message = "Output: " + output });
+            foreach (var output in result.Outputs) AddLog(new ModdingLogMessage { Level = ModdingLogLevel.Information, Message = "Output: " + output });
         }
         finally
         {
             _isRunning = false;
+            _cancellation?.Dispose();
+            _cancellation = null;
+            CancelButton.IsVisible = false;
             RunButton.IsEnabled = true;
             OperationCard.IsEnabled = true;
             OperationProgress.IsIndeterminate = false;
             if (_closeAfterOperation) Close();
         }
+    }
+
+    private void CancelOperation(object? sender, RoutedEventArgs e)
+    {
+        CancelButton.IsEnabled = false;
+        _cancellation?.Cancel();
     }
 
     private void ClearForm(object? sender, RoutedEventArgs e)
@@ -221,7 +234,7 @@ public partial class MainWindow : Window
 
     private ModdingOperationRequest CreateRequest()
     {
-        OperationView view = SelectedView;
+        var view = SelectedView;
         return new()
         {
             Operation = view.Operation,
@@ -291,7 +304,7 @@ public partial class MainWindow : Window
 
     private async void SaveLog(object? sender, RoutedEventArgs e)
     {
-        string? path = await SavePathAsync("Save activity log", "g3mtool.log");
+        var path = await SavePathAsync("Save activity log", "g3mtool.log");
         if (path is not null) await File.WriteAllTextAsync(path, _log.ToString());
     }
 
@@ -303,12 +316,12 @@ public partial class MainWindow : Window
             return;
         }
 
-        string text = $"[{DateTime.Now:HH:mm:ss}] {message.Level}: {message.Message}{Environment.NewLine}";
+        var text = $"[{DateTime.Now:HH:mm:ss}] {message.Level}: {message.Message}{Environment.NewLine}";
         LogLine line = new(message.Level, text);
         _log.Append(text);
         _logLines.Enqueue(line);
-        bool trimmed = false;
-        while (_log.Length > 1_000_000 && _logLines.TryDequeue(out LogLine? removed))
+        var trimmed = false;
+        while (_log.Length > 1_000_000 && _logLines.TryDequeue(out var removed))
         {
             _log.Remove(0, removed.Text.Length);
             trimmed = true;
@@ -334,7 +347,7 @@ public partial class MainWindow : Window
     private void RenderLog()
     {
         LogBox.Inlines?.Clear();
-        foreach (LogLine line in _logLines) LogBox.Inlines?.Add(CreateLogRun(line));
+        foreach (var line in _logLines) LogBox.Inlines?.Add(CreateLogRun(line));
     }
 
     private static Run CreateLogRun(LogLine line) => new(line.Text)
@@ -354,7 +367,7 @@ public partial class MainWindow : Window
         {
             if (progress.IsComplete) return;
             OperationProgress.IsIndeterminate = false;
-            int percent = progress.Total == 0 ? 0 : (int)Math.Round(progress.Current * 100d / progress.Total);
+            var percent = progress.Total == 0 ? 0 : (int)Math.Round(progress.Current * 100d / progress.Total);
             OperationProgress.Value = percent;
             ProgressPercentText.Text = percent + "%";
             ProgressText.Text = string.IsNullOrWhiteSpace(progress.Operation) ? "Working…" : progress.Operation;
@@ -365,9 +378,14 @@ public partial class MainWindow : Window
     {
         var dialog = new Window
         {
-            Title = title, Width = 480, MinWidth = 320, MaxHeight = 650,
-            SizeToContent = SizeToContent.Height, CanResize = multiline,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner, ShowInTaskbar = false
+            Title = title,
+            Width = 480,
+            MinWidth = 320,
+            MaxHeight = 650,
+            SizeToContent = SizeToContent.Height,
+            CanResize = multiline,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            ShowInTaskbar = false
         };
         var input = new TextBox { Name = "ScriptInput", Text = value, AcceptsReturn = multiline, MinHeight = multiline ? 140 : 0 };
         var accept = new Button { Name = "ScriptAccept", Content = question ? "Yes" : "OK", IsDefault = true };
@@ -379,7 +397,8 @@ public partial class MainWindow : Window
         if (!question) panel.Children.Add(input);
         panel.Children.Add(new StackPanel
         {
-            Orientation = Avalonia.Layout.Orientation.Horizontal, Spacing = 8,
+            Orientation = Avalonia.Layout.Orientation.Horizontal,
+            Spacing = 8,
             HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
             Children = { cancel, accept }
         });
@@ -390,62 +409,68 @@ public partial class MainWindow : Window
 
     private async Task<string?> PickScriptFileAsync(string filter, string suggestedPath, bool save)
     {
-        string[] parts = filter.Split('|');
+        var parts = filter.Split('|');
         var types = new List<FilePickerFileType>();
-        for (int i = 0; i + 1 < parts.Length; i += 2)
+        for (var i = 0; i + 1 < parts.Length; i += 2)
             types.Add(new FilePickerFileType(parts[i]) { Patterns = parts[i + 1].Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) });
         if (types.Count == 0) types.Add(FilePickerFileTypes.All);
         IStorageFolder? folder = null;
         if (!string.IsNullOrWhiteSpace(suggestedPath))
         {
-            string? directory = Directory.Exists(suggestedPath) ? suggestedPath : Path.GetDirectoryName(Path.GetFullPath(suggestedPath));
+            var directory = Directory.Exists(suggestedPath) ? suggestedPath : Path.GetDirectoryName(Path.GetFullPath(suggestedPath));
             if (directory is not null) folder = await StorageProvider.TryGetFolderFromPathAsync(directory);
         }
         if (save)
         {
-            IStorageFile? file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+            var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
             {
-                Title = "Save script file", SuggestedFileName = Path.GetFileName(suggestedPath), SuggestedStartLocation = folder, FileTypeChoices = types
+                Title = "Save script file",
+                SuggestedFileName = Path.GetFileName(suggestedPath),
+                SuggestedStartLocation = folder,
+                FileTypeChoices = types
             });
             return file?.TryGetLocalPath();
         }
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            Title = "Open script file", AllowMultiple = false, SuggestedStartLocation = folder, FileTypeFilter = types
+            Title = "Open script file",
+            AllowMultiple = false,
+            SuggestedStartLocation = folder,
+            FileTypeFilter = types
         });
-        return files.FirstOrDefault()?.TryGetLocalPath();
+        return files is [{ } first, ..] ? first.TryGetLocalPath() : null;
     }
 
     private async Task<string?> PickFileAsync(string title)
     {
-        IReadOnlyList<string> files = await PickFilesAsync(title, false);
-        return files.FirstOrDefault();
+        var files = await PickFilesAsync(title, false);
+        return files is [var first, ..] ? first : null;
     }
 
     private async Task<IReadOnlyList<string>> PickFilesAsync(string title, bool allowMultiple = true)
     {
-        IReadOnlyList<IStorageFile> files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
             Title = title,
             AllowMultiple = allowMultiple,
             FileTypeFilter = [FilePickerFileTypes.All]
         });
-        return files.Select(file => file.TryGetLocalPath()).OfType<string>().ToArray();
+        return [.. files.Select(file => file.TryGetLocalPath()).OfType<string>()];
     }
 
     private async Task<string?> PickFolderAsync(string title)
     {
-        IReadOnlyList<IStorageFolder> folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = title, AllowMultiple = false });
-        return folders.FirstOrDefault()?.TryGetLocalPath();
+        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = title, AllowMultiple = false });
+        return folders is [{ } first, ..] ? first.TryGetLocalPath() : null;
     }
 
     private async Task<string?> SavePathAsync(string title, string suggestedFileName)
     {
-        IStorageFile? file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions { Title = title, SuggestedFileName = suggestedFileName });
+        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions { Title = title, SuggestedFileName = suggestedFileName });
         return file?.TryGetLocalPath();
     }
 
-    private static IReadOnlyList<string> ReadLines(string? value) => (value ?? string.Empty).Split(["\r\n", "\n"], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    private static string[] ReadLines(string? value) => (value ?? string.Empty).Split(["\r\n", "\n"], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
     private sealed record OperationView(
         ModdingOperation Operation, string Title, string Description, string Action, string Hint,
@@ -473,5 +498,11 @@ public partial class MainWindow : Window
         ];
 
         public override string ToString() => Title;
+    }
+
+    public void Dispose()
+    {
+        _cancellation?.Dispose();
+        _operations.Dispose();
     }
 }

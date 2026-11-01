@@ -1,7 +1,4 @@
-using System;
-using System.IO;
 using System.Text;
-using System.Threading;
 
 namespace G3MToolCLI.Services.Logging;
 
@@ -9,11 +6,11 @@ internal sealed class FileLogWriter : IDisposable
 {
     private readonly StreamWriter _writer;
 
-    private readonly Lock _lock = new Lock();
+    private readonly Lock _lock = new();
 
     public FileLogWriter(string path)
     {
-        string? directory = Path.GetDirectoryName(path);
+        var directory = Path.GetDirectoryName(path);
         if (!string.IsNullOrWhiteSpace(directory))
         {
             Directory.CreateDirectory(directory);
@@ -29,7 +26,7 @@ internal sealed class FileLogWriter : IDisposable
         using (_lock.EnterScope())
         {
             _writer.Write('[');
-            _writer.Write(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+            _writer.Write(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff", System.Globalization.CultureInfo.InvariantCulture));
             _writer.Write("] ");
             _writer.WriteLine(message);
         }

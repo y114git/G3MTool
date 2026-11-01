@@ -10,33 +10,36 @@ public sealed class ModdingOperationServiceTests
     [Fact]
     public async Task BatchMergePreservesExistingReportsAndRepeatedOutputs()
     {
-        string directory = Directory.CreateTempSubdirectory("g3mtool-gui-merge-outputs-").FullName;
+        var directory = Directory.CreateTempSubdirectory("g3mtool-gui-merge-outputs-").FullName;
         try
         {
-            string original = Path.Combine(directory, "original.win");
+            var original = Path.Combine(directory, "original.win");
             CreateRoomData(original);
-            string first = Path.Combine(directory, "first.csx");
-            string second = Path.Combine(directory, "second.csx");
+            var first = Path.Combine(directory, "first.csx");
+            var second = Path.Combine(directory, "second.csx");
             await File.WriteAllTextAsync(first, "Data.Rooms[1].Width = 123;", TestContext.Current.CancellationToken);
             await File.WriteAllTextAsync(second, "Data.Rooms[1].Height = 456;", TestContext.Current.CancellationToken);
-            string dataDirectory = Path.Combine(directory, "data");
-            string patchDirectory = Path.Combine(directory, "patches");
+            var dataDirectory = Path.Combine(directory, "data");
+            var patchDirectory = Path.Combine(directory, "patches");
             Directory.CreateDirectory(patchDirectory);
-            string report = Path.Combine(patchDirectory, "merge_01.merge.md");
+            var report = Path.Combine(patchDirectory, "merge_01.merge.md");
             await File.WriteAllTextAsync(report, "previous report", TestContext.Current.CancellationToken);
             var request = new ModdingOperationRequest
             {
-                Operation = ModdingOperation.BatchMerge, OriginalPath = original,
-                InputPaths = [first + "," + second], PrimaryPath = dataDirectory,
-                OutputPath = patchDirectory, FullReport = true
+                Operation = ModdingOperation.BatchMerge,
+                OriginalPath = original,
+                InputPaths = [first + "," + second],
+                PrimaryPath = dataDirectory,
+                OutputPath = patchDirectory,
+                FullReport = true
             };
             using var service = new ModdingOperationService();
             var saved = new Dictionary<string, byte[]>();
-            for (int run = 0; run < 2; run++)
+            for (var run = 0; run < 2; run++)
             {
-                var result = await service.RunAsync(request);
+                var result = await service.RunAsync(request, TestContext.Current.CancellationToken);
                 Assert.True(result.Success, result.Summary);
-                foreach (string output in result.Outputs)
+                foreach (var output in result.Outputs)
                 {
                     Assert.False(saved.ContainsKey(output));
                     saved.Add(output, await File.ReadAllBytesAsync(output, TestContext.Current.CancellationToken));
@@ -55,22 +58,22 @@ public sealed class ModdingOperationServiceTests
     [InlineData(true)]
     public async Task SavesDataCreatedOrReplacedByScript(bool withInput)
     {
-        string directory = Directory.CreateTempSubdirectory("g3mtool-script-data-").FullName;
+        var directory = Directory.CreateTempSubdirectory("g3mtool-script-data-").FullName;
         try
         {
-            string script = Path.Combine(directory, "create.csx");
-            string output = Path.Combine(directory, "output.win");
+            var script = Path.Combine(directory, "create.csx");
+            var output = Path.Combine(directory, "output.win");
             if (withInput)
             {
                 using var original = GameMakerData.CreateNew2026LTS();
                 using var stream = File.Create(output);
-                GameMakerIO.Write(stream, original);
+                await GameMakerIO.WriteAsync(stream, original, cancellationToken: TestContext.Current.CancellationToken);
             }
             await File.WriteAllTextAsync(script, "Data = GameMakerData.CreateNew2026LTS(); Data.GeneralInfo.LastObj = 456;", TestContext.Current.CancellationToken);
-            ScriptExecutionResult result = await ScriptExecutionService.RunAsync(script, withInput ? output : null, output, []);
+            var result = await ScriptExecutionService.RunAsync(script, withInput ? output : null, output, []);
             Assert.True(result.Success, result.Error);
             using var saved = File.OpenRead(output);
-            using var data = GameMakerIO.Read(saved);
+            using var data = await GameMakerIO.ReadAsync(saved, null, cancellationToken: TestContext.Current.CancellationToken);
             Assert.Equal(456u, data.GeneralInfo.LastObj);
         }
         finally
@@ -93,12 +96,12 @@ public sealed class ModdingOperationServiceTests
     [Fact]
     public async Task ScriptDialogsWaitForTheHostAndReturnItsSelections()
     {
-        string directory = Directory.CreateTempSubdirectory("g3mtool-dialogs-").FullName;
+        var directory = Directory.CreateTempSubdirectory("g3mtool-dialogs-").FullName;
         var requested = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var response = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         try
         {
-            string script = Path.Combine(directory, "dialogs.csx");
+            var script = Path.Combine(directory, "dialogs.csx");
             await File.WriteAllTextAsync(script, """
                 if (ScriptQuestion("Continue?")) throw new Exception("Expected No");
                 if (ScriptInputDialog("Title", "Label", "Default", false, true) != "value") throw new Exception("Input");
@@ -114,7 +117,7 @@ public sealed class ModdingOperationServiceTests
                 SaveFile = (_, _) => Task.FromResult<string?>("output.win"),
                 ChooseDirectory = () => Task.FromResult<string?>(null)
             };
-            Task<ScriptExecutionResult> run = Task.Run(() => ScriptExecutionService.RunAsync(script, null, null, [], interaction), TestContext.Current.CancellationToken);
+            var run = Task.Run(() => ScriptExecutionService.RunAsync(script, null, null, [], interaction), TestContext.Current.CancellationToken);
             await requested.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
             Assert.False(run.IsCompleted);
             response.SetResult(false);
@@ -127,33 +130,33 @@ public sealed class ModdingOperationServiceTests
     [Fact]
     public async Task ScriptPatchesWorkInApplyMergeAndContinueAfterBatchFailure()
     {
-        string directory = Path.Combine(Path.GetTempPath(), "g3mtool-gui-tests", Guid.NewGuid().ToString("N"));
+        var directory = Path.Combine(Path.GetTempPath(), "g3mtool-gui-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         try
         {
-            string original = Path.Combine(directory, "original.win");
-            string script = Path.Combine(directory, "change.csx");
-            string invalid = Path.Combine(directory, "invalid.csx");
-            string applied = Path.Combine(directory, "applied.win");
-            string merged = Path.Combine(directory, "merged.win");
+            var original = Path.Combine(directory, "original.win");
+            var script = Path.Combine(directory, "change.csx");
+            var invalid = Path.Combine(directory, "invalid.csx");
+            var applied = Path.Combine(directory, "applied.win");
+            var merged = Path.Combine(directory, "merged.win");
             CreateRoomData(original);
             await File.WriteAllTextAsync(script, "Data.Rooms[1].Width = 123;", TestContext.Current.CancellationToken);
             await File.WriteAllTextAsync(invalid, "throw new Exception(\"invalid input\");", TestContext.Current.CancellationToken);
             using ModdingOperationService service = new();
 
-            var result = await service.RunAsync(new ModdingOperationRequest { Operation = ModdingOperation.ApplyPatch, OriginalPath = original, PrimaryPath = script, OutputPath = applied });
+            var result = await service.RunAsync(new ModdingOperationRequest { Operation = ModdingOperation.ApplyPatch, OriginalPath = original, PrimaryPath = script, OutputPath = applied }, TestContext.Current.CancellationToken);
             Assert.True(result.Success, result.Summary);
-            using (FileStream stream = File.OpenRead(applied))
-            using (GameMakerData data = GameMakerIO.Read(stream))
+            using (var stream = File.OpenRead(applied))
+            using (var data = await GameMakerIO.ReadAsync(stream, null, cancellationToken: TestContext.Current.CancellationToken))
                 Assert.Equal(123u, data.Rooms[1].Width);
 
-            result = await service.RunAsync(new ModdingOperationRequest { Operation = ModdingOperation.MergePatches, OriginalPath = original, InputPaths = [script, applied], PrimaryPath = merged });
+            result = await service.RunAsync(new ModdingOperationRequest { Operation = ModdingOperation.MergePatches, OriginalPath = original, InputPaths = [script, applied], PrimaryPath = merged }, TestContext.Current.CancellationToken);
             Assert.True(result.Success, result.Summary);
             Assert.True(File.Exists(merged));
 
-            result = await service.RunAsync(new ModdingOperationRequest { Operation = ModdingOperation.BatchCreate, OriginalPath = original, InputPaths = [invalid, script], OutputPath = Path.Combine(directory, "batch"), ContinueOnError = true });
+            result = await service.RunAsync(new ModdingOperationRequest { Operation = ModdingOperation.BatchCreate, OriginalPath = original, InputPaths = [invalid, script], OutputPath = Path.Combine(directory, "batch"), ContinueOnError = true }, TestContext.Current.CancellationToken);
             Assert.False(result.Success);
-            Assert.Contains("1/2 completed; 1 failed", result.Summary);
+            Assert.Contains("1/2 completed; 1 failed", result.Summary, StringComparison.Ordinal);
             Assert.Single(result.Outputs);
             Assert.True(File.Exists(result.Outputs[0]));
         }
@@ -166,17 +169,17 @@ public sealed class ModdingOperationServiceTests
     [Fact]
     public async Task FailedSavePreservesOriginalData()
     {
-        string directory = Path.Combine(Path.GetTempPath(), "g3mtool-gui-tests", Guid.NewGuid().ToString("N"));
+        var directory = Path.Combine(Path.GetTempPath(), "g3mtool-gui-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         try
         {
-            string path = Path.Combine(directory, "input.win");
-            string script = Path.Combine(directory, "invalid.csx");
+            var path = Path.Combine(directory, "input.win");
+            var script = Path.Combine(directory, "invalid.csx");
             CreateRoomData(path);
-            byte[] original = await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken);
+            var original = await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken);
             await File.WriteAllTextAsync(script, "Data.GeneralInfo.DisplayName.Content = null;", TestContext.Current.CancellationToken);
 
-            ScriptExecutionResult result = await ScriptExecutionService.RunAsync(script, path, path, []);
+            var result = await ScriptExecutionService.RunAsync(script, path, path, []);
 
             Assert.False(result.Success);
             Assert.Equal(original, await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken));
@@ -191,16 +194,16 @@ public sealed class ModdingOperationServiceTests
     [Fact]
     public async Task CreatePatchRejectsMissingInputWithoutWritingOutput()
     {
-        string output = Path.Combine(Path.GetTempPath(), "g3mtool-gui-tests", Guid.NewGuid() + ".g3mpatch");
+        var output = Path.Combine(Path.GetTempPath(), "g3mtool-gui-tests", Guid.NewGuid() + ".g3mpatch");
         using ModdingOperationService service = new();
 
-        ModdingOperationResult result = await service.RunAsync(new ModdingOperationRequest
+        var result = await service.RunAsync(new ModdingOperationRequest
         {
             Operation = ModdingOperation.CreatePatch,
             OriginalPath = "missing-original.win",
             PrimaryPath = "missing-modified.win",
             OutputPath = output
-        });
+        }, TestContext.Current.CancellationToken);
 
         Assert.False(result.Success);
         Assert.False(File.Exists(output));
@@ -209,18 +212,18 @@ public sealed class ModdingOperationServiceTests
     [Fact]
     public async Task ScriptExecutionRunsWithoutDataFile()
     {
-        string directory = Path.Combine(Path.GetTempPath(), "g3mtool-gui-tests", Guid.NewGuid().ToString("N"));
+        var directory = Path.Combine(Path.GetTempPath(), "g3mtool-gui-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
-        string script = Path.Combine(directory, "script.csx");
+        var script = Path.Combine(directory, "script.csx");
         await File.WriteAllTextAsync(script, "ScriptMessage(\"GUI script test\");", TestContext.Current.CancellationToken);
         try
         {
             using ModdingOperationService service = new();
-            ModdingOperationResult result = await service.RunAsync(new ModdingOperationRequest
+            var result = await service.RunAsync(new ModdingOperationRequest
             {
                 Operation = ModdingOperation.RunScript,
                 PrimaryPath = script
-            });
+            }, TestContext.Current.CancellationToken);
 
             Assert.True(result.Success, result.Summary);
         }
@@ -233,32 +236,32 @@ public sealed class ModdingOperationServiceTests
     [Fact]
     public async Task ScriptExecutionSupportsLegacyDataScripts()
     {
-        string directory = Path.Combine(Path.GetTempPath(), "g3mtool-gui-tests", Guid.NewGuid().ToString("N"));
+        var directory = Path.Combine(Path.GetTempPath(), "g3mtool-gui-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         try
         {
-            string input = Path.Combine(directory, "input.win");
-            string output = Path.Combine(directory, "output.win");
-            string script = Path.Combine(directory, "script.csx");
-            using (GameMakerData data = GameMakerData.CreateNew2026LTS())
-            using (FileStream stream = File.Create(input))
+            var input = Path.Combine(directory, "input.win");
+            var output = Path.Combine(directory, "output.win");
+            var script = Path.Combine(directory, "script.csx");
+            using (var data = GameMakerData.CreateNew2026LTS())
+            using (var stream = File.Create(input))
             {
-                GameMakerIO.Write(stream, data);
+                await GameMakerIO.WriteAsync(stream, data, cancellationToken: TestContext.Current.CancellationToken);
             }
             await File.WriteAllTextAsync(script, "using UndertaleModLib;\nData.GeneralInfo!.LastObj = 777;", TestContext.Current.CancellationToken);
 
             using ModdingOperationService service = new();
-            ModdingOperationResult result = await service.RunAsync(new ModdingOperationRequest
+            var result = await service.RunAsync(new ModdingOperationRequest
             {
                 Operation = ModdingOperation.RunScript,
                 OriginalPath = input,
                 PrimaryPath = script,
                 OutputPath = output
-            });
+            }, TestContext.Current.CancellationToken);
 
             Assert.True(result.Success, result.Summary);
-            using FileStream resultStream = File.OpenRead(output);
-            using GameMakerData resultData = GameMakerIO.Read(resultStream);
+            using var resultStream = File.OpenRead(output);
+            using var resultData = await GameMakerIO.ReadAsync(resultStream, null, cancellationToken: TestContext.Current.CancellationToken);
             Assert.Equal(777u, resultData.GeneralInfo.LastObj);
         }
         finally
@@ -270,18 +273,18 @@ public sealed class ModdingOperationServiceTests
     [Fact]
     public async Task ExternalProgramReceivesArgumentsWithoutShellParsing()
     {
-        string executable = OperatingSystem.IsWindows() ? Environment.GetEnvironmentVariable("ComSpec")! : "/bin/sh";
+        var executable = OperatingSystem.IsWindows() ? Environment.GetEnvironmentVariable("ComSpec")! : "/bin/sh";
         string[] arguments = OperatingSystem.IsWindows() ? ["/c", "echo stdout& echo stderr 1>&2"] : ["-c", "echo stdout; echo stderr >&2"];
         using ModdingOperationService service = new();
         var messages = new System.Collections.Concurrent.ConcurrentBag<string>();
         service.LogReceived += message => messages.Add(message.Message.Trim());
 
-        ModdingOperationResult result = await service.RunAsync(new ModdingOperationRequest
+        var result = await service.RunAsync(new ModdingOperationRequest
         {
             Operation = ModdingOperation.RunProgram,
             PrimaryPath = executable,
             InputPaths = arguments
-        });
+        }, TestContext.Current.CancellationToken);
 
         Assert.True(result.Success, result.Summary);
         Assert.Contains("stdout", messages);
@@ -291,31 +294,31 @@ public sealed class ModdingOperationServiceTests
     [Fact]
     public async Task PatchMergeCompareAndBatchOperationsRoundTripData()
     {
-        string directory = Path.Combine(Path.GetTempPath(), "g3mtool-gui-tests", Guid.NewGuid().ToString("N"));
+        var directory = Path.Combine(Path.GetTempPath(), "g3mtool-gui-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         try
         {
-            string original = Path.Combine(directory, "original.win");
-            string first = Path.Combine(directory, "first.win");
-            string second = Path.Combine(directory, "second.win");
-            string firstPatch = Path.Combine(directory, "first.g3mpatch");
-            string secondPatch = Path.Combine(directory, "second.g3mpatch");
-            string mergedData = Path.Combine(directory, "merged.win");
-            string mergedPatch = Path.Combine(directory, "merged.g3mpatch");
-            string report = Path.Combine(directory, "diff.md");
-            string batchDirectory = Path.Combine(directory, "batch-create");
-            string batchApplyDirectory = Path.Combine(directory, "batch-apply");
-            string batchMergeDataDirectory = Path.Combine(directory, "batch-merge-data");
-            string batchMergePatchDirectory = Path.Combine(directory, "batch-merge-patches");
+            var original = Path.Combine(directory, "original.win");
+            var first = Path.Combine(directory, "first.win");
+            var second = Path.Combine(directory, "second.win");
+            var firstPatch = Path.Combine(directory, "first.g3mpatch");
+            var secondPatch = Path.Combine(directory, "second.g3mpatch");
+            var mergedData = Path.Combine(directory, "merged.win");
+            var mergedPatch = Path.Combine(directory, "merged.g3mpatch");
+            var report = Path.Combine(directory, "diff.md");
+            var batchDirectory = Path.Combine(directory, "batch-create");
+            var batchApplyDirectory = Path.Combine(directory, "batch-apply");
+            var batchMergeDataDirectory = Path.Combine(directory, "batch-merge-data");
+            var batchMergePatchDirectory = Path.Combine(directory, "batch-merge-patches");
             CreateRoomData(original);
             ModifyData(original, first, data => data.Rooms.ByName("room_first").Width = 111u);
             ModifyData(original, second, data => data.Rooms.ByName("room_second").Height = 222u);
 
             using ModdingOperationService service = new();
-            Assert.True((await service.RunAsync(CreateRequest(original, first, firstPatch))).Success);
-            Assert.True((await service.RunAsync(CreateRequest(original, second, secondPatch))).Success);
-            Assert.True((await service.RunAsync(new ModdingOperationRequest { Operation = ModdingOperation.ValidatePatch, OriginalPath = original, PrimaryPath = firstPatch })).Success);
-            Assert.True((await service.RunAsync(new ModdingOperationRequest { Operation = ModdingOperation.Inspect, PrimaryPath = original })).Success);
+            Assert.True((await service.RunAsync(CreateRequest(original, first, firstPatch), TestContext.Current.CancellationToken)).Success);
+            Assert.True((await service.RunAsync(CreateRequest(original, second, secondPatch), TestContext.Current.CancellationToken)).Success);
+            Assert.True((await service.RunAsync(new ModdingOperationRequest { Operation = ModdingOperation.ValidatePatch, OriginalPath = original, PrimaryPath = firstPatch }, TestContext.Current.CancellationToken)).Success);
+            Assert.True((await service.RunAsync(new ModdingOperationRequest { Operation = ModdingOperation.Inspect, PrimaryPath = original }, TestContext.Current.CancellationToken)).Success);
             Assert.True((await service.RunAsync(new ModdingOperationRequest
             {
                 Operation = ModdingOperation.MergePatches,
@@ -324,7 +327,7 @@ public sealed class ModdingOperationServiceTests
                 InputPaths = [firstPatch, secondPatch],
                 OutputPath = mergedPatch,
                 FullReport = true
-            })).Success);
+            }, TestContext.Current.CancellationToken)).Success);
             Assert.True(File.Exists(mergedData));
             Assert.True(File.Exists(mergedPatch));
             Assert.True((await service.RunAsync(new ModdingOperationRequest
@@ -334,7 +337,7 @@ public sealed class ModdingOperationServiceTests
                 PrimaryPath = mergedData,
                 OutputPath = report,
                 FullReport = true
-            })).Success);
+            }, TestContext.Current.CancellationToken)).Success);
             Assert.True(File.Exists(report));
             Assert.True((await service.RunAsync(new ModdingOperationRequest
             {
@@ -342,7 +345,7 @@ public sealed class ModdingOperationServiceTests
                 OriginalPath = original,
                 InputPaths = [first, second],
                 OutputPath = batchDirectory
-            })).Success);
+            }, TestContext.Current.CancellationToken)).Success);
             Assert.Equal(2, Directory.EnumerateFiles(batchDirectory, "*.g3mpatch").Count());
             Assert.True((await service.RunAsync(new ModdingOperationRequest
             {
@@ -350,7 +353,7 @@ public sealed class ModdingOperationServiceTests
                 OriginalPath = original,
                 InputPaths = [firstPatch, secondPatch],
                 OutputPath = batchApplyDirectory
-            })).Success);
+            }, TestContext.Current.CancellationToken)).Success);
             Assert.Equal(2, Directory.EnumerateFiles(batchApplyDirectory, "*.win").Count());
             Assert.True((await service.RunAsync(new ModdingOperationRequest
             {
@@ -360,7 +363,7 @@ public sealed class ModdingOperationServiceTests
                 InputPaths = [firstPatch + "," + secondPatch],
                 OutputPath = batchMergePatchDirectory,
                 FullReport = true
-            })).Success);
+            }, TestContext.Current.CancellationToken)).Success);
             Assert.Single(Directory.EnumerateFiles(batchMergeDataDirectory, "*.win"));
             Assert.Single(Directory.EnumerateFiles(batchMergePatchDirectory, "*.g3mpatch"));
             Assert.True((await service.RunAsync(new ModdingOperationRequest
@@ -370,7 +373,7 @@ public sealed class ModdingOperationServiceTests
                 PrimaryPath = batchMergeDataDirectory,
                 InputPaths = [firstPatch + "," + secondPatch],
                 OutputPath = batchMergePatchDirectory
-            })).Success);
+            }, TestContext.Current.CancellationToken)).Success);
             Assert.Equal(2, Directory.EnumerateFiles(batchMergeDataDirectory, "*.win").Count());
             Assert.Equal(2, Directory.EnumerateFiles(batchMergePatchDirectory, "*.g3mpatch").Count());
         }
@@ -383,44 +386,44 @@ public sealed class ModdingOperationServiceTests
     [Fact]
     public async Task XDeltaOperationsRoundTripArbitraryFiles()
     {
-        string directory = Path.Combine(Path.GetTempPath(), "g3mtool-gui-tests", Guid.NewGuid().ToString("N"));
+        var directory = Path.Combine(Path.GetTempPath(), "g3mtool-gui-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         try
         {
-            string original = Path.Combine(directory, "original.bin");
-            string modified = Path.Combine(directory, "modified.bin");
-            string patch = Path.Combine(directory, "patch.xdelta");
-            string output = Path.Combine(directory, "output.bin");
+            var original = Path.Combine(directory, "original.bin");
+            var modified = Path.Combine(directory, "modified.bin");
+            var patch = Path.Combine(directory, "patch.xdelta");
+            var output = Path.Combine(directory, "output.bin");
             await File.WriteAllBytesAsync(original, [1, 2, 3, 4], TestContext.Current.CancellationToken);
             await File.WriteAllBytesAsync(modified, [1, 9, 3, 4, 5], TestContext.Current.CancellationToken);
 
-            Type provider = typeof(ModdingOperationService).Assembly.GetType("G3MToolGUI.Services.EmbeddedXDeltaPathProvider", throwOnError: true)!;
-            string executable = (string)provider.GetMethod("GetPath")!.Invoke(null, null)!;
+            var provider = typeof(ModdingOperationService).Assembly.GetType("G3MToolGUI.Services.EmbeddedXDeltaPathProvider", throwOnError: true)!;
+            var executable = (string)provider.GetMethod("GetPath")!.Invoke(null, null)!;
             Assert.True(File.Exists(executable));
             if (!OperatingSystem.IsWindows()) Assert.True(File.GetUnixFileMode(executable).HasFlag(UnixFileMode.UserExecute));
             XDeltaService.DefaultExecutablePath = executable;
             try
             {
                 using ModdingOperationService service = new();
-                Assert.True((await service.RunAsync(new ModdingOperationRequest { Operation = ModdingOperation.CreateXDelta, OriginalPath = original, PrimaryPath = modified, OutputPath = patch })).Success);
-                Assert.True((await service.RunAsync(new ModdingOperationRequest { Operation = ModdingOperation.ApplyXDelta, OriginalPath = original, PrimaryPath = patch, OutputPath = output })).Success);
+                Assert.True((await service.RunAsync(new ModdingOperationRequest { Operation = ModdingOperation.CreateXDelta, OriginalPath = original, PrimaryPath = modified, OutputPath = patch }, TestContext.Current.CancellationToken)).Success);
+                Assert.True((await service.RunAsync(new ModdingOperationRequest { Operation = ModdingOperation.ApplyXDelta, OriginalPath = original, PrimaryPath = patch, OutputPath = output }, TestContext.Current.CancellationToken)).Success);
                 Assert.Equal(await File.ReadAllBytesAsync(modified, TestContext.Current.CancellationToken), await File.ReadAllBytesAsync(output, TestContext.Current.CancellationToken));
-                string originalData = Path.Combine(directory, "original.win");
-                string modifiedData = Path.Combine(directory, "modified.win");
-                string vcdiff = Path.Combine(directory, "data.vcdiff");
-                string structuredPatch = Path.Combine(directory, "converted.g3mpatch");
+                var originalData = Path.Combine(directory, "original.win");
+                var modifiedData = Path.Combine(directory, "modified.win");
+                var vcdiff = Path.Combine(directory, "data.vcdiff");
+                var structuredPatch = Path.Combine(directory, "converted.g3mpatch");
                 CreateRoomData(originalData);
                 ModifyData(originalData, modifiedData, data => data.Rooms[1].Width = 987);
                 Assert.True((await new XDeltaService().CreatePatchAsync(originalData, modifiedData, vcdiff)).Success);
-                var converted = await G3MLib.Modding.Patching.PatchService.CreatePatchAsync(originalData, vcdiff, structuredPatch);
+                var converted = await G3MLib.Modding.Patching.PatchService.CreatePatchAsync(originalData, vcdiff, structuredPatch, cancellationToken: TestContext.Current.CancellationToken);
                 Assert.True(converted.Success, converted.Error);
-                string ensured = await G3MLib.Modding.Patching.PatchService.EnsureG3MPatchAsync(originalData, vcdiff, directory);
-                var applied = await G3MLib.Modding.Patching.PatchService.ApplyPatchAsync(originalData, ensured, Path.Combine(directory, "applied.win"));
+                var ensured = await G3MLib.Modding.Patching.PatchService.EnsureG3MPatchAsync(originalData, vcdiff, directory);
+                var applied = await G3MLib.Modding.Patching.PatchService.ApplyPatchAsync(originalData, ensured, Path.Combine(directory, "applied.win"), cancellationToken: TestContext.Current.CancellationToken);
                 Assert.True(applied.Success, applied.Error);
                 using var appliedStream = File.OpenRead(Path.Combine(directory, "applied.win"));
-                using var appliedData = GameMakerIO.Read(appliedStream);
+                using var appliedData = await GameMakerIO.ReadAsync(appliedStream, null, cancellationToken: TestContext.Current.CancellationToken);
                 Assert.Equal(987u, appliedData.Rooms[1].Width);
-                string script = Path.Combine(directory, "change.csx");
+                var script = Path.Combine(directory, "change.csx");
                 await File.WriteAllTextAsync(script, "Data.Rooms[1].Width = 654;", TestContext.Current.CancellationToken);
                 var batch = await service.RunAsync(new ModdingOperationRequest
                 {
@@ -429,12 +432,12 @@ public sealed class ModdingOperationServiceTests
                     InputPaths = [script],
                     OutputPath = Path.Combine(directory, "batch-delta"),
                     CreateXDelta = true
-                });
+                }, TestContext.Current.CancellationToken);
                 Assert.True(batch.Success, batch.Summary);
-                string batchOutput = Path.Combine(directory, "batch-applied.win");
+                var batchOutput = Path.Combine(directory, "batch-applied.win");
                 Assert.True((await new XDeltaService().ApplyPatchAsync(originalData, Assert.Single(batch.Outputs), batchOutput)).Success);
                 using var batchStream = File.OpenRead(batchOutput);
-                using var batchData = GameMakerIO.Read(batchStream);
+                using var batchData = await GameMakerIO.ReadAsync(batchStream, null, cancellationToken: TestContext.Current.CancellationToken);
                 Assert.Equal(654u, batchData.Rooms[1].Width);
             }
             finally
@@ -456,21 +459,49 @@ public sealed class ModdingOperationServiceTests
         OutputPath = output
     };
 
+    [Fact]
+    public async Task CancelledApplyPatchReportsCancelledAndWritesNothing()
+    {
+        var directory = Directory.CreateTempSubdirectory("g3mtool-cancel-").FullName;
+        try
+        {
+            var original = Path.Combine(directory, "original.win");
+            var modified = Path.Combine(directory, "modified.win");
+            var patch = Path.Combine(directory, "change.g3mpatch");
+            var output = Path.Combine(directory, "applied.win");
+            CreateRoomData(original);
+            ModifyData(original, modified, data => data.Rooms[1].Width = 123);
+            using ModdingOperationService service = new();
+            Assert.True((await service.RunAsync(new ModdingOperationRequest { Operation = ModdingOperation.CreatePatch, OriginalPath = original, PrimaryPath = modified, OutputPath = patch }, TestContext.Current.CancellationToken)).Success);
+            using var cancellation = new CancellationTokenSource();
+            await cancellation.CancelAsync();
+
+            var result = await service.RunAsync(new ModdingOperationRequest { Operation = ModdingOperation.ApplyPatch, OriginalPath = original, PrimaryPath = patch, OutputPath = output }, cancellation.Token);
+
+            Assert.False(result.Success);
+            Assert.Equal("Cancelled.", result.Summary);
+            Assert.False(File.Exists(output));
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
     private static void CreateRoomData(string path)
     {
-        using GameMakerData data = GameMakerData.CreateNew2026LTS();
+        using var data = GameMakerData.CreateNew2026LTS();
+#pragma warning disable CA2000 // the data model owns what is added to it
         data.Rooms.Add(new GameMakerRoom { Name = data.Strings.MakeString("room_first") });
         data.Rooms.Add(new GameMakerRoom { Name = data.Strings.MakeString("room_second") });
-        using FileStream stream = File.Create(path);
+#pragma warning restore CA2000
+        using var stream = File.Create(path);
         GameMakerIO.Write(stream, data);
     }
 
     private static void ModifyData(string sourcePath, string outputPath, Action<GameMakerData> modify)
     {
-        using FileStream source = File.OpenRead(sourcePath);
-        using GameMakerData data = GameMakerIO.Read(source);
+        using var source = File.OpenRead(sourcePath);
+        using var data = GameMakerIO.Read(source);
         modify(data);
-        using FileStream output = File.Create(outputPath);
+        using var output = File.Create(outputPath);
         GameMakerIO.Write(output, data);
     }
 }

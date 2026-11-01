@@ -1,14 +1,10 @@
-using System;
-using System.IO;
-using System.Threading;
-
 namespace G3MToolCLI.Services.Logging;
 
 public static class LogService
 {
-    private static readonly Lock _lock = new Lock();
+    private static readonly Lock _lock = new();
 
-    private static readonly Lock _fileLock = new Lock();
+    private static readonly Lock _fileLock = new();
 
     private static int _lastProgressPercent = -1;
 
@@ -103,7 +99,7 @@ public static class LogService
         {
             return;
         }
-        int percent = (int)((double)current * 100.0 / (double)total);
+        var percent = (int)(current * 100.0 / total);
         using (_lock.EnterScope())
         {
             if (percent > _lastProgressPercent)
@@ -119,9 +115,9 @@ public static class LogService
     {
         if (total > 0 && !Suppress)
         {
-            int clampedStart = Math.Clamp(rangeStart, 0, 100);
-            int span = Math.Clamp(rangeEnd, clampedStart, 100) - clampedStart;
-            Progress(clampedStart + (int)Math.Round((double)(current * span) / (double)total), 100);
+            var clampedStart = Math.Clamp(rangeStart, 0, 100);
+            var span = Math.Clamp(rangeEnd, clampedStart, 100) - clampedStart;
+            Progress(clampedStart + (int)Math.Round(current * span / (double)total), 100);
         }
     }
 

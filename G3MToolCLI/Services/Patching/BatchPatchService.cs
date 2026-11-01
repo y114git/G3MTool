@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Text;
 
 namespace G3MToolCLI.Services.Patching;
 
@@ -16,6 +15,7 @@ internal sealed class BatchOptions
     public bool UseCodeMerge { get; init; }
     public bool UsePropertyMerge { get; init; }
     public bool WriteReports { get; init; }
+    public CancellationToken CancellationToken { get; init; }
 }
 
 internal sealed record BatchItemResult
@@ -46,46 +46,46 @@ internal static class BatchPatchService
 
     public static Task<BatchResult> ApplyBatchAsync(IReadOnlyList<string> patchPaths, BatchOptions options)
     {
-        string outputDirectory = RequireOutputDirectory(options);
-        List<string> inputs = NormalizeFiles(patchPaths, "patch");
+        var outputDirectory = RequireOutputDirectory(options);
+        var inputs = NormalizeFiles(patchPaths, "patch");
         return RunAsync(CreateJobsAsync(inputs, options.OriginalPath, input => Path.Combine(outputDirectory, $"{Name(options.OriginalPath)}_{Name(input)}{Extension(options.OriginalPath)}"), "apply", options.XdeltaFallback), options, ApplyAsync);
     }
 
     public static Task<BatchResult> CreateBatchAsync(IReadOnlyList<string> modifiedPaths, BatchOptions options)
     {
-        string outputDirectory = RequireOutputDirectory(options);
-        List<string> inputs = NormalizeFiles(modifiedPaths, "modified");
-        string extension = options.CreateXdelta ? ".xdelta" : ".g3mpatch";
+        var outputDirectory = RequireOutputDirectory(options);
+        var inputs = NormalizeFiles(modifiedPaths, "modified");
+        var extension = options.CreateXdelta ? ".xdelta" : ".g3mpatch";
         return RunAsync(CreateJobsAsync(inputs, options.OriginalPath, input => Path.Combine(outputDirectory, Name(input) + extension), "create", options.CreateXdelta, options.IncludeXdeltaFallback), options, CreateAsync);
     }
 
     public static async Task<BatchResult> MergeBatchAsync(IReadOnlyList<string> setSpecs, BatchOptions options)
     {
         ValidateOriginal(options.OriginalPath);
-        string applyDirectory = string.IsNullOrWhiteSpace(options.ApplyDir) ? Directory.GetCurrentDirectory() : Path.GetFullPath(options.ApplyDir);
+        var applyDirectory = string.IsNullOrWhiteSpace(options.ApplyDir) ? Directory.GetCurrentDirectory() : Path.GetFullPath(options.ApplyDir);
         Directory.CreateDirectory(applyDirectory);
-        string? patchDirectory = string.IsNullOrWhiteSpace(options.OutDir) ? null : Path.GetFullPath(options.OutDir);
+        var patchDirectory = string.IsNullOrWhiteSpace(options.OutDir) ? null : Path.GetFullPath(options.OutDir);
         if (patchDirectory is not null) Directory.CreateDirectory(patchDirectory);
 
-        List<string[]> sets = ParseSets(setSpecs).Select(paths => NormalizeFiles(paths, "merge patch").ToArray()).ToList();
-        Dictionary<string, string> hashes = await HashAsync([options.OriginalPath, .. sets.SelectMany(set => set)]);
-        string originalHash = hashes[Path.GetFullPath(options.OriginalPath)];
+        List<string[]> sets = [.. ParseSets(setSpecs).Select(paths => NormalizeFiles(paths, "merge patch").ToArray())];
+        var hashes = await HashAsync([options.OriginalPath, .. sets.SelectMany(set => set)]);
+        var originalHash = hashes[Path.GetFullPath(options.OriginalPath)];
         var jobs = new List<Job>(sets.Count);
         var usedOutputs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        for (int index = 0; index < sets.Count; index++)
+        for (var index = 0; index < sets.Count; index++)
         {
-            string stem = $"merge_{index + 1:000}_{string.Join("_", sets[index].Select(Name).Take(5))}";
+            var stem = $"merge_{index + 1:000}_{string.Join("_", sets[index].Select(Name).Take(5))}";
             string[] outputs;
-            for (int suffix = 1; ; suffix++)
+            for (var suffix = 1; ; suffix++)
             {
-                string name = suffix == 1 ? stem : $"{stem}_{suffix}";
-                string dataOutput = Path.Combine(applyDirectory, name + Extension(options.OriginalPath));
+                var name = suffix == 1 ? stem : $"{stem}_{suffix}";
+                var dataOutput = Path.Combine(applyDirectory, name + Extension(options.OriginalPath));
                 outputs = patchDirectory is null
                     ? [dataOutput]
                     : [dataOutput, Path.Combine(patchDirectory, name + ".g3mpatch")];
                 if (options.WriteReports) outputs = [.. outputs, Path.ChangeExtension(outputs[^1], ".merge_log.md")];
                 if (outputs.Any(path => File.Exists(path) || Directory.Exists(path) || usedOutputs.Contains(path))) continue;
-                foreach (string path in outputs) usedOutputs.Add(path);
+                foreach (var path in outputs) usedOutputs.Add(path);
                 break;
             }
             jobs.Add(new(index + 1, "merge", Key("merge", originalHash, string.Join(">", sets[index].Select(path => hashes[path])), options.UseCodeMerge, options.UsePropertyMerge), sets[index], outputs));
@@ -96,16 +96,16 @@ internal static class BatchPatchService
     private static async Task<List<Job>> CreateJobsAsync(IEnumerable<string> inputs, string originalPath, Func<string, string> output, string kind, params object[] keyParts)
     {
         ValidateOriginal(originalPath);
-        List<string> inputList = inputs.ToList();
-        Dictionary<string, string> hashes = await HashAsync([originalPath, .. inputList]);
-        string originalHash = hashes[Path.GetFullPath(originalPath)];
+        List<string> inputList = [.. inputs];
+        var hashes = await HashAsync([originalPath, .. inputList]);
+        var originalHash = hashes[Path.GetFullPath(originalPath)];
         var usedOutputs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var jobs = new List<Job>(inputList.Count);
-        for (int index = 0; index < inputList.Count; index++)
+        for (var index = 0; index < inputList.Count; index++)
         {
-            string input = inputList[index];
-            string candidate = output(input);
-            string uniqueOutput = UniquePath(candidate, usedOutputs);
+            var input = inputList[index];
+            var candidate = output(input);
+            var uniqueOutput = UniquePath(candidate, usedOutputs);
             jobs.Add(new(index + 1, kind, Key([.. keyParts, originalHash, hashes[input]]), [input], [uniqueOutput]));
         }
         return jobs;
@@ -117,11 +117,12 @@ internal static class BatchPatchService
     {
         var result = new BatchResult { Total = jobs.Count };
         var completed = new Dictionary<string, BatchItemResult>(StringComparer.Ordinal);
-        foreach (Job job in jobs)
+        foreach (var job in jobs)
         {
+            options.CancellationToken.ThrowIfCancellationRequested();
             BatchItemResult item;
-            bool canReuse = job.Inputs.All(path => Path.GetExtension(path).Equals(".g3mpatch", StringComparison.OrdinalIgnoreCase));
-            if (canReuse && completed.TryGetValue(job.Key, out BatchItemResult? previous))
+            var canReuse = job.Inputs.All(path => Path.GetExtension(path).Equals(".g3mpatch", StringComparison.OrdinalIgnoreCase));
+            if (canReuse && completed.TryGetValue(job.Key, out var previous))
             {
                 try
                 {
@@ -148,37 +149,37 @@ internal static class BatchPatchService
 
     private static async Task<BatchItemResult> ApplyAsync(Job job, BatchOptions options)
     {
-        Stopwatch timer = Stopwatch.StartNew();
+        var timer = Stopwatch.StartNew();
         string? temporaryDirectory = null;
         try
         {
             temporaryDirectory = Path.Combine(Path.GetTempPath(), $"g3mtool_batch_apply_{Guid.NewGuid():N}");
             if (Path.GetExtension(job.Inputs[0]).Equals(".g3mpatch", StringComparison.OrdinalIgnoreCase))
             {
-                PatchApplyResult result = await PatchService.ApplyPatchAsync(options.OriginalPath, job.Inputs[0], job.Outputs[0], options.XdeltaFallback);
+                var result = await PatchService.ApplyPatchAsync(options.OriginalPath, job.Inputs[0], job.Outputs[0], options.XdeltaFallback, cancellationToken: options.CancellationToken);
                 return result.Success ? Succeeded(job, timer.Elapsed.TotalSeconds) : Failed(job, result.Error, timer.Elapsed.TotalSeconds);
             }
             PatchInputService.CopyDataFile(await ScriptPatchInputService.MaterializeDataAsync(options.OriginalPath, job.Inputs[0], temporaryDirectory), job.Outputs[0]);
             return Succeeded(job, timer.Elapsed.TotalSeconds);
         }
-        catch (Exception exception) { return Failed(job, exception.Message, timer.Elapsed.TotalSeconds); }
+        catch (Exception exception) when (exception is not OperationCanceledException) { return Failed(job, exception.Message, timer.Elapsed.TotalSeconds); }
         finally { DeleteDirectory(temporaryDirectory); }
     }
 
     private static async Task<BatchItemResult> CreateAsync(Job job, BatchOptions options)
     {
-        Stopwatch timer = Stopwatch.StartNew();
-        string temporaryDirectory = Path.Combine(Path.GetTempPath(), $"g3mtool_batch_create_{Guid.NewGuid():N}");
+        var timer = Stopwatch.StartNew();
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"g3mtool_batch_create_{Guid.NewGuid():N}");
         try
         {
             Directory.CreateDirectory(temporaryDirectory);
-            string input = await ScriptPatchInputService.MaterializeDataAsync(options.OriginalPath, job.Inputs[0], temporaryDirectory);
+            var input = await ScriptPatchInputService.MaterializeDataAsync(options.OriginalPath, job.Inputs[0], temporaryDirectory);
             if (options.CreateXdelta)
             {
-                XDeltaResult xdelta = await new XDeltaService().CreatePatchAsync(options.OriginalPath, input, job.Outputs[0]);
+                var xdelta = await new XDeltaService().CreatePatchAsync(options.OriginalPath, input, job.Outputs[0]);
                 return xdelta.Success ? Succeeded(job, timer.Elapsed.TotalSeconds) : Failed(job, xdelta.Error, timer.Elapsed.TotalSeconds);
             }
-            PatchCreateResult patch = await PatchService.CreatePatchAsync(options.OriginalPath, input, job.Outputs[0], null, null, null, null, null, options.IncludeXdeltaFallback, options.CacheOptions);
+            var patch = await PatchService.CreatePatchAsync(options.OriginalPath, input, job.Outputs[0], null, null, null, null, null, options.IncludeXdeltaFallback, options.CacheOptions);
             return patch.Success ? Succeeded(job, timer.Elapsed.TotalSeconds) : Failed(job, patch.Error, timer.Elapsed.TotalSeconds);
         }
         catch (Exception exception) { return Failed(job, exception.Message, timer.Elapsed.TotalSeconds); }
@@ -187,13 +188,13 @@ internal static class BatchPatchService
 
     private static async Task<BatchItemResult> MergeAsync(Job job, BatchOptions options)
     {
-        Stopwatch timer = Stopwatch.StartNew();
+        var timer = Stopwatch.StartNew();
         try
         {
-            string? patchOutput = job.Outputs.FirstOrDefault(path => path.EndsWith(".g3mpatch", StringComparison.OrdinalIgnoreCase));
-            string dataOutput = job.Outputs[0];
-            string? report = options.WriteReports ? job.Outputs[^1] : null;
-            MergeResult merge = await ScriptPatchInputService.MergeAsync(options.OriginalPath, job.Inputs.ToList(), new MergeOptions
+            var patchOutput = job.Outputs.FirstOrDefault(path => path.EndsWith(".g3mpatch", StringComparison.OrdinalIgnoreCase));
+            var dataOutput = job.Outputs[0];
+            var report = options.WriteReports ? job.Outputs[^1] : null;
+            var merge = await ScriptPatchInputService.MergeAsync(options.OriginalPath, [.. job.Inputs], new MergeOptions
             {
                 OutputPath = patchOutput,
                 ApplyPath = dataOutput,
@@ -201,38 +202,38 @@ internal static class BatchPatchService
                 UsePropertyMerge = options.UsePropertyMerge,
                 ReportPath = report,
                 CacheOptions = options.CacheOptions
-            });
+            }, options.CancellationToken);
             if (!merge.Success) return Failed(job, merge.Error, timer.Elapsed.TotalSeconds);
             return Succeeded(job, timer.Elapsed.TotalSeconds);
         }
-        catch (Exception exception) { return Failed(job, exception.Message, timer.Elapsed.TotalSeconds); }
+        catch (Exception exception) when (exception is not OperationCanceledException) { return Failed(job, exception.Message, timer.Elapsed.TotalSeconds); }
     }
 
     private static async Task<Dictionary<string, string>> HashAsync(IEnumerable<string> paths)
     {
         var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (string path in paths.Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase)) result.Add(path, await HashService.ComputeFileHashAsync(path));
+        foreach (var path in paths.Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase)) result.Add(path, await HashService.ComputeFileHashAsync(path));
         return result;
     }
 
     private static List<string[]> ParseSets(IReadOnlyList<string> specifications)
     {
         if (specifications.Count == 0) throw new ArgumentException("At least one merge set is required.");
-        return specifications.Select(specification =>
+        return [.. specifications.Select(specification =>
         {
-            if (specification.Contains(';')) throw new ArgumentException("Merge sets use comma separators only; semicolons are not supported.");
-            string[] paths = specification.Split(',', StringSplitOptions.TrimEntries);
+            if (specification.Contains(';', StringComparison.Ordinal)) throw new ArgumentException("Merge sets use comma separators only; semicolons are not supported.");
+            var paths = specification.Split(',', StringSplitOptions.TrimEntries);
             if (paths.Length < 2 || paths.Any(string.IsNullOrEmpty)) throw new ArgumentException("Each merge set must contain at least two paths.");
             return paths;
-        }).ToList();
+        })];
     }
 
     private static List<string> NormalizeFiles(IEnumerable<string> paths, string label)
     {
         var result = new List<string>();
-        foreach (string path in paths)
+        foreach (var path in paths)
         {
-            string fullPath = Path.GetFullPath(path.Trim());
+            var fullPath = Path.GetFullPath(path.Trim());
             if (string.IsNullOrWhiteSpace(path) || !File.Exists(fullPath)) throw new FileNotFoundException($"{label} file not found: {fullPath}", fullPath);
             result.Add(fullPath);
         }
@@ -243,7 +244,7 @@ internal static class BatchPatchService
     {
         ValidateOriginal(options.OriginalPath);
         if (string.IsNullOrWhiteSpace(options.OutDir)) throw new ArgumentException("--out-dir is required for this batch command.");
-        string directory = Path.GetFullPath(options.OutDir);
+        var directory = Path.GetFullPath(options.OutDir);
         Directory.CreateDirectory(directory);
         return directory;
     }
@@ -261,21 +262,21 @@ internal static class BatchPatchService
     private static string UniquePath(string candidate, ISet<string> used) => UniqueName(candidate, used);
     private static string UniqueName(string candidate, ISet<string> used)
     {
-        string directory = Path.GetDirectoryName(candidate) ?? string.Empty;
-        string stem = Path.GetFileNameWithoutExtension(candidate);
-        string extension = Path.GetExtension(candidate);
-        string value = candidate;
-        for (int suffix = 2; File.Exists(value) || Directory.Exists(value) || !used.Add(value); suffix++) value = Path.Combine(directory, $"{stem}_{suffix}{extension}");
+        var directory = Path.GetDirectoryName(candidate) ?? string.Empty;
+        var stem = Path.GetFileNameWithoutExtension(candidate);
+        var extension = Path.GetExtension(candidate);
+        var value = candidate;
+        for (var suffix = 2; File.Exists(value) || Directory.Exists(value) || !used.Add(value); suffix++) value = Path.Combine(directory, $"{stem}_{suffix}{extension}");
         return value;
     }
     private static string Sanitize(string value) => string.Concat(value.Select(character => Path.GetInvalidFileNameChars().Contains(character) ? '_' : character)).Trim(' ', '.', '_');
-    private static string[] CopyOutputs(IReadOnlyList<string> source, IReadOnlyList<string> target)
+    private static string[] CopyOutputs(string[] source, string[] target)
     {
-        if (source.Count != target.Count) throw new InvalidOperationException("Cannot duplicate batch result: source output count mismatch.");
-        var copied = new List<string>(source.Count);
-        for (int index = 0; index < source.Count; index++)
+        if (source.Length != target.Length) throw new InvalidOperationException("Cannot duplicate batch result: source output count mismatch.");
+        var copied = new List<string>(source.Length);
+        for (var index = 0; index < source.Length; index++)
         {
-            string destination = target[index];
+            var destination = target[index];
             File.Copy(source[index], destination, false);
             copied.Add(destination);
         }

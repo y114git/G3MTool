@@ -1,5 +1,3 @@
-using Xunit;
-
 [assembly: AssemblyFixture<G3MToolCLI.Tests.TestResultsCleanupFixture>]
 
 namespace G3MToolCLI.Tests;
@@ -28,7 +26,7 @@ public sealed class TestResultsCleanupFixture : IDisposable
 
     private static void DeleteDefaultTestResults()
     {
-        foreach (string path in new[]
+        foreach (var path in new[]
         {
             Path.Combine(Environment.CurrentDirectory, "TestResults"),
             Path.Combine(AppContext.BaseDirectory, "TestResults")

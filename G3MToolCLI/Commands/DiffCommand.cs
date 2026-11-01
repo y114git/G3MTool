@@ -1,9 +1,5 @@
-using System;
 using System.CommandLine;
-using System.IO;
 using System.Text.Json;
-using G3MToolCLI.Models.Scripting;
-using G3MToolCLI.Services.Logging;
 using G3MToolCLI.Utils;
 
 namespace G3MToolCLI.Commands;
@@ -18,12 +14,12 @@ public static class DiffCommand
 
     public static Command Create()
     {
-        Command command = new Command("diff", "Compare data files or .g3mpatch files and write a Markdown report.\n  Standard mode writes summaries and changed file lists. --full adds unified text/code/JSON diffs and deeper TPI/asset-order details.\n  Usage: diff <file1> <file2> [output-dir] [--full] [--cache <dir>]");
-        Argument<FileInfo> file1Arg = new Argument<FileInfo>("file1") { Description = "First file (data file or .g3mpatch)" };
-        Argument<FileInfo> file2Arg = new Argument<FileInfo>("file2") { Description = "Second file (data file or .g3mpatch)" };
-        Argument<DirectoryInfo?> outputArg = new Argument<DirectoryInfo?>("output") { DefaultValueFactory = _ => null, Description = "Output directory for diff report. Default: <executable>/diff" };
-        Option<bool> fullOption = new Option<bool>("--full") { Description = "Generate full text/code/JSON diffs plus deeper TPI, reference, and asset-order details. Slower and larger." };
-        Option<DirectoryInfo?> cacheOption = new Option<DirectoryInfo?>("--cache") { Description = "Read and write reusable .g3mcache analysis files in this directory." };
+        var command = new Command("diff", "Compare data files or .g3mpatch files and write a Markdown report.\n  Standard mode writes summaries and changed file lists. --full adds unified text/code/JSON diffs and deeper TPI/asset-order details.\n  Usage: diff <file1> <file2> [output-dir] [--full] [--cache <dir>]");
+        var file1Arg = new Argument<FileInfo>("file1") { Description = "First file (data file or .g3mpatch)" };
+        var file2Arg = new Argument<FileInfo>("file2") { Description = "Second file (data file or .g3mpatch)" };
+        var outputArg = new Argument<DirectoryInfo?>("output") { DefaultValueFactory = _ => null, Description = "Output directory for diff report. Default: <executable>/diff" };
+        var fullOption = new Option<bool>("--full") { Description = "Generate full text/code/JSON diffs plus deeper TPI, reference, and asset-order details. Slower and larger." };
+        var cacheOption = new Option<DirectoryInfo?>("--cache") { Description = "Read and write reusable .g3mcache analysis files in this directory." };
         command.Add(file1Arg);
         command.Add(file2Arg);
         command.Add(outputArg);
@@ -31,15 +27,15 @@ public static class DiffCommand
         command.Add(cacheOption);
         command.SetAction(async parseResult =>
         {
-            FileInfo file1 = parseResult.GetValue(file1Arg)!;
-            FileInfo file2 = parseResult.GetValue(file2Arg)!;
-            DirectoryInfo? output = parseResult.GetValue(outputArg);
-            bool full = parseResult.GetValue(fullOption);
-            DirectoryInfo? cacheDir = parseResult.GetValue(cacheOption);
-            string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-            string defaultOutputDir = Path.Combine(PlatformUtil.GetExecutableDirectory(), "diff");
-            string outputDir = output?.FullName ?? defaultOutputDir;
-            string outputPath = Path.Combine(outputDir, "diff_" + timestamp + ".md");
+            var file1 = parseResult.GetValue(file1Arg)!;
+            var file2 = parseResult.GetValue(file2Arg)!;
+            var output = parseResult.GetValue(outputArg);
+            var full = parseResult.GetValue(fullOption);
+            var cacheDir = parseResult.GetValue(cacheOption);
+            var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss", System.Globalization.CultureInfo.InvariantCulture);
+            var defaultOutputDir = Path.Combine(PlatformUtil.GetExecutableDirectory(), "diff");
+            var outputDir = output?.FullName ?? defaultOutputDir;
+            var outputPath = Path.Combine(outputDir, "diff_" + timestamp + ".md");
             if (!Program.JsonOutput)
             {
                 Console.WriteLine("Comparing files...");
@@ -47,7 +43,7 @@ public static class DiffCommand
                 Console.WriteLine("  File 2: " + file2.FullName);
                 Console.WriteLine("  Output: " + outputPath);
             }
-            DiffResult result = await DiffService.CompareAsync(file1.FullName, file2.FullName, outputPath, full ? DiffReportMode.Full : DiffReportMode.Standard, G3MCacheOptions.FromDirectory(cacheDir?.FullName));
+            var result = await DiffService.CompareAsync(file1.FullName, file2.FullName, outputPath, full ? DiffReportMode.Full : DiffReportMode.Standard, G3MCacheOptions.FromDirectory(cacheDir?.FullName), Program.Cancellation);
             if (result.Success)
             {
                 if (Program.JsonOutput)
@@ -89,7 +85,7 @@ public static class DiffCommand
                 }
                 else
                 {
-                    Console.Error.WriteLine("Error: " + result.Error);
+                    await Console.Error.WriteLineAsync("Error: " + result.Error);
                 }
                 Environment.ExitCode = 1;
             }

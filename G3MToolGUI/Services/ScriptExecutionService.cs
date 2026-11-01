@@ -16,7 +16,7 @@ public sealed record ScriptExecutionResult(bool Success, string? Error = null);
 
 public static class ScriptExecutionService
 {
-    private static readonly System.Threading.Lock s_scriptLock = new();
+    private static readonly Lock s_scriptLock = new();
     private static (string Content, string? Path, Script<object> Script)? s_lastScript;
     private static readonly string[] s_imports =
     [
@@ -38,12 +38,12 @@ public static class ScriptExecutionService
             {
                 LogService.Info("Loading data file: " + dataPath);
                 using FileStream input = new(dataPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                data = GameMakerIO.Read(input);
+                data = await GameMakerIO.ReadAsync(input);
             }
 
-            string fullScriptPath = Path.GetFullPath(scriptPath);
-            string source = UTMTScriptTranslator.Translate(await File.ReadAllTextAsync(fullScriptPath));
-            globals = new(data, dataPath ?? fullScriptPath, fullScriptPath, outputPath, arguments.FirstOrDefault()) { Interaction = interaction };
+            var fullScriptPath = Path.GetFullPath(scriptPath);
+            var source = UTMTScriptTranslator.Translate(await File.ReadAllTextAsync(fullScriptPath));
+            globals = new(data, dataPath ?? fullScriptPath, fullScriptPath, outputPath, arguments is [var firstArgument, ..] ? firstArgument : null) { Interaction = interaction };
             globals.ScriptRunner = path => RunNestedAsync(path, globals);
             Script<object> script;
             lock (s_scriptLock)
@@ -61,7 +61,7 @@ public static class ScriptExecutionService
 
             if (globals.Data is not null && outputPath is not null)
             {
-                string? directory = Path.GetDirectoryName(Path.GetFullPath(outputPath));
+                var directory = Path.GetDirectoryName(Path.GetFullPath(outputPath));
                 if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
                 G3MLib.Modding.Patching.PatchInputService.WriteDataFile(globals.Data, outputPath, dataPath);
             }
@@ -85,14 +85,14 @@ public static class ScriptExecutionService
 
     private static async Task<bool> RunNestedAsync(string path, ScriptGlobals globals)
     {
-        string scriptDirectory = Path.GetDirectoryName(globals.ScriptPath) ?? globals.ScriptRootPath;
-        string fullPath = Path.GetFullPath(path, scriptDirectory);
-        string relative = Path.GetRelativePath(globals.ScriptRootPath, fullPath);
+        var scriptDirectory = Path.GetDirectoryName(globals.ScriptPath) ?? globals.ScriptRootPath;
+        var fullPath = Path.GetFullPath(path, scriptDirectory);
+        var relative = Path.GetRelativePath(globals.ScriptRootPath, fullPath);
         if (Path.IsPathRooted(relative) || relative.Equals("..", StringComparison.Ordinal) || relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal))
             throw new ScriptException("Nested script path escapes the script directory.");
         if (!File.Exists(fullPath)) throw new ScriptException("Script was not found: " + fullPath);
 
-        string? previousPath = globals.ScriptPath;
+        var previousPath = globals.ScriptPath;
         try
         {
             globals.ScriptPath = fullPath;
@@ -107,7 +107,7 @@ public static class ScriptExecutionService
 
     private static ScriptOptions Options(string scriptPath)
     {
-        string directory = Path.GetDirectoryName(scriptPath) ?? Environment.CurrentDirectory;
+        var directory = Path.GetDirectoryName(scriptPath) ?? Environment.CurrentDirectory;
         return ScriptOptions.Default
             .AddImports(s_imports)
             .AddReferences(typeof(GameMakerData).Assembly, typeof(MagickImage).Assembly, typeof(JsonSerializer).Assembly)
@@ -168,9 +168,9 @@ public sealed class ScriptGlobals(GameMakerData? data, string filePath, string s
     public void AddProgress(int amount) => LogService.Progress(Interlocked.Add(ref _progress, amount), Volatile.Read(ref _progressMaximum));
     public void IncrementProgress() => AddProgress(1);
     public void IncrementProgressParallel() => AddProgress(1);
-    public void StartProgressBarUpdater() { }
-    public Task StopProgressBarUpdater() => Task.CompletedTask;
-    public void HideProgressBar() => LogService.ProgressComplete();
+    public static void StartProgressBarUpdater() { }
+    public static Task StopProgressBarUpdater() => Task.CompletedTask;
+    public static void HideProgressBar() => LogService.ProgressComplete();
     public int GetProgress() => Volatile.Read(ref _progress);
     public static void SetFinishedMessage(bool enabled) { }
     public static void ChangeSelection(object obj, bool isRecursive = false) { }

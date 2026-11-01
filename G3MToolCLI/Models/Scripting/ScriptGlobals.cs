@@ -1,7 +1,3 @@
-using System;
-using System.IO;
-using System.Threading;
-using System.Threading.Tasks;
 using G3MLib.DataFile;
 using G3MLib.DataFile.Decompiler;
 using G3MLib.DataFile.Models;
@@ -17,7 +13,7 @@ public class ScriptGlobals
 
     private string? _progressStatus;
 
-    private readonly Lock _progressLock = new Lock();
+    private readonly Lock _progressLock = new();
 
     private CancellationTokenSource? _progressUpdaterCts;
 
@@ -107,7 +103,7 @@ public class ScriptGlobals
         return defaultInput;
     }
 
-    public string? SimpleTextInput(string title, string label, string defaultInput, bool allowMultiline)
+    public static string? SimpleTextInput(string title, string label, string defaultInput, bool allowMultiline)
     {
         return ScriptInputDialog(title, label, defaultInput, allowMultiline, showDialog: true);
     }
@@ -172,16 +168,16 @@ public class ScriptGlobals
         {
             return;
         }
-        CancellationTokenSource updaterCts = new CancellationTokenSource();
-        CancellationTokenSource? cancellationTokenSource = Interlocked.Exchange(ref _progressUpdaterCts, updaterCts);
+        var updaterCts = new CancellationTokenSource();
+        var cancellationTokenSource = Interlocked.Exchange(ref _progressUpdaterCts, updaterCts);
         cancellationTokenSource?.Cancel();
         cancellationTokenSource?.Dispose();
-        CancellationToken token = updaterCts.Token;
+        var token = updaterCts.Token;
         Task.Run(async delegate
         {
             try
             {
-                int lastValue = -1;
+                var lastValue = -1;
                 while (!token.IsCancellationRequested)
                 {
                     int current;
@@ -195,7 +191,7 @@ public class ScriptGlobals
                     }
                     if (current != lastValue && max > 0)
                     {
-                        int percent = current * 100 / max;
+                        var percent = current * 100 / max;
                         Console.Write($"\r{status}: {percent}%   ");
                         lastValue = current;
                     }
@@ -210,7 +206,7 @@ public class ScriptGlobals
 
     public async Task StopProgressBarUpdater()
     {
-        CancellationTokenSource? updaterCts = Interlocked.Exchange(ref _progressUpdaterCts, null);
+        var updaterCts = Interlocked.Exchange(ref _progressUpdaterCts, null);
         if (updaterCts != null)
         {
             await updaterCts.CancelAsync();

@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.0.1] - 2026-11-01
+
+### Added
+
+- Cancel button for running operations.
+
+### Changed
+
+- Updated to G3MLib 1.1.0.
+
 ## [1.0.0] - 2026-09-12
 
 ### Added

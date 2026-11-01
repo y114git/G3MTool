@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.1] - 2026-11-01
+
+### Changed
+
+- Updated to G3MLib 1.1.0 and System.CommandLine 2.0.14.
+- Ctrl+C cancels patch apply, merge, compare, and batch runs. Existing outputs stay untouched, temporary files are removed, and the exit code is 130.
+
 ## [1.3.0] - 2026-09-12
 
 ### Changed

@@ -1,8 +1,4 @@
-using System;
-using System.IO;
-using System.Linq;
 using System.Text.Json;
-using System.Threading.Tasks;
 using G3MLib.DataFile;
 using G3MLib.DataFile.Legacy;
 using G3MToolCLI.Models.Scripting;
@@ -16,21 +12,21 @@ namespace G3MToolCLI.Services.Execution;
 
 public static class ExecuteService
 {
-    private static readonly System.Threading.Lock s_scriptLock = new();
+    private static readonly Lock s_scriptLock = new();
     private static (string Content, string? Path, Script<object> Script)? s_lastScript;
 
-    private static readonly string[] DefaultImports = new string[15]
-    {
+    private static readonly string[] DefaultImports =
+    [
         "System", "System.IO", "System.Text", "System.Text.Json", "System.Text.RegularExpressions", "System.Linq", "System.Threading.Tasks", "System.Collections.Generic", "G3MLib.DataFile", "G3MLib.DataFile.Models",
         "G3MLib.DataFile.Util", "G3MLib.DataFile.Decompiler", "G3MLib.DataFile.Compiler", "G3MLib.DataFile.Scripting", "ImageMagick"
-    };
+    ];
 
     private static ScriptOptions GetDefaultOptions(string? scriptPath = null)
     {
-        ScriptOptions options = ScriptOptions.Default.AddImports(DefaultImports).AddReferences(typeof(GameMakerData).Assembly, typeof(MagickImage).Assembly, typeof(JsonSerializer).Assembly).WithOptimizationLevel(OptimizationLevel.Release);
+        var options = ScriptOptions.Default.AddImports(DefaultImports).AddReferences(typeof(GameMakerData).Assembly, typeof(MagickImage).Assembly, typeof(JsonSerializer).Assembly).WithOptimizationLevel(OptimizationLevel.Release);
         if (!string.IsNullOrWhiteSpace(scriptPath))
         {
-            string scriptDirectory = Path.GetDirectoryName(Path.GetFullPath(scriptPath)) ?? Environment.CurrentDirectory;
+            var scriptDirectory = Path.GetDirectoryName(Path.GetFullPath(scriptPath)) ?? Environment.CurrentDirectory;
             options = options.WithFilePath(Path.GetFullPath(scriptPath)).WithSourceResolver(ScriptSourceResolver.Default.WithBaseDirectory(scriptDirectory)).WithMetadataResolver(ScriptMetadataResolver.Default.WithBaseDirectory(scriptDirectory));
         }
         return options;
@@ -46,7 +42,7 @@ public static class ExecuteService
                 Error = "Script not found: " + scriptPath
             };
         }
-        bool hasData = !string.IsNullOrEmpty(dataPath) && File.Exists(dataPath);
+        var hasData = !string.IsNullOrEmpty(dataPath) && File.Exists(dataPath);
         if (!string.IsNullOrEmpty(dataPath) && !hasData)
         {
             return new ScriptResult
@@ -63,9 +59,9 @@ public static class ExecuteService
             if (hasData)
             {
                 LogService.Log("[ScriptExecutor] Loading data file: " + dataPath);
-                using (FileStream stream = new FileStream(dataPath!, FileMode.Open, FileAccess.Read))
+                using (var stream = new FileStream(dataPath!, FileMode.Open, FileAccess.Read))
                 {
-                    data = GameMakerIO.Read(stream);
+                    data = await GameMakerIO.ReadAsync(stream);
                 }
                 LogService.Log("[ScriptExecutor] Data loaded. Game: " + (data.GeneralInfo?.DisplayName?.Content ?? "Unknown"));
             }
@@ -74,7 +70,7 @@ public static class ExecuteService
                 LogService.Log("[ScriptExecutor] No data file specified, running script without game data");
             }
             LogService.Log("[ScriptExecutor] Executing script: " + scriptPath);
-            string outputDir = Directory.Exists(outputPath) ? outputPath : (Path.GetDirectoryName(outputPath) ?? outputPath);
+            var outputDir = Directory.Exists(outputPath) ? outputPath : (Path.GetDirectoryName(outputPath) ?? outputPath);
             if (!string.IsNullOrWhiteSpace(outputDir))
             {
                 Directory.CreateDirectory(outputDir);
@@ -85,11 +81,11 @@ public static class ExecuteService
                 FilePath = dataPath ?? scriptPath,
                 ScriptPath = scriptPath,
                 ScriptRootPath = Path.GetDirectoryName(Path.GetFullPath(scriptPath)) ?? Environment.CurrentDirectory,
-                DataFilePath = (dataPath ?? string.Empty),
-                OutputDir = (outputDir ?? string.Empty),
-                InputDir = (args.FirstOrDefault() ?? string.Empty)
+                DataFilePath = dataPath ?? string.Empty,
+                OutputDir = outputDir ?? string.Empty,
+                InputDir = args.FirstOrDefault() ?? string.Empty
             };
-            ScriptResult result = await ExecuteScriptWithRoslynAsync(UTMTScriptTranslator.Translate(await File.ReadAllTextAsync(scriptPath)), globals);
+            var result = await ExecuteScriptWithRoslynAsync(UTMTScriptTranslator.Translate(await File.ReadAllTextAsync(scriptPath)), globals);
             if (!result.Success)
             {
                 return result;
@@ -97,7 +93,7 @@ public static class ExecuteService
             if (globals.Data is not null && !string.IsNullOrEmpty(outputPath))
             {
                 LogService.Log("[ScriptExecutor] Saving to: " + outputPath);
-                string? outDir = Path.GetDirectoryName(outputPath);
+                var outDir = Path.GetDirectoryName(outputPath);
                 if (!string.IsNullOrEmpty(outDir) && !Directory.Exists(outDir))
                 {
                     Directory.CreateDirectory(outDir);
@@ -130,7 +126,7 @@ public static class ExecuteService
     {
         try
         {
-            globals.ScriptRunner = (string path) => ExecuteNestedScriptAsync(path, globals).GetAwaiter().GetResult();
+            globals.ScriptRunner = path => ExecuteNestedScriptAsync(path, globals).GetAwaiter().GetResult();
             Script<object> script;
             lock (s_scriptLock)
             {
@@ -167,7 +163,7 @@ public static class ExecuteService
         }
         catch (CompilationErrorException ex)
         {
-            string errors = string.Join("\n", ex.Diagnostics.Select((Diagnostic d) => d.ToString()));
+            var errors = string.Join("\n", ex.Diagnostics.Select(d => d.ToString()));
             return new ScriptResult
             {
                 Success = false,
@@ -194,9 +190,9 @@ public static class ExecuteService
 
     private static async Task<bool> ExecuteNestedScriptAsync(string path, ScriptGlobals globals)
     {
-        string scriptDirectory = Path.GetDirectoryName(globals.ScriptPath) ?? globals.ScriptRootPath;
+        var scriptDirectory = Path.GetDirectoryName(globals.ScriptPath) ?? globals.ScriptRootPath;
         path = Path.GetFullPath(path, scriptDirectory);
-        string relativePath = Path.GetRelativePath(globals.ScriptRootPath, path);
+        var relativePath = Path.GetRelativePath(globals.ScriptRootPath, path);
         if (Path.IsPathRooted(relativePath) || relativePath.Equals("..", StringComparison.Ordinal) || relativePath.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
         {
             throw new ScriptException("Nested script path escapes the mod directory.");
@@ -205,7 +201,7 @@ public static class ExecuteService
         {
             throw new ScriptException("Script not found: " + path);
         }
-        string? previousPath = globals.ScriptPath;
+        var previousPath = globals.ScriptPath;
         try
         {
             globals.ScriptPath = path;
