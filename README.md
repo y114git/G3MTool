@@ -5,8 +5,8 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/CLI-1.3.1-3F8F3F?style=for-the-badge" alt="G3MTool CLI 1.3.1">
-  <img src="https://img.shields.io/badge/GUI-1.0.1-3F8F3F?style=for-the-badge" alt="G3MTool GUI 1.0.1">
+  <img src="https://img.shields.io/badge/CLI-1.3.2-3F8F3F?style=for-the-badge" alt="G3MTool CLI 1.3.2">
+  <img src="https://img.shields.io/badge/GUI-1.0.2-3F8F3F?style=for-the-badge" alt="G3MTool GUI 1.0.2">
   <img src="https://img.shields.io/badge/.NET-10.0-512BD4?style=for-the-badge&logo=dotnet&logoColor=white" alt=".NET 10">
   <a href="https://github.com/y114git/G3MTool/releases"><img src="https://img.shields.io/github/downloads/y114git/G3MTool/total?style=for-the-badge" alt="Total downloads"></a>
 </p>

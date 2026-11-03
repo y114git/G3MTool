@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.3.2] - 2026-11-03
+
+### Changed
+
+- Updated to G3MLib 1.1.1.
+
 ## [1.3.1] - 2026-11-01
 
 ### Changed

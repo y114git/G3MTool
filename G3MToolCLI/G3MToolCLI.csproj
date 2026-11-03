@@ -8,10 +8,10 @@
         <AssemblyTitle>G3MTool</AssemblyTitle>
         <ProductName>G3MTool</ProductName>
         <ApplicationIcon>Assets\icons\G3MTool_icon.ico</ApplicationIcon>
-        <Version>1.3.1</Version>
-        <AssemblyVersion>1.3.1.0</AssemblyVersion>
-        <FileVersion>1.3.1.0</FileVersion>
-        <InformationalVersion>1.3.1</InformationalVersion>
+        <Version>1.3.2</Version>
+        <AssemblyVersion>1.3.2.0</AssemblyVersion>
+        <FileVersion>1.3.2.0</FileVersion>
+        <InformationalVersion>1.3.2</InformationalVersion>
         <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
         <ImplicitUsings>enable</ImplicitUsings>
