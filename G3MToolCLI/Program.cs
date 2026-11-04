@@ -38,7 +38,7 @@ internal static class Program
         Console.CancelKeyPress += (_, e) =>
         {
             var running = s_cancellation;
-            if (running is null) return;
+            if (running is null || running.IsCancellationRequested) return;
             e.Cancel = true;
             running.Cancel();
         };

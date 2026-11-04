@@ -485,6 +485,50 @@ public sealed class ModdingOperationServiceTests
         finally { Directory.Delete(directory, recursive: true); }
     }
 
+    [Fact]
+    public async Task CancelledBatchCreateReportsCancelledWithoutFailedItems()
+    {
+        var directory = Directory.CreateTempSubdirectory("g3mtool-cancel-").FullName;
+        try
+        {
+            var original = Path.Combine(directory, "original.win");
+            var modified = Path.Combine(directory, "modified.win");
+            CreateRoomData(original);
+            ModifyData(original, modified, data => data.Rooms[1].Width = 123);
+            using ModdingOperationService service = new();
+            using var cancellation = new CancellationTokenSource();
+            await cancellation.CancelAsync();
+
+            var result = await service.RunAsync(new ModdingOperationRequest { Operation = ModdingOperation.BatchCreate, OriginalPath = original, InputPaths = [modified], OutputPath = Path.Combine(directory, "out") }, cancellation.Token);
+
+            Assert.False(result.Success);
+            Assert.StartsWith("Cancelled", result.Summary, StringComparison.Ordinal);
+            Assert.DoesNotContain("failed", result.Summary, StringComparison.Ordinal);
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
+    [Fact]
+    public async Task MergeNamesTheMissingPatchFile()
+    {
+        var directory = Directory.CreateTempSubdirectory("g3mtool-missing-").FullName;
+        try
+        {
+            var original = Path.Combine(directory, "original.win");
+            var first = Path.Combine(directory, "first.g3mpatch");
+            var missing = Path.Combine(directory, "missing.g3mpatch");
+            CreateRoomData(original);
+            await File.WriteAllTextAsync(first, "x", TestContext.Current.CancellationToken);
+            using ModdingOperationService service = new();
+
+            var result = await service.RunAsync(new ModdingOperationRequest { Operation = ModdingOperation.MergePatches, OriginalPath = original, InputPaths = [first, missing], OutputPath = Path.Combine(directory, "merged.g3mpatch") }, TestContext.Current.CancellationToken);
+
+            Assert.False(result.Success);
+            Assert.Contains(missing, result.Summary, StringComparison.Ordinal);
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
     private static void CreateRoomData(string path)
     {
         using var data = GameMakerData.CreateNew2026LTS();

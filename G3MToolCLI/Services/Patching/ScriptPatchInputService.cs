@@ -23,7 +23,14 @@ public static class ScriptPatchInputService
         }
         finally
         {
-            if (Directory.Exists(temporaryDirectory)) Directory.Delete(temporaryDirectory, recursive: true);
+            try
+            {
+                if (Directory.Exists(temporaryDirectory)) Directory.Delete(temporaryDirectory, recursive: true);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                // A locked temporary folder must not replace the merge result.
+            }
         }
     }
 

@@ -593,7 +593,7 @@ public static class InfoCommand
 
     private static async Task ShowPatchInfoAsync(string path, bool verbose, bool jsonOutput)
     {
-        var result = await PatchService.ValidatePatchAsync(path);
+        var result = await PatchService.ValidatePatchAsync(path, null, null, Program.Cancellation);
         if (!result.Success || result.Manifest == null)
         {
             Console.WriteLine("Warning: " + result.Error);

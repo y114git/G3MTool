@@ -179,10 +179,10 @@ internal static class BatchPatchService
                 var xdelta = await new XDeltaService().CreatePatchAsync(options.OriginalPath, input, job.Outputs[0]);
                 return xdelta.Success ? Succeeded(job, timer.Elapsed.TotalSeconds) : Failed(job, xdelta.Error, timer.Elapsed.TotalSeconds);
             }
-            var patch = await PatchService.CreatePatchAsync(options.OriginalPath, input, job.Outputs[0], null, null, null, null, null, options.IncludeXdeltaFallback, options.CacheOptions);
+            var patch = await PatchService.CreatePatchAsync(options.OriginalPath, input, job.Outputs[0], null, null, null, null, null, options.IncludeXdeltaFallback, options.CacheOptions, options.CancellationToken);
             return patch.Success ? Succeeded(job, timer.Elapsed.TotalSeconds) : Failed(job, patch.Error, timer.Elapsed.TotalSeconds);
         }
-        catch (Exception exception) { return Failed(job, exception.Message, timer.Elapsed.TotalSeconds); }
+        catch (Exception exception) when (exception is not OperationCanceledException) { return Failed(job, exception.Message, timer.Elapsed.TotalSeconds); }
         finally { DeleteDirectory(temporaryDirectory); }
     }
 
@@ -211,8 +211,9 @@ internal static class BatchPatchService
 
     private static async Task<Dictionary<string, string>> HashAsync(IEnumerable<string> paths)
     {
-        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var path in paths.Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase)) result.Add(path, await HashService.ComputeFileHashAsync(path));
+        var comparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+        var result = new Dictionary<string, string>(comparer);
+        foreach (var path in paths.Select(Path.GetFullPath).Distinct(comparer)) result.Add(path, await HashService.ComputeFileHashAsync(path));
         return result;
     }
 
