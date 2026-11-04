@@ -228,8 +228,10 @@ public sealed class ModdingOperationService(ScriptInteraction? interaction = nul
         if (snapshot is null)
         {
             using FileStream stream = new(request.PrimaryPath, FileMode.Open, FileAccess.Read, FileShare.Read, 1024 * 1024, FileOptions.SequentialScan);
-            using var data = await GameMakerIO.ReadAsync(stream);
+            using var data = await GameMakerIO.ReadAsync(stream, cancellationToken: cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
             snapshot = G3MCacheService.BuildInfoSnapshot(request.PrimaryPath, data);
+            cancellationToken.ThrowIfCancellationRequested();
             await G3MCacheService.WriteDataInfoCacheAsync(request.PrimaryPath, snapshot, CacheOptions(request));
         }
         LogService.Info($"Game: {snapshot.Game}");
@@ -251,13 +253,13 @@ public sealed class ModdingOperationService(ScriptInteraction? interaction = nul
         var failed = 0;
         foreach ((var input, var index) in request.InputPaths.Select((path, index) => (path, index + 1)))
         {
-            if (cancellationToken.IsCancellationRequested) return Cancelled(completed, request.InputPaths.Count, outputs);
+            if (cancellationToken.IsCancellationRequested) return Cancelled(completed, request.InputPaths.Count, outputs, failed);
             var output = UniquePath(Path.Combine(request.OutputPath, Path.GetFileNameWithoutExtension(input) + (request.CreateXDelta ? ".xdelta" : ".g3mpatch")));
             ModdingOperationResult item;
             try { item = await CreatePatchFileAsync(request.OriginalPath, input, output, request.IncludeXDeltaFallback, CacheOptions(request), request.CreateXDelta, cancellationToken); }
-            catch (OperationCanceledException) { return Cancelled(completed, request.InputPaths.Count, outputs); }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { return Cancelled(completed, request.InputPaths.Count, outputs, failed); }
             if (item.Success) { completed++; outputs.Add(output); }
-            else if (cancellationToken.IsCancellationRequested) return Cancelled(completed, request.InputPaths.Count, outputs);
+            else if (cancellationToken.IsCancellationRequested) return Cancelled(completed, request.InputPaths.Count, outputs, failed);
             else { failed++; LogService.Error(item.Summary); if (!request.ContinueOnError) break; }
             LogService.Progress(index, request.InputPaths.Count);
         }
@@ -277,7 +279,7 @@ public sealed class ModdingOperationService(ScriptInteraction? interaction = nul
         var extension = Path.GetExtension(request.OriginalPath);
         foreach ((var input, var index) in request.InputPaths.Select((path, index) => (path, index + 1)))
         {
-            if (cancellationToken.IsCancellationRequested) return Cancelled(completed, request.InputPaths.Count, outputs);
+            if (cancellationToken.IsCancellationRequested) return Cancelled(completed, request.InputPaths.Count, outputs, failed);
             var output = UniquePath(Path.Combine(request.OutputPath, stem + "_" + Path.GetFileNameWithoutExtension(input) + extension));
             var item = await RunAsync(new ModdingOperationRequest
             {
@@ -289,7 +291,7 @@ public sealed class ModdingOperationService(ScriptInteraction? interaction = nul
                 IncludeXDeltaFallback = request.IncludeXDeltaFallback
             }, cancellationToken);
             if (item.Success) { completed++; outputs.Add(output); }
-            else if (cancellationToken.IsCancellationRequested) return Cancelled(completed, request.InputPaths.Count, outputs);
+            else if (cancellationToken.IsCancellationRequested) return Cancelled(completed, request.InputPaths.Count, outputs, failed);
             else { failed++; LogService.Error(item.Summary); if (!request.ContinueOnError) break; }
             LogService.Progress(index, request.InputPaths.Count);
         }
@@ -308,7 +310,7 @@ public sealed class ModdingOperationService(ScriptInteraction? interaction = nul
         var failed = 0;
         for (var index = 0; index < request.InputPaths.Count; index++)
         {
-            if (cancellationToken.IsCancellationRequested) return Cancelled(completed, request.InputPaths.Count, outputs);
+            if (cancellationToken.IsCancellationRequested) return Cancelled(completed, request.InputPaths.Count, outputs, failed);
             List<string> inputs = [.. request.InputPaths[index].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
             var stem = "merge_" + (index + 1).ToString("D2", System.Globalization.CultureInfo.InvariantCulture);
             string dataOutput;
@@ -335,7 +337,7 @@ public sealed class ModdingOperationService(ScriptInteraction? interaction = nul
                 FullReport = request.FullReport
             }, cancellationToken);
             if (item.Success) { completed++; outputs.AddRange(item.Outputs); }
-            else if (cancellationToken.IsCancellationRequested) return Cancelled(completed, request.InputPaths.Count, outputs);
+            else if (cancellationToken.IsCancellationRequested) return Cancelled(completed, request.InputPaths.Count, outputs, failed);
             else { failed++; LogService.Error(item.Summary); if (!request.ContinueOnError) break; }
             LogService.Progress(index + 1, request.InputPaths.Count);
         }
@@ -429,7 +431,7 @@ public sealed class ModdingOperationService(ScriptInteraction? interaction = nul
         return output;
     }
 
-    private static ModdingOperationResult Cancelled(int completed, int total, IReadOnlyList<string> outputs) => new(false, $"Cancelled; {completed}/{total} completed.", outputs);
+    private static ModdingOperationResult Cancelled(int completed, int total, IReadOnlyList<string> outputs, int failed = 0) => new(false, failed == 0 ? $"Cancelled; {completed}/{total} completed." : $"Cancelled; {completed}/{total} completed; {failed} failed.", outputs);
 
     private static ModdingOperationResult BatchSummary(int completed, int failed, int total, IReadOnlyList<string> outputs) => new(failed == 0 && completed == total, $"{completed}/{total} completed; {failed} failed.", outputs);
 
@@ -467,7 +469,7 @@ public sealed class ModdingOperationService(ScriptInteraction? interaction = nul
     private static void DeleteDirectory(string path)
     {
         try { if (Directory.Exists(path)) Directory.Delete(path, recursive: true); }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { LogService.Warning($"Could not delete the temporary folder {path}."); }
     }
 
     private static bool IsXDelta(string path) => Path.GetExtension(path).Equals(".xdelta", StringComparison.OrdinalIgnoreCase) || Path.GetExtension(path).Equals(".vcdiff", StringComparison.OrdinalIgnoreCase);

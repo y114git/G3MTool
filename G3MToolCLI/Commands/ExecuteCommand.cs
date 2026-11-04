@@ -42,10 +42,10 @@ public static class ExecuteCommand
                 var dataPath = data?.FullName;
                 var outputPath = output?.FullName ?? ((data != null) ? Path.Combine(PlatformUtil.GetExecutableDirectory(), Path.GetFileName(data.FullName)) : string.Empty);
                 var finalArgs = input is null ? args : [input.FullName, .. args];
-                var result2 = await ExecuteService.ExecuteScriptAsync(target, dataPath, outputPath, finalArgs);
-                if (!result2.Success)
+                var scriptResult = await ExecuteService.ExecuteScriptAsync(target, dataPath, outputPath, finalArgs);
+                if (!scriptResult.Success)
                 {
-                    await Console.Error.WriteLineAsync("Error: " + result2.Error);
+                    await Console.Error.WriteLineAsync("Error: " + scriptResult.Error);
                     Environment.ExitCode = 1;
                 }
             }

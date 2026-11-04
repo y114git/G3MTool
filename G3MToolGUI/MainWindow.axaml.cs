@@ -322,17 +322,20 @@ public sealed partial class MainWindow : Window, IDisposable
         LogLine line = new(message.Level, text);
         _log.Append(text);
         _logLines.Enqueue(line);
+        LogBox.Inlines?.Add(CreateLogRun(line));
         if (_log.Length > LogLimit)
         {
             // Trim to a low-water mark so the cost is paid once per many messages.
-            while (_log.Length > LogLimit * 4 / 5 && _logLines.TryDequeue(out var removed))
+            var trimmed = 0;
+            while (_log.Length - trimmed > LogLimit * 4 / 5 && _logLines.TryDequeue(out var removed))
             {
-                _log.Remove(0, removed.Text.Length);
+                trimmed += removed.Text.Length;
                 if (LogBox.Inlines is { Count: > 0 } inlines) inlines.RemoveAt(0);
             }
+
+            _log.Remove(0, trimmed);
         }
 
-        LogBox.Inlines?.Add(CreateLogRun(line));
         if (_scrollPending) return;
         _scrollPending = true;
         Dispatcher.UIThread.Post(() =>

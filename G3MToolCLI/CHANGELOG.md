@@ -1,10 +1,17 @@
 # Changelog
 
-## [1.3.2] - 2026-11-03
+## [1.3.2] - 2026-11-04
 
 ### Changed
 
-- Updated to G3MLib 1.1.1.
+- Updated to G3MLib 1.1.2.
+
+### Fixed
+
+- Ctrl+C also cancels patch create, patch validate, and info. A second Ctrl+C ends the program at once.
+- Batch create stops on Ctrl+C and exits with 130 instead of reporting failed items.
+- A temporary folder that cannot be deleted no longer fails a finished command.
+- Batch runs treat paths that differ only by case as different files on Linux and macOS.
 
 ## [1.3.1] - 2026-11-01
 

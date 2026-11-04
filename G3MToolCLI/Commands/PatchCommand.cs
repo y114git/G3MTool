@@ -485,7 +485,6 @@ public static class PatchCommand
         command.Add(validateCommand);
         command.Add(batchCommand);
         command.Add(mergeCommand);
-        return command;
         static Option<DirectoryInfo?> BatchCacheOption()
         {
             return new Option<DirectoryInfo?>("--cache") { Description = "Read and write reusable .g3mcache analysis files in this directory." };
@@ -502,6 +501,7 @@ public static class PatchCommand
         {
             return new Option<bool>("--continue-on-error") { Description = "Continue remaining batch jobs after a failure." };
         }
+        return command;
     }
 
     private static void WriteSuccessJsonOrText<T>(string command, string outputPath, T details)
@@ -546,8 +546,10 @@ public static class PatchCommand
         {
             Directory.Delete(path, recursive: true);
         }
-        catch
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
+            // A locked temporary folder must not fail the command; say where it stayed.
+            G3MLib.Modding.Logging.LogService.Warning($"Could not delete the temporary folder {path}.");
         }
     }
 

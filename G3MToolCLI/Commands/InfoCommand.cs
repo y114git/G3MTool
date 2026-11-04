@@ -73,7 +73,7 @@ public static class InfoCommand
                 }
             }
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1048576, FileOptions.SequentialScan);
-            using var data = await GameMakerIO.ReadAsync(stream);
+            using var data = await GameMakerIO.ReadAsync(stream, cancellationToken: Program.Cancellation);
             var snapshot = G3MCacheService.BuildInfoSnapshot(path, data);
             if (!verbose)
             {
@@ -418,9 +418,9 @@ public static class InfoCommand
         {
             Console.WriteLine();
             Console.WriteLine($"=== GameObjects ({data.GameObjects.Count}) ===");
-            for (var num2 = 0; num2 < data.GameObjects.Count; num2++)
+            for (var index = 0; index < data.GameObjects.Count; index++)
             {
-                var o = data.GameObjects[num2];
+                var o = data.GameObjects[index];
                 var spr = o.Sprite?.Name?.Content ?? "<none>";
                 var par = o.ParentId?.Name?.Content ?? "<none>";
                 List<string> flags = [];
@@ -450,7 +450,7 @@ public static class InfoCommand
                     }
                 }
                 var evStr = (evNames.Count > 0) ? string.Join(", ", evNames) : "none";
-                Console.WriteLine($"  [{num2}] {o.Name?.Content}  sprite:{spr}  parent:{par}  depth:{o.Depth}  [{flagStr}]");
+                Console.WriteLine($"  [{index}] {o.Name?.Content}  sprite:{spr}  parent:{par}  depth:{o.Depth}  [{flagStr}]");
                 Console.WriteLine("        events: " + evStr);
             }
         }
@@ -458,9 +458,9 @@ public static class InfoCommand
         {
             Console.WriteLine();
             Console.WriteLine($"=== Rooms ({data.Rooms.Count}) ===");
-            for (var num3 = 0; num3 < data.Rooms.Count; num3++)
+            for (var index = 0; index < data.Rooms.Count; index++)
             {
-                var r = data.Rooms[num3];
+                var r = data.Rooms[index];
                 var instanceCount = 0;
                 IEnumerable<GameMakerRoom.Layer> layers = r.Layers;
                 foreach (var layer in layers ?? [])
@@ -471,7 +471,7 @@ public static class InfoCommand
                     }
                 }
                 var cc = r.CreationCodeId?.Name?.Content ?? "<none>";
-                Console.WriteLine($"  [{num3}] {r.Name?.Content}  {r.Width}x{r.Height}  layers:{r.Layers?.Count ?? 0}  instances:{instanceCount}  speed:{r.Speed}  persistent:{r.Persistent}  creationCode:{cc}");
+                Console.WriteLine($"  [{index}] {r.Name?.Content}  {r.Width}x{r.Height}  layers:{r.Layers?.Count ?? 0}  instances:{instanceCount}  speed:{r.Speed}  persistent:{r.Persistent}  creationCode:{cc}");
                 if (r.Layers == null)
                 {
                     continue;
@@ -487,68 +487,68 @@ public static class InfoCommand
         {
             Console.WriteLine();
             Console.WriteLine($"=== Code Entries ({data.Code.Count}) ===");
-            for (var num4 = 0; num4 < data.Code.Count; num4++)
+            for (var index = 0; index < data.Code.Count; index++)
             {
-                var c = data.Code[num4];
+                var c = data.Code[index];
                 var parent = c.ParentEntry?.Name?.Content ?? "-";
                 var children = c.ChildEntries.Count;
-                Console.WriteLine($"  [{num4}] {c.Name?.Content}  len:{c.Length}  locals:{c.LocalsCount}  args:{c.ArgumentsCount}  parent:{parent}  children:{children}");
+                Console.WriteLine($"  [{index}] {c.Name?.Content}  len:{c.Length}  locals:{c.LocalsCount}  args:{c.ArgumentsCount}  parent:{parent}  children:{children}");
             }
         }
         if (data.Functions != null && data.Functions.Count > 0)
         {
             Console.WriteLine();
             Console.WriteLine($"=== Functions ({data.Functions.Count}) ===");
-            for (var num5 = 0; num5 < data.Functions.Count; num5++)
+            for (var index = 0; index < data.Functions.Count; index++)
             {
-                var f2 = data.Functions[num5];
-                Console.WriteLine($"  [{num5}] {f2.Name?.Content}");
+                var f2 = data.Functions[index];
+                Console.WriteLine($"  [{index}] {f2.Name?.Content}");
             }
         }
         if (data.Variables != null && data.Variables.Count > 0)
         {
             Console.WriteLine();
             Console.WriteLine($"=== Variables ({data.Variables.Count}) ===");
-            for (var num6 = 0; num6 < data.Variables.Count; num6++)
+            for (var index = 0; index < data.Variables.Count; index++)
             {
-                var v = data.Variables[num6];
-                Console.WriteLine($"  [{num6}] {v.Name?.Content}  type:{v.InstanceType}  varId:{v.VarID}");
+                var v = data.Variables[index];
+                Console.WriteLine($"  [{index}] {v.Name?.Content}  type:{v.InstanceType}  varId:{v.VarID}");
             }
         }
         if (data.Strings != null && data.Strings.Count > 0)
         {
             Console.WriteLine();
             Console.WriteLine($"=== Strings ({data.Strings.Count}) ===");
-            for (var num7 = 0; num7 < data.Strings.Count; num7++)
+            for (var index = 0; index < data.Strings.Count; index++)
             {
-                var s5 = data.Strings[num7]?.Content ?? "";
+                var s5 = data.Strings[index]?.Content ?? "";
                 var display = (s5.Length > 80) ? string.Concat(s5.AsSpan(0, 77), "...".AsSpan()) : s5;
                 display = display.Replace("\n", "\\n", StringComparison.Ordinal).Replace("\r", "\\r", StringComparison.Ordinal).Replace("\t", "\\t", StringComparison.Ordinal);
-                Console.WriteLine($"  [{num7}] \"{display}\"");
+                Console.WriteLine($"  [{index}] \"{display}\"");
             }
         }
         if (data.EmbeddedTextures != null && data.EmbeddedTextures.Count > 0)
         {
             Console.WriteLine();
             Console.WriteLine($"=== EmbeddedTextures ({data.EmbeddedTextures.Count}) ===");
-            for (var num8 = 0; num8 < data.EmbeddedTextures.Count; num8++)
+            for (var index = 0; index < data.EmbeddedTextures.Count; index++)
             {
-                var t = data.EmbeddedTextures[num8];
+                var t = data.EmbeddedTextures[index];
                 var size = (t.TextureData?.Image != null) ? $"{t.TextureData.Width}x{t.TextureData.Height}" : "no data";
-                Console.WriteLine($"  [{num8}] {t.Name?.Content}  {size}");
+                Console.WriteLine($"  [{index}] {t.Name?.Content}  {size}");
             }
         }
         if (data.TexturePageItems != null && data.TexturePageItems.Count > 0)
         {
             Console.WriteLine();
             Console.WriteLine($"=== TexturePageItems ({data.TexturePageItems.Count}) ===");
-            for (var num9 = 0; num9 < data.TexturePageItems.Count; num9++)
+            for (var index = 0; index < data.TexturePageItems.Count; index++)
             {
-                var t2 = data.TexturePageItems[num9];
+                var t2 = data.TexturePageItems[index];
                 if (t2 != null)
                 {
                     var texIdx = (t2.TexturePage != null && data.EmbeddedTextures != null) ? data.EmbeddedTextures.IndexOf(t2.TexturePage) : (-1);
-                    Console.WriteLine($"  [{num9}] src:({t2.SourceX},{t2.SourceY},{t2.SourceWidth},{t2.SourceHeight})  tgt:({t2.TargetX},{t2.TargetY},{t2.TargetWidth},{t2.TargetHeight})  bound:({t2.BoundingWidth},{t2.BoundingHeight})  texPage:{texIdx}");
+                    Console.WriteLine($"  [{index}] src:({t2.SourceX},{t2.SourceY},{t2.SourceWidth},{t2.SourceHeight})  tgt:({t2.TargetX},{t2.TargetY},{t2.TargetWidth},{t2.TargetHeight})  bound:({t2.BoundingWidth},{t2.BoundingHeight})  texPage:{texIdx}");
                 }
             }
         }
@@ -556,19 +556,19 @@ public static class InfoCommand
         {
             Console.WriteLine();
             Console.WriteLine($"=== AudioGroups ({data.AudioGroups.Count}) ===");
-            for (var num10 = 0; num10 < data.AudioGroups.Count; num10++)
+            for (var index = 0; index < data.AudioGroups.Count; index++)
             {
-                Console.WriteLine($"  [{num10}] {data.AudioGroups[num10]?.Name?.Content}");
+                Console.WriteLine($"  [{index}] {data.AudioGroups[index]?.Name?.Content}");
             }
         }
         if (data.Extensions != null && data.Extensions.Count > 0)
         {
             Console.WriteLine();
             Console.WriteLine($"=== Extensions detail ({data.Extensions.Count}) ===");
-            for (var num11 = 0; num11 < data.Extensions.Count; num11++)
+            for (var index = 0; index < data.Extensions.Count; index++)
             {
-                var e = data.Extensions[num11];
-                Console.WriteLine($"  [{num11}] {e.Name?.Content}  className:{e.ClassName?.Content}  files:{e.Files?.Count ?? 0}");
+                var e = data.Extensions[index];
+                Console.WriteLine($"  [{index}] {e.Name?.Content}  className:{e.ClassName?.Content}  files:{e.Files?.Count ?? 0}");
                 if (e.Files == null)
                 {
                     continue;
@@ -583,10 +583,10 @@ public static class InfoCommand
         {
             Console.WriteLine();
             Console.WriteLine($"=== Timelines ({data.Timelines.Count}) ===");
-            for (var num12 = 0; num12 < data.Timelines.Count; num12++)
+            for (var index = 0; index < data.Timelines.Count; index++)
             {
-                var t3 = data.Timelines[num12];
-                Console.WriteLine($"  [{num12}] {t3.Name?.Content}  moments:{t3.Moments?.Count ?? 0}");
+                var t3 = data.Timelines[index];
+                Console.WriteLine($"  [{index}] {t3.Name?.Content}  moments:{t3.Moments?.Count ?? 0}");
             }
         }
     }

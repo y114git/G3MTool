@@ -27,6 +27,9 @@ internal static class EmbeddedXDeltaPathProvider
     private static void TryDeleteDirectory(string directory)
     {
         try { Directory.Delete(directory, recursive: true); }
-        catch { }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // Best-effort cleanup of a temporary folder.
+        }
     }
 }

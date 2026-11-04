@@ -391,6 +391,30 @@ public sealed class CliProcessTests
         finally { Directory.Delete(directory, recursive: true); }
     }
 
+    [Fact]
+    public async Task CancelledBatchCreateThrowsAndWritesNothing()
+    {
+        var directory = Directory.CreateTempSubdirectory("g3mtool-cancel-").FullName;
+        try
+        {
+            var original = Path.Combine(directory, "original.win");
+            var modified = Path.Combine(directory, "modified.win");
+            var outputs = Path.Combine(directory, "out");
+            CreateRoomDataFile(original);
+            ModifyDataFile(original, modified, data => data.Rooms[1].Width = 123);
+            using var cancellation = new CancellationTokenSource();
+            await cancellation.CancelAsync();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => G3MToolCLI.Services.Patching.BatchPatchService.CreateBatchAsync([modified], new Services.Patching.BatchOptions
+            {
+                OriginalPath = original,
+                OutDir = outputs,
+                CancellationToken = cancellation.Token
+            }));
+            Assert.Empty(Directory.GetFiles(outputs));
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
     private static void CreateRoomDataFile(string path)
     {
         using var data = GameMakerData.CreateNew2026LTS();

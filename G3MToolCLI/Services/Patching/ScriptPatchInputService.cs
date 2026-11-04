@@ -29,7 +29,8 @@ public static class ScriptPatchInputService
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {
-                // A locked temporary folder must not replace the merge result.
+                // A locked temporary folder must not replace the merge result; say where it stayed.
+                G3MLib.Modding.Logging.LogService.Warning($"Could not delete the temporary folder {temporaryDirectory}.");
             }
         }
     }
@@ -82,8 +83,9 @@ public static class ScriptPatchInputService
                 {
                     File.Delete(dataPath);
                 }
-                catch
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
                 {
+                    // Best-effort cleanup of a temporary file.
                 }
             }
             throw new InvalidDataException("Validation failed for materialized input '" + Path.GetFileName(inputPath) + "': " + ex.Message, ex);
