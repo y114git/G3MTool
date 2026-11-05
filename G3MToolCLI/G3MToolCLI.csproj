@@ -34,9 +34,16 @@
 
     <ItemGroup>
         <InternalsVisibleTo Include="G3MToolCLI.Tests" />
-        <PackageReference Include="G3MLib" Version="1.1.2" />
         <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Scripting" Version="5.9.0" />
         <PackageReference Include="System.CommandLine" Version="2.0.14" />
+    </ItemGroup>
+
+    <!-- Pass -p:G3MLibProject=path\to\G3MLib.csproj to build against a local G3MLib checkout instead of the package. -->
+    <ItemGroup Condition="'$(G3MLibProject)' == ''">
+        <PackageReference Include="G3MLib" Version="1.1.2" />
+    </ItemGroup>
+    <ItemGroup Condition="'$(G3MLibProject)' != ''">
+        <ProjectReference Include="$(G3MLibProject)" />
     </ItemGroup>
 
     <ItemGroup>
