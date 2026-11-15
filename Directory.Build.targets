@@ -1,0 +1,10 @@
+<Project>
+  <!--
+    Builds against a G3MLib checkout instead of the package, to try a change before it is published:
+    dotnet build G3MToolCLI -p:G3MLibProject=C:/path/to/G3MLib/G3MLib/G3MLib.csproj
+  -->
+  <ItemGroup Condition="'$(G3MLibProject)' != ''">
+    <PackageReference Remove="G3MLib" />
+    <ProjectReference Include="$(G3MLibProject)" />
+  </ItemGroup>
+</Project>

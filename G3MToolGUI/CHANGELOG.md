@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.3] - 2026-11-15
+
+### Changed
+
+- Updated to G3MLib 1.1.3: patches that each add global scripts, tags, feature flags or rooms keep all of them when merged with property merge on, and patching and merging write data files faster.
+- Updated Avalonia to 12.1.6 and Roslyn scripting to 5.12.0.
+
 ## [1.0.2] - 2026-11-04
 
 ### Changed

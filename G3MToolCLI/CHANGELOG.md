@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.3] - 2026-11-15
+
+### Changed
+
+- Updated to G3MLib 1.1.3: patches that each add global scripts, tags, feature flags or rooms keep all of them when merged with `--properties`, and patching and merging write data files faster.
+- Updated System.CommandLine to 3.0.0 and Roslyn scripting to 5.12.0.
+- The G3MLib package version is set in one place (`G3MLibVersion` in `Directory.Build.props`). `-p:G3MLibProject=<path to G3MLib.csproj>` builds the CLI and the GUI against a local G3MLib checkout.
+
 ## [1.3.2] - 2026-11-04
 
 ### Changed

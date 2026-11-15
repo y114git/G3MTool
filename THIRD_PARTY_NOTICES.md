@@ -41,25 +41,25 @@ If you redistribute a release archive, include:
 
 ### System.CommandLine
 
-- Version: `2.0.12`
+- Version: `3.0.0`
 - License: MIT
 - License text: `licenses/MIT.txt`
 
 ### Microsoft.CodeAnalysis.CSharp.Scripting
 
-- Version: `5.9.0`
+- Version: `5.12.0`
 - License: MIT
 - License text: `licenses/MIT.txt`
 
 ### Magick.NET-Q8-AnyCPU
 
-- Version: `14.17.1`
+- Version: `14.17.2`
 - License: Apache-2.0
 - License text: `licenses/Apache-2.0.txt`
 
 ### Avalonia
 
-- Version: `12.1.2`
+- Version: `12.1.6`
 - Used by G3MTool GUI.
 - License: MIT
 - License text: `licenses/MIT.txt`
