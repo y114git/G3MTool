@@ -75,7 +75,7 @@ public static class GeneralInfoUtil
         return prefix + " " + interpretedVersion;
     }
 
-    public static void PrintVerboseGeneralInfo(GameMakerGeneralInfo gi)
+    public static void PrintVerboseGeneralInfo(GameMakerGeneralInfo gi, bool showBranchSource = false)
     {
         Console.WriteLine();
         Console.WriteLine("General Info (detailed):");
@@ -92,7 +92,7 @@ public static class GeneralInfoUtil
         Console.WriteLine($"  Release: {gi.Release}");
         Console.WriteLine($"  Build: {gi.Build}");
         Console.WriteLine($"  Bytecode Version: {gi.BytecodeVersion}");
-        Console.WriteLine($"  Branch: {gi.Branch}");
+        Console.WriteLine($"  Branch: {gi.Branch}" + (!showBranchSource || string.IsNullOrEmpty(gi.BranchSource) ? string.Empty : $" (detected from the {gi.BranchSource} chunk)"));
         Console.WriteLine();
         Console.WriteLine("Window:");
         Console.WriteLine($"  Default Width: {gi.DefaultWindowWidth}");

@@ -1,38 +1,17 @@
-using System.Text.Json;
 using G3MLib.DataFile;
-using G3MLib.DataFile.Legacy;
+using G3MLib.DataFile.Scripting;
 using G3MToolCLI.Models.Scripting;
 using G3MToolCLI.Services.Logging;
-using ImageMagick;
-using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp.Scripting;
-using Microsoft.CodeAnalysis.Scripting;
 
 namespace G3MToolCLI.Services.Execution;
 
 public static class ExecuteService
 {
-    private static readonly Lock s_scriptLock = new();
-    private static (string Content, string? Path, Script<object> Script)? s_lastScript;
-
-    private static readonly string[] DefaultImports =
-    [
-        "System", "System.IO", "System.Text", "System.Text.Json", "System.Text.RegularExpressions", "System.Linq", "System.Threading.Tasks", "System.Collections.Generic", "G3MLib.DataFile", "G3MLib.DataFile.Models",
-        "G3MLib.DataFile.Util", "G3MLib.DataFile.Decompiler", "G3MLib.DataFile.Compiler", "G3MLib.DataFile.Scripting", "ImageMagick"
-    ];
-
-    private static ScriptOptions GetDefaultOptions(string? scriptPath = null)
-    {
-        var options = ScriptOptions.Default.AddImports(DefaultImports).AddReferences(typeof(GameMakerData).Assembly, typeof(MagickImage).Assembly, typeof(JsonSerializer).Assembly).WithOptimizationLevel(OptimizationLevel.Release);
-        if (!string.IsNullOrWhiteSpace(scriptPath))
-        {
-            var scriptDirectory = Path.GetDirectoryName(Path.GetFullPath(scriptPath)) ?? Environment.CurrentDirectory;
-            options = options.WithFilePath(Path.GetFullPath(scriptPath)).WithSourceResolver(ScriptSourceResolver.Default.WithBaseDirectory(scriptDirectory)).WithMetadataResolver(ScriptMetadataResolver.Default.WithBaseDirectory(scriptDirectory));
-        }
-        return options;
-    }
-
-    public static async Task<ScriptResult> ExecuteScriptAsync(string scriptPath, string? dataPath, string outputPath, string[] args)
+    /// <summary>
+    /// Runs a .csx script. <paramref name="savePath"/> is a data file path: when set, the data is written there after the script ran.
+    /// <paramref name="exportDirectory"/> is where scripts write exports; it defaults to the folder of <paramref name="savePath"/>, or the current folder.
+    /// </summary>
+    public static async Task<ScriptResult> ExecuteScriptAsync(string scriptPath, string? dataPath, string? savePath, string[] args, string? exportDirectory = null, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
         if (!File.Exists(scriptPath))
         {
@@ -52,16 +31,16 @@ public static class ExecuteService
             };
         }
         GameMakerData? data = null;
-        ScriptGlobals? globals = null;
+        CliScriptGlobals? globals = null;
         try
         {
             scriptPath = Path.GetFullPath(scriptPath);
             if (hasData)
             {
                 LogService.Log("[ScriptExecutor] Loading data file: " + dataPath);
-                using (var stream = new FileStream(dataPath!, FileMode.Open, FileAccess.Read))
+                using (var stream = new FileStream(dataPath!, FileMode.Open, FileAccess.Read, FileShare.Read))
                 {
-                    data = await GameMakerIO.ReadAsync(stream);
+                    data = await GameMakerIO.ReadAsync(stream, null, cancellationToken);
                 }
                 LogService.Log("[ScriptExecutor] Data loaded. Game: " + (data.GeneralInfo?.DisplayName?.Content ?? "Unknown"));
             }
@@ -70,49 +49,36 @@ public static class ExecuteService
                 LogService.Log("[ScriptExecutor] No data file specified, running script without game data");
             }
             LogService.Log("[ScriptExecutor] Executing script: " + scriptPath);
-            var outputDir = Directory.Exists(outputPath) ? outputPath : (Path.GetDirectoryName(outputPath) ?? outputPath);
-            if (!string.IsNullOrWhiteSpace(outputDir))
+            var outputDir = Path.GetFullPath(exportDirectory ?? (string.IsNullOrEmpty(savePath) ? "." : Path.GetDirectoryName(Path.GetFullPath(savePath))!));
+            Directory.CreateDirectory(outputDir);
+            globals = new CliScriptGlobals(data, dataPath ?? scriptPath, scriptPath)
             {
-                Directory.CreateDirectory(outputDir);
-            }
-            globals = new ScriptGlobals
-            {
-                Data = data,
-                FilePath = dataPath ?? scriptPath,
-                ScriptPath = scriptPath,
-                ScriptRootPath = Path.GetDirectoryName(Path.GetFullPath(scriptPath)) ?? Environment.CurrentDirectory,
                 DataFilePath = dataPath ?? string.Empty,
-                OutputDir = outputDir ?? string.Empty,
+                OutputDir = outputDir,
                 InputDir = args.FirstOrDefault() ?? string.Empty
             };
-            var result = await ExecuteScriptWithRoslynAsync(UTMTScriptTranslator.Translate(await File.ReadAllTextAsync(scriptPath)), globals);
+            var result = await RunAsync(scriptPath, globals, timeout, cancellationToken);
             if (!result.Success)
             {
                 return result;
             }
-            if (globals.Data is not null && !string.IsNullOrEmpty(outputPath))
+            if (globals.Data is not null && !string.IsNullOrEmpty(savePath))
             {
-                LogService.Log("[ScriptExecutor] Saving to: " + outputPath);
-                var outDir = Path.GetDirectoryName(outputPath);
-                if (!string.IsNullOrEmpty(outDir) && !Directory.Exists(outDir))
-                {
-                    Directory.CreateDirectory(outDir);
-                }
-                PatchInputService.WriteDataFile(globals.Data, outputPath, dataPath);
+                LogService.Log("[ScriptExecutor] Saving to: " + savePath);
+                PatchInputService.WriteDataFile(globals.Data, savePath, dataPath);
             }
             LogService.Log("[ScriptExecutor] Script executed successfully");
             return new ScriptResult
             {
-                Success = true,
-                Output = result.Output
+                Success = true
             };
         }
-        catch (Exception ex2)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             return new ScriptResult
             {
                 Success = false,
-                Error = "Script execution failed: " + ex2.Message
+                Error = "Script execution failed: " + ex.Message
             };
         }
         finally
@@ -122,95 +88,45 @@ public static class ExecuteService
         }
     }
 
-    private static async Task<ScriptResult> ExecuteScriptWithRoslynAsync(string scriptContent, ScriptGlobals globals)
+    private static readonly Lock s_consoleLock = new();
+    private static int s_silenced;
+    private static TextWriter? s_savedOut;
+
+    // Counted, so overlapping runs never save the silent writer as the original or restore too early.
+    private static void SilenceConsole()
     {
-        try
+        using (s_consoleLock.EnterScope())
         {
-            globals.ScriptRunner = path => ExecuteNestedScriptAsync(path, globals).GetAwaiter().GetResult();
-            Script<object> script;
-            lock (s_scriptLock)
-            {
-                if (s_lastScript is { } cached && cached.Content == scriptContent && cached.Path == globals.ScriptPath)
-                    script = cached.Script;
-                else
-                {
-                    script = CSharpScript.Create(scriptContent, GetDefaultOptions(globals.ScriptPath), typeof(ScriptGlobals));
-                    script.Compile();
-                    s_lastScript = (scriptContent, globals.ScriptPath, script);
-                }
-            }
-            TextWriter? originalOut = null;
-            if (!LogService.Verbose)
-            {
-                originalOut = Console.Out;
-                Console.SetOut(TextWriter.Null);
-            }
-            try
-            {
-                await script.RunAsync(globals).ConfigureAwait(continueOnCapturedContext: false);
-            }
-            finally
-            {
-                if (originalOut != null)
-                {
-                    Console.SetOut(originalOut);
-                }
-            }
-            return new ScriptResult
-            {
-                Success = true
-            };
-        }
-        catch (CompilationErrorException ex)
-        {
-            var errors = string.Join("\n", ex.Diagnostics.Select(d => d.ToString()));
-            return new ScriptResult
-            {
-                Success = false,
-                Error = "Compilation error:\n" + errors
-            };
-        }
-        catch (ScriptException ex2)
-        {
-            return new ScriptResult
-            {
-                Success = false,
-                Error = ex2.Message
-            };
-        }
-        catch (Exception ex3)
-        {
-            return new ScriptResult
-            {
-                Success = false,
-                Error = "Runtime error: " + ex3.Message
-            };
+            if (s_silenced++ != 0) return;
+            s_savedOut = Console.Out;
+            Console.SetOut(TextWriter.Null);
         }
     }
 
-    private static async Task<bool> ExecuteNestedScriptAsync(string path, ScriptGlobals globals)
+    private static void RestoreConsole()
     {
-        var scriptDirectory = Path.GetDirectoryName(globals.ScriptPath) ?? globals.ScriptRootPath;
-        path = Path.GetFullPath(path, scriptDirectory);
-        var relativePath = Path.GetRelativePath(globals.ScriptRootPath, path);
-        if (Path.IsPathRooted(relativePath) || relativePath.Equals("..", StringComparison.Ordinal) || relativePath.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
+        using (s_consoleLock.EnterScope())
         {
-            throw new ScriptException("Nested script path escapes the mod directory.");
+            if (--s_silenced != 0 || s_savedOut is null) return;
+            Console.SetOut(s_savedOut);
+            s_savedOut = null;
         }
-        if (!File.Exists(path))
-        {
-            throw new ScriptException("Script not found: " + path);
-        }
-        var previousPath = globals.ScriptPath;
+    }
+
+    private static async Task<ScriptResult> RunAsync(string scriptPath, CliScriptGlobals globals, TimeSpan? timeout, CancellationToken cancellationToken)
+    {
+        // Script output goes to the console only with --verbose. Scripts print through Console directly, so the writer is swapped for the whole process.
+        var silenced = !LogService.Verbose;
+        if (silenced) SilenceConsole();
         try
         {
-            globals.ScriptPath = path;
-            await CSharpScript.EvaluateAsync(UTMTScriptTranslator.Translate(await File.ReadAllTextAsync(path).ConfigureAwait(continueOnCapturedContext: false)), GetDefaultOptions(path), globals, typeof(ScriptGlobals)).ConfigureAwait(continueOnCapturedContext: false);
-            return true;
+            var result = await ScriptRunner.RunAsync(scriptPath, globals, cancellationToken, timeout);
+            if (result.Cancelled && cancellationToken.IsCancellationRequested) throw new OperationCanceledException(cancellationToken);
+            return new ScriptResult { Success = result.Success, Error = result.Error };
         }
         finally
         {
-            globals.ScriptPath = previousPath;
+            if (silenced) RestoreConsole();
         }
     }
 }

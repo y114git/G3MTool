@@ -1,4 +1,7 @@
 using System.CommandLine;
+using System.CommandLine.Help;
+using System.CommandLine.Parsing;
+using System.Globalization;
 using System.Text;
 using G3MLib.DataFile.Decompiler;
 using G3MLib.Modding;
@@ -22,6 +25,7 @@ internal static class Program
 
     private static async Task<int> Main(string[] args)
     {
+        CultureInfo.DefaultThreadCurrentCulture = CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
         GameSpecificResolver.BaseDirectory = PlatformUtil.GetExecutableDirectory();
         ModdingMetadata.ToolName = "G3MTool";
         ModdingMetadata.ToolVersion = AppVersionService.Version;
@@ -133,10 +137,16 @@ internal static class Program
         LogService.Verbose = parseResult.GetValue(verboseOption);
         JsonOutput = parseResult.GetValue(jsonOption);
         XDeltaPathOverride = parseResult.GetValue(xdeltaPathOption);
-        G3MLib.Modding.XDelta.XDeltaService.DefaultExecutablePath = XDeltaPathOverride ?? EmbeddedXDeltaPathProvider.GetPath();
+        // Interactive mode runs many commands in one process: nothing from the previous command may stay configured.
+        G3MLib.Modding.XDelta.XDeltaService.DefaultExecutablePath = null;
         LogService.Suppress = JsonOutput;
         G3MLib.Modding.Logging.LogService.Verbose = LogService.Verbose;
         G3MLib.Modding.Logging.LogService.Suppress = LogService.Suppress;
+        // Extract the bundled xdelta only for commands that can run it, never for --help, --version or info.
+        if (parseResult.Action is not HelpAction && TopLevelCommandName(parseResult) is "patch" or "xpatch" or "execute" or "diff")
+        {
+            EmbeddedXDeltaPathProvider.TryConfigure();
+        }
         LogService.SetFileLogging(ResolveLogPath(parseResult.CommandResult.Command.Name, parseResult.GetValue(logOption)));
         using var cancellation = new CancellationTokenSource();
         s_cancellation = cancellation;
@@ -160,6 +170,13 @@ internal static class Program
             s_cancellation = null;
             LogService.Shutdown();
         }
+    }
+
+    private static string TopLevelCommandName(ParseResult parseResult)
+    {
+        var result = parseResult.CommandResult;
+        while (result.Parent is CommandResult { Command: not RootCommand } parent) result = parent;
+        return result.Command.Name;
     }
 
     private static void ForwardModdingLog(G3MLib.Modding.Logging.ModdingLogMessage message)

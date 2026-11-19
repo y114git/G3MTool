@@ -58,7 +58,9 @@ public sealed partial class MainWindow : Window, IDisposable
             if (!_isRunning) return;
             args.Cancel = true;
             _closeAfterOperation = true;
-            ProgressText.Text = "Waiting for the current operation before closing…";
+            ProgressText.Text = "Cancelling the current operation before closing…";
+            CancelButton.IsEnabled = false;
+            _cancellation?.Cancel();
         };
         SizeChanged += (_, _) => UpdateLogPanelHeight();
     }

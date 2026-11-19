@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.0.4] - 2026-11-19
+
+### Changed
+
+- Updated to G3MLib 1.1.4: data files, patches and project files are written through a temporary file, so a failed write keeps the old file.
+- Scripts run through the G3MLib script runner. A script that uses `#load` sees edits to the loaded files on the next run. File pickers receive the script's filter.
+- Closing the window during an operation cancels it first, then closes.
+
+### Fixed
+
+- Cancel also ends a script that is waiting in a dialog or picker.
+- Cancel now stops scripts, XDelta operations, and external programs. XDelta and program processes are killed with their children, and a half-written XDelta output is removed.
+- A batch apply or merge keeps its progress and log between items instead of completing the progress bar after each one.
+- The bundled xdelta is extracted when an operation needs it, not at startup, so a platform without one can still open the window. Scripts that use xdelta through the library get it too.
+
 ## [1.0.3] - 2026-11-15
 
 ### Changed

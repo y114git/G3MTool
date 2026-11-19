@@ -46,7 +46,7 @@ public class ExecuteServiceTests
                     await File.WriteAllTextAsync(script, await reader.ReadToEndAsync(TestContext.Current.CancellationToken), TestContext.Current.CancellationToken);
                     var importing = operation == "Import";
                     var result = await ExecuteService.ExecuteScriptAsync(script, importing ? changed : source,
-                        importing ? resultPath : Path.Combine(exportDirectory, "data.win"), importing ? [Path.Combine(exportDirectory, type)] : []);
+                        importing ? resultPath : Path.Combine(exportDirectory, "data.win"), importing ? [Path.Combine(exportDirectory, type)] : [], cancellationToken: TestContext.Current.CancellationToken);
                     Assert.True(result.Success, result.Error);
                 }
                 using var restored = Read(resultPath);
@@ -88,7 +88,7 @@ public class ExecuteServiceTests
                 await GameMakerIO.WriteAsync(stream, original, cancellationToken: TestContext.Current.CancellationToken);
             }
             await File.WriteAllTextAsync(script, "Data = GameMakerData.CreateNew2026LTS(); Data.GeneralInfo.LastObj = 456;", TestContext.Current.CancellationToken);
-            var result = await ExecuteService.ExecuteScriptAsync(script, withInput ? output : null, output, []);
+            var result = await ExecuteService.ExecuteScriptAsync(script, withInput ? output : null, output, [], cancellationToken: TestContext.Current.CancellationToken);
             Assert.True(result.Success, result.Error);
             using var saved = File.OpenRead(output);
             using var data = await GameMakerIO.ReadAsync(saved, null, cancellationToken: TestContext.Current.CancellationToken);
@@ -115,7 +115,7 @@ public class ExecuteServiceTests
             var original = await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken);
             await File.WriteAllTextAsync(script, "Data.GeneralInfo.DisplayName.Content = null;", TestContext.Current.CancellationToken);
 
-            var result = await ExecuteService.ExecuteScriptAsync(script, path, path, []);
+            var result = await ExecuteService.ExecuteScriptAsync(script, path, path, [], cancellationToken: TestContext.Current.CancellationToken);
 
             Assert.False(result.Success);
             Assert.Equal(original, await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken));
@@ -143,7 +143,7 @@ public class ExecuteServiceTests
                 await GameMakerIO.WriteAsync(stream, data, cancellationToken: TestContext.Current.CancellationToken);
             }
             await File.WriteAllTextAsync(scriptPath, "using UndertaleModLib;\nusing UndertaleModLib.Models;\nData.GeneralInfo!.LastObj = 777;", TestContext.Current.CancellationToken);
-            var result = await ExecuteService.ExecuteScriptAsync(scriptPath, inputPath, outputPath, []);
+            var result = await ExecuteService.ExecuteScriptAsync(scriptPath, inputPath, outputPath, [], cancellationToken: TestContext.Current.CancellationToken);
             Assert.True(result.Success, result.Error);
             using var output = Read(outputPath);
             Assert.Equal(777u, output.GeneralInfo.LastObj);
@@ -173,7 +173,7 @@ public class ExecuteServiceTests
                 await GameMakerIO.WriteAsync(stream, data, cancellationToken: TestContext.Current.CancellationToken);
             }
             await File.WriteAllTextAsync(scriptPath, "using UndertaleModLib.Compiler;\nCodeImportGroup group = new(Data) { MainThreadAction = MainThreadAction };\nMainThreadAction(() => Data.GeneralInfo!.LastObj = 778);", TestContext.Current.CancellationToken);
-            var result = await ExecuteService.ExecuteScriptAsync(scriptPath, inputPath, outputPath, []);
+            var result = await ExecuteService.ExecuteScriptAsync(scriptPath, inputPath, outputPath, [], cancellationToken: TestContext.Current.CancellationToken);
             Assert.True(result.Success, result.Error);
             using var output = Read(outputPath);
             Assert.Equal(778u, output.GeneralInfo.LastObj);
@@ -204,14 +204,14 @@ public class ExecuteServiceTests
             }
 
             await File.WriteAllTextAsync(scriptPath, "Data.GeneralInfo!.LastObj = 101;", TestContext.Current.CancellationToken);
-            Assert.True((await ExecuteService.ExecuteScriptAsync(scriptPath, inputPath, outputPath, [])).Success);
+            Assert.True((await ExecuteService.ExecuteScriptAsync(scriptPath, inputPath, outputPath, [], cancellationToken: TestContext.Current.CancellationToken)).Success);
             using (var firstOutput = Read(outputPath))
             {
                 Assert.Equal(101u, firstOutput.GeneralInfo.LastObj);
             }
 
             await File.WriteAllTextAsync(scriptPath, "Data.GeneralInfo!.LastObj = 202;", TestContext.Current.CancellationToken);
-            Assert.True((await ExecuteService.ExecuteScriptAsync(scriptPath, inputPath, outputPath, [])).Success);
+            Assert.True((await ExecuteService.ExecuteScriptAsync(scriptPath, inputPath, outputPath, [], cancellationToken: TestContext.Current.CancellationToken)).Success);
             using var secondOutput = Read(outputPath);
             Assert.Equal(202u, secondOutput.GeneralInfo.LastObj);
         }
@@ -247,7 +247,7 @@ public class ExecuteServiceTests
             using StreamReader reader = new(scriptStream);
             await File.WriteAllTextAsync(scriptPath, await reader.ReadToEndAsync(TestContext.Current.CancellationToken), TestContext.Current.CancellationToken);
 
-            var result = await ExecuteService.ExecuteScriptAsync(scriptPath, inputPath, outputPath, [inputDirectory]);
+            var result = await ExecuteService.ExecuteScriptAsync(scriptPath, inputPath, outputPath, [inputDirectory], cancellationToken: TestContext.Current.CancellationToken);
             Assert.True(result.Success, result.Error);
             using var output = Read(outputPath);
             Assert.Equal(string.Empty, Assert.Single(output.Extensions).FolderName.Content);
@@ -281,7 +281,7 @@ public class ExecuteServiceTests
             using StreamReader reader = new(scriptStream);
             await File.WriteAllTextAsync(scriptPath, await reader.ReadToEndAsync(TestContext.Current.CancellationToken), TestContext.Current.CancellationToken);
 
-            var result = await ExecuteService.ExecuteScriptAsync(scriptPath, inputPath, outputPath, []);
+            var result = await ExecuteService.ExecuteScriptAsync(scriptPath, inputPath, outputPath, [], cancellationToken: TestContext.Current.CancellationToken);
             Assert.True(result.Success, result.Error);
             Assert.True(File.Exists(outputPath));
             Assert.True(File.Exists(Path.Combine(directory, "GeneralInfo", "GeneralInfo.json")));
@@ -321,7 +321,7 @@ public class ExecuteServiceTests
                 using StreamReader reader = new(scriptStream);
                 await File.WriteAllTextAsync(scriptPath, await reader.ReadToEndAsync(TestContext.Current.CancellationToken), TestContext.Current.CancellationToken);
 
-                var result = await ExecuteService.ExecuteScriptAsync(scriptPath, inputPath, outputPath, []);
+                var result = await ExecuteService.ExecuteScriptAsync(scriptPath, inputPath, outputPath, [], cancellationToken: TestContext.Current.CancellationToken);
                 Assert.True(result.Success, $"{name}: {result.Error}");
                 Assert.True(File.Exists(outputPath), name);
             }
@@ -374,7 +374,7 @@ public class ExecuteServiceTests
                 var outputPath = isImport
                     ? Path.Combine(directory, "import", name + ".win")
                     : Path.Combine(exportDirectory, "data.win");
-                var result = await ExecuteService.ExecuteScriptAsync(scriptPath, sourcePath, outputPath, isImport ? [inputDirectory] : []);
+                var result = await ExecuteService.ExecuteScriptAsync(scriptPath, sourcePath, outputPath, isImport ? [inputDirectory] : [], cancellationToken: TestContext.Current.CancellationToken);
                 Assert.True(result.Success, $"{name}: {result.Error}");
                 Assert.True(File.Exists(outputPath), name);
             }
@@ -392,5 +392,19 @@ public class ExecuteServiceTests
     {
         using var stream = File.OpenRead(path);
         return GameMakerIO.Read(stream);
+    }
+
+    [Fact]
+    public async Task ScriptsKeepTheShortScriptInputDialogForm()
+    {
+        var directory = Directory.CreateTempSubdirectory("g3mtool-short-dialog-").FullName;
+        try
+        {
+            var script = Path.Combine(directory, "dialog.csx");
+            await File.WriteAllTextAsync(script, "if (ScriptInputDialog(\"Title\", \"Label\", \"Default\", false, true) != \"Default\") throw new Exception(\"Input\");", TestContext.Current.CancellationToken);
+            var result = await ExecuteService.ExecuteScriptAsync(script, null, null, [], cancellationToken: TestContext.Current.CancellationToken);
+            Assert.True(result.Success, result.Error);
+        }
+        finally { Directory.Delete(directory, recursive: true); }
     }
 }

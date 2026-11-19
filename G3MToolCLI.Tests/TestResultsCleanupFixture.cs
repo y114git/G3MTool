@@ -2,38 +2,42 @@
 
 namespace G3MToolCLI.Tests;
 
+/// <summary>Removes the TestResults folders this test run created. A folder that existed before the run is never touched.</summary>
 public sealed class TestResultsCleanupFixture : IDisposable
 {
-    private readonly bool _preserveTestResults = Environment.GetCommandLineArgs()
-        .Any(argument => argument.StartsWith("--results-directory", StringComparison.Ordinal));
+    private readonly string[] _createdByRun;
 
     public TestResultsCleanupFixture()
     {
-        if (!_preserveTestResults)
+        if (Environment.GetCommandLineArgs().Any(argument => argument.StartsWith("--results-directory", StringComparison.Ordinal)))
         {
-            AppDomain.CurrentDomain.ProcessExit += OnProcessExit;
-            DeleteDefaultTestResults();
+            _createdByRun = [];
+            return;
         }
-    }
-
-    public void Dispose()
-    {
-        if (!_preserveTestResults)
-            DeleteDefaultTestResults();
-    }
-
-    private void OnProcessExit(object? sender, EventArgs e) => DeleteDefaultTestResults();
-
-    private static void DeleteDefaultTestResults()
-    {
-        foreach (var path in new[]
+        _createdByRun = [.. new[]
         {
             Path.Combine(Environment.CurrentDirectory, "TestResults"),
             Path.Combine(AppContext.BaseDirectory, "TestResults")
-        }.Distinct(StringComparer.OrdinalIgnoreCase))
+        }.Distinct(StringComparer.OrdinalIgnoreCase).Where(path => !Directory.Exists(path))];
+        AppDomain.CurrentDomain.ProcessExit += OnProcessExit;
+    }
+
+    public void Dispose() => DeleteCreatedTestResults();
+
+    private void OnProcessExit(object? sender, EventArgs e) => DeleteCreatedTestResults();
+
+    private void DeleteCreatedTestResults()
+    {
+        foreach (var path in _createdByRun)
         {
-            if (Directory.Exists(path))
-                Directory.Delete(path, recursive: true);
+            try
+            {
+                if (Directory.Exists(path)) Directory.Delete(path, recursive: true);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                // The results folder is only a convenience cleanup; a locked file must not fail the run.
+            }
         }
     }
 }

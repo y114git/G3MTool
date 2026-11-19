@@ -10,10 +10,10 @@
     <AssemblyTitle>G3MTool</AssemblyTitle>
     <ProductName>G3MTool</ProductName>
     <ApplicationIcon>Assets\icons\G3MTool_icon.ico</ApplicationIcon>
-    <Version>1.0.3</Version>
-    <AssemblyVersion>1.0.3.0</AssemblyVersion>
-    <FileVersion>1.0.3.0</FileVersion>
-    <InformationalVersion>1.0.3</InformationalVersion>
+    <Version>1.0.4</Version>
+    <AssemblyVersion>1.0.4.0</AssemblyVersion>
+    <FileVersion>1.0.4.0</FileVersion>
+    <InformationalVersion>1.0.4</InformationalVersion>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(RuntimeIdentifier)' != ''">
@@ -36,6 +36,10 @@
     <PackageReference Include="Avalonia.Desktop" Version="12.1.6" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.6" />
     <PackageReference Include="G3MLib" Version="$(G3MLibVersion)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\G3MToolCLI\Services\Execution\XDeltaProcess.cs" Link="Services\XDeltaProcess.cs" />
   </ItemGroup>
 
   <ItemGroup>

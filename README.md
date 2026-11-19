@@ -5,8 +5,8 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/CLI-1.3.3-3F8F3F?style=for-the-badge" alt="G3MTool CLI 1.3.3">
-  <img src="https://img.shields.io/badge/GUI-1.0.3-3F8F3F?style=for-the-badge" alt="G3MTool GUI 1.0.3">
+  <img src="https://img.shields.io/badge/CLI-1.3.4-3F8F3F?style=for-the-badge" alt="G3MTool CLI 1.3.4">
+  <img src="https://img.shields.io/badge/GUI-1.0.4-3F8F3F?style=for-the-badge" alt="G3MTool GUI 1.0.4">
   <img src="https://img.shields.io/badge/.NET-10.0-512BD4?style=for-the-badge&logo=dotnet&logoColor=white" alt=".NET 10">
   <a href="https://github.com/y114git/G3MTool/releases"><img src="https://img.shields.io/github/downloads/y114git/G3MTool/total?style=for-the-badge" alt="Total downloads"></a>
 </p>
@@ -44,7 +44,8 @@ Global options:
 | --- | --- |
 | `-v`, `--verbose` | Print verbose command output |
 | `-l`, `--log <path>` | Write a log file. Use `--log default` for `logs/{command}_{timestamp}.log` next to the executable |
-| `--json` | Machine-readable JSON output for supported CLI commands |
+| `--json` | Machine-readable JSON output for `patch`, `diff`, `xpatch`, `execute xdelta`, and `info` |
+| `--xdelta-path <path>` | Use this xdelta executable instead of the bundled one |
 | `--version`, `-V` | Print the application version |
 
 ## patch
@@ -98,10 +99,13 @@ Options:
 | `-o`, `--out <path>` | Also keep the merged `.g3mpatch` |
 | `--code` | Enable 3-way merge for GML code files |
 | `--properties` | Enable deep merge for JSON property files |
+| `--sequential` | Use the low-memory merge pipeline (cannot be combined with `--code` or `--properties`) |
 | `-r`, `--report <path>` | Write a Markdown merge report |
 | `--cache <dir>` | Reuse `.g3mcache` analysis files while converting data-file or `.xdelta` inputs |
 
 Without `--apply`, G3MTool CLI writes a merged `.g3mpatch`. Use `--out` to choose its path and `--apply` to write the merged data file.
+
+When it finishes, the command prints the output path, the number of merged patches, and the conflict and auto-merged counts. `--json` reports the same data.
 
 ### patch batch
 
@@ -155,24 +159,36 @@ G3MTool xpatch create <original> <modified> [output]
 G3MTool xpatch apply <original> <patch> [output]
 ```
 
-Creates or applies binary xdelta patches. This is separate from `.g3mpatch`.
+Creates or applies binary xdelta patches. This is separate from `.g3mpatch`. With `--json`, each command writes one JSON object to stdout, errors included.
 Pass `--xdelta-path <path>` to use a specific xdelta executable instead of the bundled one. This is useful on systems where the bundled binary is blocked or incompatible.
 
 ## execute
 
 ```bash
 G3MTool execute <target> [args]
-G3MTool execute <script.csx> [args] --data <data-file> --output <output-file>
-G3MTool execute <script.csx> --data <data-file> --input <directory> --output <output-file>
+G3MTool execute <script.csx> [args] --data <data-file> --output <file>
+G3MTool execute <script.csx> --data <data-file> --output <folder>/
+G3MTool execute <script.csx> --data <data-file> --input <directory> [--timeout <seconds>]
 G3MTool execute xdelta -- <args>
 ```
 
-Runs an external program, a `.csx` script, or xdelta. For `.csx` scripts, `--data` loads a data file and `--output` writes the modified result. `--input` passes an input directory as the first script argument.
+Runs an external program, a `.csx` script, or xdelta. For `.csx` scripts, `--data` loads a data file and `--input` passes an input directory as the first script argument. `--timeout <seconds>` stops a script that runs too long, and Ctrl+C cancels it.
+
+`--data`, `--output`, `--input` and `--timeout` apply to scripts only; other targets reject them. With `--data` and no file path the command prints a one-line note that the data file was not saved. `--json` reports scripts, programs, and xdelta as one JSON object (a program's output is collected into it).
+
+`--output` decides where results go:
+
+| `--output` | Script exports (`OutputDir`) | Data file |
+| --- | --- | --- |
+| a folder: an existing one, a path ending with `/` or `\`, or a path without an extension | that folder, created when missing | not written |
+| any other path | the folder of that path | written to that path |
+| omitted | the current folder | not written |
+
 Put `--` before external-program or xdelta arguments so their options are passed through unchanged. When the `target` is `xdelta`, place `--xdelta-path <path>` before the separator to use a specific xdelta executable.
 
 Bundled scripts are in `G3MToolCLI/Assets/scripts`.
 
-GUI scripts can ask questions, request text, and open file or folder pickers. Cancelled dialogs return no selection. Script work runs outside the UI thread; closing the main window waits for the current operation to finish.
+GUI scripts can ask questions, request text, and open file or folder pickers. Cancelled dialogs return no selection. Script work runs outside the UI thread. Cancel stops a running script, xdelta call, or external program, and closing the main window cancels the running operation first.
 
 ## Build
 

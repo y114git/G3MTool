@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.3.4] - 2026-11-19
+
+### Added
+
+- `execute --timeout <seconds>` stops a script that runs too long. Ctrl+C now also stops a running script and a program started with `execute`.
+- `patch merge` prints the output path, the number of merged patches, and the conflict and auto-merged counts.
+- `info -v` names the chunk that decided the LTS branch.
+- `execute --json` reports scripts and programs too. `--data`, `--output`, `--input` and `--timeout` are rejected for programs and xdelta. With `--data` and no file path, a note says the data file was not saved.
+
+### Changed
+
+- Updated to G3MLib 1.1.4: data files, patches and project files are written through a temporary file, so a failed write keeps the old file.
+- Scripts run through the G3MLib script runner. A script that uses `#load` sees edits to the loaded files on the next run.
+- `execute` with a folder as `--output` (an existing one, or a path ending with a separator) writes the script's exports there and creates it when missing; it no longer writes the data file. With a file path the data file is saved there as before. Without `--output` the exports go to the current folder and no data file is written, where it used to be copied next to the executable. A path that does not exist and has no extension counts as a folder.
+- The CLI uses the invariant culture for numbers in its output.
+
+### Fixed
+
+- The bundled xdelta is extracted only for commands that can run it. `--help`, `--version` and `info` no longer extract it, and a build without a bundled xdelta for the platform reports it clearly instead of failing.
+- `xpatch create`, `xpatch apply` and `execute xdelta` honour `--json` and report errors as JSON.
+- Ctrl+C stops xdelta (the process and its children are killed, a half-written output is removed); xdelta runs end after 5 minutes.
+- `--xdelta-path` and the extracted xdelta no longer carry over to the next command in interactive mode.
+- A temporary folder that cannot be deleted no longer fails a finished `patch apply`.
+- The nested script path error says "script directory" instead of "mod directory".
+
 ## [1.3.3] - 2026-11-15
 
 ### Changed

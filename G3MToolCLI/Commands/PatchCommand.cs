@@ -1,5 +1,6 @@
 using System.CommandLine;
 using System.Text.Json;
+using G3MToolCLI.Services.Execution;
 using G3MToolCLI.Services.Logging;
 using G3MToolCLI.Services.Patching;
 using G3MToolCLI.Utils;
@@ -64,7 +65,7 @@ public static class PatchCommand
                 }
                 if (xdeltaOutput)
                 {
-                    var xresult = await new XDeltaService().CreatePatchAsync(original.FullName, materialized, outputPath);
+                    var xresult = await XDeltaProcess.CreateAsync(EmbeddedXDeltaPathProvider.Resolve(), original.FullName, materialized, outputPath, Program.Cancellation);
                     if (!xresult.Success)
                     {
                         WriteErrorJsonOrText("patch create", xresult.Error);
@@ -153,12 +154,12 @@ public static class PatchCommand
                     PatchInputService.CopyDataFile(materialized, outputPath);
                     WriteSuccessJsonOrText("patch apply", outputPath, new { inputKind = ScriptPatchInputService.IsXDelta(patch.FullName) ? "xdelta" : "csx", data = data.FullName, patch = patch.FullName });
                 }
-                catch (Exception exception)
+                catch (Exception exception) when (exception is not OperationCanceledException)
                 {
                     WriteErrorJsonOrText("patch apply", exception.Message);
                     Environment.ExitCode = 1;
                 }
-                finally { Directory.Delete(temporaryDirectory, recursive: true); }
+                finally { DeleteTemporaryDirectory(temporaryDirectory); }
             }
             else
             {
@@ -201,7 +202,7 @@ public static class PatchCommand
                 }
                 finally
                 {
-                    if (Directory.Exists(temporaryDirectory)) Directory.Delete(temporaryDirectory, recursive: true);
+                    DeleteTemporaryDirectory(temporaryDirectory);
                 }
             }
         });
@@ -479,6 +480,13 @@ public static class PatchCommand
                     warnings = result.TotalConflicts <= 0 ? [] : s_mergeConflictWarnings
                 });
             }
+            else
+            {
+                Console.WriteLine($"Merged {patchPaths.Count} patches.");
+                if (!string.IsNullOrEmpty(result.OutputPath)) Console.WriteLine("  Patch:  " + result.OutputPath);
+                if (!string.IsNullOrEmpty(applyPath)) Console.WriteLine("  Data:   " + applyPath);
+                Console.WriteLine($"  Conflicts: {result.TotalConflicts}, auto-merged: {result.AutoMerged}");
+            }
         });
         command.Add(createCommand);
         command.Add(applyCommand);
@@ -504,7 +512,7 @@ public static class PatchCommand
         return command;
     }
 
-    private static void WriteSuccessJsonOrText<T>(string command, string outputPath, T details)
+    internal static void WriteSuccessJsonOrText<T>(string command, string outputPath, T details)
     {
         if (Program.JsonOutput)
         {
@@ -523,7 +531,7 @@ public static class PatchCommand
         }
     }
 
-    private static void WriteErrorJsonOrText(string command, string? error)
+    internal static void WriteErrorJsonOrText(string command, string? error)
     {
         if (Program.JsonOutput)
         {
@@ -544,7 +552,7 @@ public static class PatchCommand
     {
         try
         {
-            Directory.Delete(path, recursive: true);
+            if (Directory.Exists(path)) Directory.Delete(path, recursive: true);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
@@ -553,7 +561,7 @@ public static class PatchCommand
         }
     }
 
-    private static void WriteJson<T>(T value)
+    internal static void WriteJson<T>(T value)
     {
         Console.WriteLine(JsonSerializer.Serialize(value, s_compactJsonOptions));
     }

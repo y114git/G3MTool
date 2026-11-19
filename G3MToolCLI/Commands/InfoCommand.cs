@@ -147,7 +147,7 @@ public static class InfoCommand
             if (generalInfo != null)
             {
                 Console.WriteLine();
-                GeneralInfoUtil.PrintVerboseGeneralInfo(generalInfo);
+                GeneralInfoUtil.PrintVerboseGeneralInfo(generalInfo, verbose);
             }
             if (!verbose)
             {

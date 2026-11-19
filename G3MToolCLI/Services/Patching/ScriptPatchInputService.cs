@@ -57,7 +57,7 @@ public static class ScriptPatchInputService
 
         Directory.CreateDirectory(tempDir);
         var output = Path.Combine(tempDir, $"materialized_{Guid.NewGuid():N}{Path.GetExtension(originalPath)}");
-        var result = await ExecuteService.ExecuteScriptAsync(scriptPath, originalPath, output, []);
+        var result = await ExecuteService.ExecuteScriptAsync(scriptPath, originalPath, output, [], cancellationToken: Program.Cancellation);
         if (!result.Success)
         {
             throw new InvalidOperationException("CSX execution failed for '" + Path.GetFileName(scriptPath) + "': " + result.Error);

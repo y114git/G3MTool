@@ -70,7 +70,7 @@ public sealed class ModdingOperationServiceTests
                 await GameMakerIO.WriteAsync(stream, original, cancellationToken: TestContext.Current.CancellationToken);
             }
             await File.WriteAllTextAsync(script, "Data = GameMakerData.CreateNew2026LTS(); Data.GeneralInfo.LastObj = 456;", TestContext.Current.CancellationToken);
-            var result = await ScriptExecutionService.RunAsync(script, withInput ? output : null, output, []);
+            var result = await ScriptExecutionService.RunAsync(script, withInput ? output : null, output, [], cancellationToken: TestContext.Current.CancellationToken);
             Assert.True(result.Success, result.Error);
             using var saved = File.OpenRead(output);
             using var data = await GameMakerIO.ReadAsync(saved, null, cancellationToken: TestContext.Current.CancellationToken);
@@ -85,10 +85,10 @@ public sealed class ModdingOperationServiceTests
     [Fact]
     public void ScriptQuestionsRequireUserInput()
     {
-        var globals = new ScriptGlobals(null, "", "script.csx", null, null);
+        var globals = new GuiScriptGlobals(null, "", "script.csx", null, null);
         Assert.Throws<G3MLib.DataFile.Scripting.ScriptException>(() => globals.ScriptQuestion("Overwrite files?"));
-        Assert.Throws<G3MLib.DataFile.Scripting.ScriptException>(() => globals.ScriptInputDialog("Input", "Path", "default", false, true));
-        globals.SetProgressBar(null, "test", 2, 100);
+        Assert.Throws<G3MLib.DataFile.Scripting.ScriptException>(() => globals.ScriptInputDialog("Input", "Path", "default", "Cancel", "OK", false, false));
+        globals.SetProgressBar("", "test", 2, 100);
         Parallel.For(0, 20, _ => globals.IncrementProgressParallel());
         Assert.Equal(22, globals.GetProgress());
     }
@@ -104,9 +104,10 @@ public sealed class ModdingOperationServiceTests
             var script = Path.Combine(directory, "dialogs.csx");
             await File.WriteAllTextAsync(script, """
                 if (ScriptQuestion("Continue?")) throw new Exception("Expected No");
-                if (ScriptInputDialog("Title", "Label", "Default", false, true) != "value") throw new Exception("Input");
-                if (PromptLoadFile("All|*", "") != "input.win") throw new Exception("Open");
-                if (PromptSaveFile("All|*", "") != "output.win") throw new Exception("Save");
+                if (ScriptInputDialog("Title", "Label", "Default", "Cancel", "OK", false, false) != "value") throw new Exception("Input");
+                if (ScriptInputDialog("Title", "Label", "Default", false, true) != "value") throw new Exception("Old input");
+                if (PromptLoadFile("win", "All|*") != "input.win") throw new Exception("Open");
+                if (PromptSaveFile("win", "All|*") != "output.win") throw new Exception("Save");
                 if (PromptChooseDirectory() != null) throw new Exception("Cancel");
                 """, TestContext.Current.CancellationToken);
             var interaction = new ScriptInteraction
@@ -179,7 +180,7 @@ public sealed class ModdingOperationServiceTests
             var original = await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken);
             await File.WriteAllTextAsync(script, "Data.GeneralInfo.DisplayName.Content = null;", TestContext.Current.CancellationToken);
 
-            var result = await ScriptExecutionService.RunAsync(script, path, path, []);
+            var result = await ScriptExecutionService.RunAsync(script, path, path, [], cancellationToken: TestContext.Current.CancellationToken);
 
             Assert.False(result.Success);
             Assert.Equal(original, await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken));
@@ -504,6 +505,100 @@ public sealed class ModdingOperationServiceTests
             Assert.False(result.Success);
             Assert.StartsWith("Cancelled", result.Summary, StringComparison.Ordinal);
             Assert.DoesNotContain("failed", result.Summary, StringComparison.Ordinal);
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
+    [Fact]
+    public async Task CancelStopsARunningScript()
+    {
+        var directory = Directory.CreateTempSubdirectory("g3mtool-cancel-script-").FullName;
+        try
+        {
+            var script = Path.Combine(directory, "loop.csx");
+            await File.WriteAllTextAsync(script, "while (true) ScriptMessage(\"tick\");", TestContext.Current.CancellationToken);
+            using ModdingOperationService service = new();
+            using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+
+            var result = await service.RunAsync(new ModdingOperationRequest { Operation = ModdingOperation.RunScript, PrimaryPath = script }, cancellation.Token).WaitAsync(TimeSpan.FromSeconds(60), TestContext.Current.CancellationToken);
+
+            Assert.False(result.Success);
+            Assert.Equal("Cancelled.", result.Summary);
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
+    [Fact]
+    public async Task CancelEndsAScriptWaitingInADialog()
+    {
+        var directory = Directory.CreateTempSubdirectory("g3mtool-cancel-dialog-").FullName;
+        try
+        {
+            var script = Path.Combine(directory, "ask.csx");
+            await File.WriteAllTextAsync(script, "ScriptQuestion(\"Continue?\");", TestContext.Current.CancellationToken);
+            var never = new TaskCompletionSource<bool>();
+            using ModdingOperationService service = new(new ScriptInteraction
+            {
+                Question = _ => never.Task,
+                Input = (_, _, _, _) => Task.FromResult<string?>(null),
+                OpenFile = (_, _) => Task.FromResult<string?>(null),
+                SaveFile = (_, _) => Task.FromResult<string?>(null),
+                ChooseDirectory = () => Task.FromResult<string?>(null)
+            });
+            using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+
+            var result = await service.RunAsync(new ModdingOperationRequest { Operation = ModdingOperation.RunScript, PrimaryPath = script }, cancellation.Token).WaitAsync(TimeSpan.FromSeconds(60), TestContext.Current.CancellationToken);
+
+            Assert.Equal("Cancelled.", result.Summary);
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
+    [Fact]
+    public async Task CancelKillsARunningProgram()
+    {
+        var executable = OperatingSystem.IsWindows() ? Environment.GetEnvironmentVariable("ComSpec")! : "/bin/sh";
+        string[] arguments = OperatingSystem.IsWindows() ? ["/c", "ping -n 60 127.0.0.1 >nul"] : ["-c", "sleep 60"];
+        using ModdingOperationService service = new();
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+
+        var result = await service.RunAsync(new ModdingOperationRequest { Operation = ModdingOperation.RunProgram, PrimaryPath = executable, InputPaths = arguments }, cancellation.Token).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+
+        Assert.Equal("Cancelled.", result.Summary);
+    }
+
+    [Fact]
+    public async Task BatchApplyCompletesProgressOnceForTheWholeBatch()
+    {
+        var directory = Directory.CreateTempSubdirectory("g3mtool-batch-progress-").FullName;
+        try
+        {
+            var original = Path.Combine(directory, "original.win");
+            var first = Path.Combine(directory, "first.win");
+            var second = Path.Combine(directory, "second.win");
+            CreateRoomData(original);
+            ModifyData(original, first, data => data.Rooms[1].Width = 123);
+            ModifyData(original, second, data => data.Rooms[1].Width = 456);
+            using ModdingOperationService service = new();
+            var completed = 0;
+            service.ProgressChanged += progress => { if (progress.IsComplete) Interlocked.Increment(ref completed); };
+
+            var single = await service.RunAsync(new ModdingOperationRequest { Operation = ModdingOperation.ApplyPatch, OriginalPath = original, PrimaryPath = first, OutputPath = Path.Combine(directory, "single.win") }, TestContext.Current.CancellationToken);
+            Assert.True(single.Success, single.Summary);
+            // the library completes its own progress per patch; the service adds one completion per run
+            var perPatch = completed - 1;
+            completed = 0;
+
+            var batch = await service.RunAsync(new ModdingOperationRequest
+            {
+                Operation = ModdingOperation.BatchApply,
+                OriginalPath = original,
+                InputPaths = [first, second],
+                OutputPath = Path.Combine(directory, "out")
+            }, TestContext.Current.CancellationToken);
+
+            Assert.True(batch.Success, batch.Summary);
+            Assert.Equal(2 * perPatch + 1, completed);
         }
         finally { Directory.Delete(directory, recursive: true); }
     }
