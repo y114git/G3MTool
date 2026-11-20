@@ -1,12 +1,7 @@
 using System.Diagnostics;
 using System.Reflection;
-using System.Text;
-using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Controls.Documents;
 using Avalonia.Interactivity;
-using Avalonia.Media;
-using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using G3MLib.Modding.Logging;
 using G3MToolGUI.Services;
@@ -23,17 +18,10 @@ public sealed partial class MainWindow : Window, IDisposable
     };
 
     private readonly ModdingOperationService _operations;
-    private readonly StringBuilder _log = new();
-    private readonly Queue<LogLine> _logLines = new();
-    private const int LogLimit = 1_000_000;
-    private bool _scrollPending;
     private bool _isRunning;
     private CancellationTokenSource? _cancellation;
     private bool _closeAfterOperation;
-    private bool _logsExpanded;
     private ModdingOperation? _configuredOperation;
-
-    private sealed record LogLine(ModdingLogLevel Level, string Text);
 
     public MainWindow()
     {
@@ -122,72 +110,24 @@ public sealed partial class MainWindow : Window, IDisposable
         foreach (var control in controls) control.IsVisible = visible;
     }
 
-    private async void BrowseOriginal(object? sender, RoutedEventArgs e)
+    // Event handlers cannot be awaited: a failure goes to the activity log instead of ending the program.
+    private void Observe(Task task) => _ = ObserveAsync(task);
+
+    private async Task ObserveAsync(Task task)
     {
-        OriginalPathBox.Text = await PickFileAsync("Choose original data file") ?? OriginalPathBox.Text;
+        try
+        {
+            await task;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            AddLog(new ModdingLogMessage { Level = ModdingLogLevel.Error, Message = exception.Message });
+        }
     }
 
-    private async void BrowsePrimary(object? sender, RoutedEventArgs e)
-    {
-        var operation = SelectedView.Operation;
-        if (operation == ModdingOperation.BatchMerge)
-        {
-            PrimaryPathBox.Text = await PickFolderAsync("Choose data output directory") ?? PrimaryPathBox.Text;
-            return;
-        }
-        if (operation == ModdingOperation.MergePatches)
-        {
-            var extension = Path.GetExtension(OriginalPathBox.Text);
-            PrimaryPathBox.Text = await SavePathAsync("Choose merged data output", "merged" + (string.IsNullOrEmpty(extension) ? ".win" : extension)) ?? PrimaryPathBox.Text;
-            return;
-        }
+    private void RunOperation(object? sender, RoutedEventArgs e) => Observe(RunOperationAsync());
 
-        PrimaryPathBox.Text = await PickFileAsync("Choose input file") ?? PrimaryPathBox.Text;
-    }
-
-    private async void BrowseAdditional(object? sender, RoutedEventArgs e)
-    {
-        if (SelectedView.Operation == ModdingOperation.RunXDelta)
-        {
-            AddLog(new ModdingLogMessage { Level = ModdingLogLevel.Information, Message = "Enter one XDelta argument per line." });
-            return;
-        }
-
-        var paths = await PickFilesAsync("Choose input files");
-        if (paths.Count == 0) return;
-        var prefix = string.IsNullOrWhiteSpace(AdditionalPathsBox.Text) ? string.Empty : AdditionalPathsBox.Text.TrimEnd() + Environment.NewLine;
-        if (SelectedView.Operation == ModdingOperation.BatchMerge && paths.Any(path => path.Contains(',', StringComparison.Ordinal) || path.Contains('\n', StringComparison.Ordinal) || path.Contains('\r', StringComparison.Ordinal)))
-        {
-            AddLog(new ModdingLogMessage { Level = ModdingLogLevel.Error, Message = "Merge-set paths cannot contain commas or line breaks." });
-            return;
-        }
-        AdditionalPathsBox.Text = prefix + string.Join(SelectedView.Operation == ModdingOperation.BatchMerge ? "," : Environment.NewLine, paths);
-    }
-
-    private async void BrowseOutput(object? sender, RoutedEventArgs e)
-    {
-        if (SelectedView.OutputIsDirectory)
-        {
-            OutputPathBox.Text = await PickFolderAsync("Choose output directory") ?? OutputPathBox.Text;
-            return;
-        }
-
-        var extension = SelectedView.Operation switch
-        {
-            ModdingOperation.Compare => "md",
-            ModdingOperation.CreateXDelta => "xdelta",
-            ModdingOperation.ApplyPatch or ModdingOperation.ApplyXDelta or ModdingOperation.RunScript => "win",
-            _ => "g3mpatch"
-        };
-        OutputPathBox.Text = await SavePathAsync("Choose output path", "output." + extension) ?? OutputPathBox.Text;
-    }
-
-    private async void BrowseCache(object? sender, RoutedEventArgs e)
-    {
-        CachePathBox.Text = await PickFolderAsync("Choose cache directory") ?? CachePathBox.Text;
-    }
-
-    private async void RunOperation(object? sender, RoutedEventArgs e)
+    private async Task RunOperationAsync()
     {
         if (_isRunning) return;
         _isRunning = true;
@@ -289,218 +229,7 @@ public sealed partial class MainWindow : Window, IDisposable
         }
     }
 
-    private void ClearLog(object? sender, RoutedEventArgs e)
-    {
-        _log.Clear();
-        _logLines.Clear();
-        LogBox.Inlines?.Clear();
-    }
-
-    private void ToggleLogs(object? sender, RoutedEventArgs e)
-    {
-        _logsExpanded = !_logsExpanded;
-        TopBar.IsVisible = !_logsExpanded;
-        PageHeader.IsVisible = !_logsExpanded;
-        OperationCard.IsVisible = !_logsExpanded;
-        ExpandLogsButton.Content = _logsExpanded ? "Collapse" : "Expand";
-        UpdateLogPanelHeight();
-    }
-
-    private async void SaveLog(object? sender, RoutedEventArgs e)
-    {
-        var path = await SavePathAsync("Save activity log", "g3mtool.log");
-        if (path is not null) await File.WriteAllTextAsync(path, _log.ToString());
-    }
-
-    private void AddLog(ModdingLogMessage message)
-    {
-        if (!Dispatcher.UIThread.CheckAccess())
-        {
-            Dispatcher.UIThread.Post(() => AddLog(message));
-            return;
-        }
-
-        var text = $"[{DateTime.Now:HH:mm:ss}] {message.Level}: {message.Message}{Environment.NewLine}";
-        LogLine line = new(message.Level, text);
-        _log.Append(text);
-        _logLines.Enqueue(line);
-        LogBox.Inlines?.Add(CreateLogRun(line));
-        if (_log.Length > LogLimit)
-        {
-            // Trim to a low-water mark so the cost is paid once per many messages.
-            var trimmed = 0;
-            while (_log.Length - trimmed > LogLimit * 4 / 5 && _logLines.TryDequeue(out var removed))
-            {
-                trimmed += removed.Text.Length;
-                if (LogBox.Inlines is { Count: > 0 } inlines) inlines.RemoveAt(0);
-            }
-
-            _log.Remove(0, trimmed);
-        }
-
-        if (_scrollPending) return;
-        _scrollPending = true;
-        Dispatcher.UIThread.Post(() =>
-        {
-            _scrollPending = false;
-            LogScroll.Offset = new Vector(0, LogScroll.Extent.Height);
-        });
-    }
-
-    private void UpdateLogPanelHeight()
-    {
-        LogPanel.Height = _logsExpanded ? Math.Max(220, (Bounds.Height - 80) * .85) : 110;
-    }
-
-    private static Run CreateLogRun(LogLine line) => new(line.Text)
-    {
-        Foreground = line.Level switch
-        {
-            ModdingLogLevel.Information => new SolidColorBrush(Color.Parse("#6DE985")),
-            ModdingLogLevel.Warning => new SolidColorBrush(Color.Parse("#F6C453")),
-            ModdingLogLevel.Error => new SolidColorBrush(Color.Parse("#FF7474")),
-            _ => new SolidColorBrush(Color.Parse("#9CA3AF"))
-        }
-    };
-
-    private void UpdateProgress(ModdingProgress progress)
-    {
-        Dispatcher.UIThread.Post(() =>
-        {
-            if (progress.IsComplete) return;
-            OperationProgress.IsIndeterminate = false;
-            var percent = progress.Total == 0 ? 0 : (int)Math.Round(progress.Current * 100d / progress.Total);
-            OperationProgress.Value = percent;
-            ProgressPercentText.Text = percent + "%";
-            ProgressText.Text = string.IsNullOrWhiteSpace(progress.Operation) ? "Working…" : progress.Operation;
-        });
-    }
-
-    private Task<string?> ShowScriptInputAsync(string title, string label, string value, bool multiline, bool question = false)
-    {
-        var dialog = new Window
-        {
-            Title = title,
-            Width = 480,
-            MinWidth = 320,
-            MaxHeight = 650,
-            SizeToContent = SizeToContent.Height,
-            CanResize = multiline,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            ShowInTaskbar = false
-        };
-        var input = new TextBox { Name = "ScriptInput", Text = value, AcceptsReturn = multiline, MinHeight = multiline ? 140 : 0 };
-        var accept = new Button { Name = "ScriptAccept", Content = question ? "Yes" : "OK", IsDefault = true };
-        var cancel = new Button { Name = "ScriptCancel", Content = question ? "No" : "Cancel", IsCancel = true };
-        accept.Click += (_, _) => dialog.Close(question ? "yes" : input.Text ?? "");
-        cancel.Click += (_, _) => dialog.Close(null);
-        var panel = new StackPanel { Margin = new Thickness(20), Spacing = 12 };
-        panel.Children.Add(new ScrollViewer { MaxHeight = 300, Content = new TextBlock { Text = label, TextWrapping = TextWrapping.Wrap } });
-        if (!question) panel.Children.Add(input);
-        panel.Children.Add(new StackPanel
-        {
-            Orientation = Avalonia.Layout.Orientation.Horizontal,
-            Spacing = 8,
-            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
-            Children = { cancel, accept }
-        });
-        dialog.Content = panel;
-        dialog.Opened += (_, _) => { if (!question) input.Focus(); };
-        return dialog.ShowDialog<string?>(this);
-    }
-
-    private async Task<string?> PickScriptFileAsync(string filter, string suggestedPath, bool save)
-    {
-        var parts = filter.Split('|');
-        var types = new List<FilePickerFileType>();
-        for (var i = 0; i + 1 < parts.Length; i += 2)
-            types.Add(new FilePickerFileType(parts[i]) { Patterns = parts[i + 1].Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) });
-        if (types.Count == 0) types.Add(FilePickerFileTypes.All);
-        IStorageFolder? folder = null;
-        if (!string.IsNullOrWhiteSpace(suggestedPath))
-        {
-            var directory = Directory.Exists(suggestedPath) ? suggestedPath : Path.GetDirectoryName(Path.GetFullPath(suggestedPath));
-            if (directory is not null) folder = await StorageProvider.TryGetFolderFromPathAsync(directory);
-        }
-        if (save)
-        {
-            var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
-            {
-                Title = "Save script file",
-                SuggestedFileName = Path.GetFileName(suggestedPath),
-                SuggestedStartLocation = folder,
-                FileTypeChoices = types
-            });
-            return file?.TryGetLocalPath();
-        }
-        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-        {
-            Title = "Open script file",
-            AllowMultiple = false,
-            SuggestedStartLocation = folder,
-            FileTypeFilter = types
-        });
-        return files is [{ } first, ..] ? first.TryGetLocalPath() : null;
-    }
-
-    private async Task<string?> PickFileAsync(string title)
-    {
-        var files = await PickFilesAsync(title, false);
-        return files is [var first, ..] ? first : null;
-    }
-
-    private async Task<IReadOnlyList<string>> PickFilesAsync(string title, bool allowMultiple = true)
-    {
-        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-        {
-            Title = title,
-            AllowMultiple = allowMultiple,
-            FileTypeFilter = [FilePickerFileTypes.All]
-        });
-        return [.. files.Select(file => file.TryGetLocalPath()).OfType<string>()];
-    }
-
-    private async Task<string?> PickFolderAsync(string title)
-    {
-        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = title, AllowMultiple = false });
-        return folders is [{ } first, ..] ? first.TryGetLocalPath() : null;
-    }
-
-    private async Task<string?> SavePathAsync(string title, string suggestedFileName)
-    {
-        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions { Title = title, SuggestedFileName = suggestedFileName });
-        return file?.TryGetLocalPath();
-    }
-
     private static string[] ReadLines(string? value) => (value ?? string.Empty).Split(["\r\n", "\n"], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
-    private sealed record OperationView(
-        ModdingOperation Operation, string Title, string Description, string Action, string Hint,
-        string OriginalLabel, string PrimaryLabel, string AdditionalLabel, string OutputLabel,
-        bool HasOriginal, bool HasPrimary, bool HasAdditional, bool HasOutput, bool OutputIsDirectory,
-        bool SupportsMergeOptions = false, bool SupportsSequentialMerge = false, bool SupportsXDeltaFallback = false,
-        bool SupportsReport = false, bool SupportsContinueOnError = false, bool SupportsXDeltaOutput = false)
-    {
-        public static IReadOnlyList<OperationView> All { get; } =
-        [
-            new(ModdingOperation.CreatePatch, "Create a patch", "Turn a modified data file or supported input into a portable G3M patch.", "Create patch", "A G3M patch stores resource-level changes and can include an optional XDelta fallback.", "Original data", "Modified input", "Additional inputs", "Output patch", true, true, false, true, false, SupportsXDeltaFallback: true),
-            new(ModdingOperation.ApplyPatch, "Apply a patch", "Apply a G3M patch, XDelta patch, or data-file input to an original data file.", "Apply patch", "The output is written separately; the original data file is never changed.", "Original data", "Patch input", "Additional inputs", "Patched data", true, true, false, true, false, SupportsXDeltaFallback: true),
-            new(ModdingOperation.ValidatePatch, "Validate a patch", "Check patch structure and, optionally, compatibility with an original data file.", "Validate patch", "Choose an original data file only when compatibility should be checked.", "Original data (optional)", "Patch", "Additional inputs", "Output", true, true, false, false, false),
-            new(ModdingOperation.MergePatches, "Merge patches", "Combine two or more patch inputs in priority order, from lowest to highest.", "Merge patches", "Use one extra input per line. Detailed reports are written beside the merged output.", "Original data", "Data output (optional)", "Patches, low → high priority", "Merged patch (optional)", true, true, true, true, false, true, true, false, true),
-            new(ModdingOperation.Compare, "Compare files", "Create a Markdown report showing resource-level differences between two files.", "Create report", "Full reports include detailed text, code, and JSON differences.", "First file", "Second file", "Additional inputs", "Markdown report", true, true, false, true, false, SupportsReport: true),
-            new(ModdingOperation.Inspect, "Inspect a file", "Read metadata and resource counts from a data file or G3M patch.", "Inspect file", "The result is shown in Activity; use the cache folder to reuse analysis later.", "Original data", "Data file or patch", "Additional inputs", "Output", false, true, false, false, false),
-            new(ModdingOperation.BatchCreate, "Create patch batch", "Create a patch for every input against one original data file.", "Create batch", "Choose all modified inputs; each result is written into the output folder.", "Original data", "Input", "Modified inputs", "Output directory", true, false, true, true, true, SupportsXDeltaFallback: true, SupportsContinueOnError: true, SupportsXDeltaOutput: true),
-            new(ModdingOperation.BatchApply, "Apply patch batch", "Apply every patch independently to the same original data file.", "Apply batch", "Each result is written into the output folder without changing the original.", "Original data", "Input", "Patch inputs", "Output directory", true, false, true, true, true, SupportsXDeltaFallback: true, SupportsContinueOnError: true),
-            new(ModdingOperation.BatchMerge, "Merge patch batches", "Run independent merges. Enter one comma-separated, low-to-high patch set per line.", "Merge batches", "Choose the data output directory. The patch output directory is optional.", "Original data", "Data output directory", "Merge sets", "Patch output directory (optional)", true, true, true, true, true, true, false, false, true, true),
-            new(ModdingOperation.CreateXDelta, "Create XDelta patch", "Create a compact binary XDelta patch between two files.", "Create XDelta", "Use this when resource-aware G3M patching is not appropriate.", "Original file", "Modified file", "Additional inputs", "XDelta output", true, true, false, true, false),
-            new(ModdingOperation.ApplyXDelta, "Apply XDelta patch", "Apply an XDelta or VCDIFF patch to an original file.", "Apply XDelta", "The original is read-only; choose a separate output file.", "Original file", "XDelta patch", "Additional inputs", "Output file", true, true, false, true, false),
-            new(ModdingOperation.RunXDelta, "Run XDelta arguments", "Run an advanced XDelta invocation using one argument per line.", "Run XDelta", "Arguments are passed exactly in the order shown. This is intended for advanced use.", "Original data", "Input", "XDelta arguments", "Output", false, false, true, false, false),
-            new(ModdingOperation.RunScript, "Run a script", "Run a C# script, optionally against a data file, and save the result separately.", "Run script", "When a data file is chosen, an output data path is required. Extra lines are passed as script arguments.", "Data file (optional)", "C# script", "Script arguments", "Output data", true, true, true, true, false),
-            new(ModdingOperation.RunProgram, "Run a program", "Run an external program with one argument per line and capture its output in Activity.", "Run program", "Arguments are passed without shell interpretation.", "Original data", "Program", "Program arguments", "Output", false, true, true, false, false)
-        ];
-
-        public override string ToString() => Title;
-    }
 
     public void Dispose()
     {

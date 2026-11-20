@@ -41,6 +41,12 @@ public static class ExternalProcessService
                 {
                     // the process ended on its own right before the kill
                 }
+                // Wait for the readers, so a read that fails when the process goes away is observed.
+                try { await Task.WhenAll(standardOutput, standardError).WaitAsync(TimeSpan.FromSeconds(2), CancellationToken.None); }
+                catch (Exception exception) when (exception is TimeoutException or IOException or ObjectDisposedException)
+                {
+                    // a grandchild may still hold the pipes; a cancelled run ignores their text
+                }
                 throw;
             }
             await Task.WhenAll(standardOutput, standardError);

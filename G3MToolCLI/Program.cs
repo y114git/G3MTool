@@ -23,6 +23,9 @@ internal static class Program
 
     private static CancellationTokenSource? s_cancellation;
 
+    // Errors that reach Program are reported by InvokeAsync below, not by the library with a stack trace.
+    private static readonly InvocationConfiguration s_invocation = new() { EnableDefaultExceptionHandler = false };
+
     private static async Task<int> Main(string[] args)
     {
         CultureInfo.DefaultThreadCurrentCulture = CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
@@ -31,14 +34,8 @@ internal static class Program
         ModdingMetadata.ToolVersion = AppVersionService.Version;
         G3MLib.Modding.Logging.LogService.MessageLogged += ForwardModdingLog;
         G3MLib.Modding.Logging.LogService.ProgressReported += ForwardModdingProgress;
-        for (var i = 0; i < args.Length; i++)
-        {
-            if (args[i] == "--") break;
-            if (args[i] == "-V")
-            {
-                args[i] = "--version";
-            }
-        }
+        var separator = Array.IndexOf(args, "--");
+        args = [.. args.Select((argument, index) => argument == "-V" && (separator < 0 || index < separator) ? "--version" : argument)];
         Console.CancelKeyPress += (_, e) =>
         {
             var running = s_cancellation;
@@ -153,7 +150,7 @@ internal static class Program
         Cancellation = cancellation.Token;
         try
         {
-            var exitCode = await parseResult.InvokeAsync();
+            var exitCode = await parseResult.InvokeAsync(s_invocation);
             if (!cancellation.IsCancellationRequested) return exitCode;
             await Console.Error.WriteLineAsync("Cancelled.");
             Environment.ExitCode = 130;
@@ -164,6 +161,13 @@ internal static class Program
             await Console.Error.WriteLineAsync("Cancelled.");
             Environment.ExitCode = 130;
             return 130;
+        }
+        catch (Exception exception)
+        {
+            // Commands report their expected failures themselves; anything else ends as an error line, not a stack trace.
+            PatchCommand.WriteErrorJsonOrText(CommandPath(parseResult), exception.Message);
+            Environment.ExitCode = 1;
+            return 1;
         }
         finally
         {
@@ -177,6 +181,16 @@ internal static class Program
         var result = parseResult.CommandResult;
         while (result.Parent is CommandResult { Command: not RootCommand } parent) result = parent;
         return result.Command.Name;
+    }
+
+    private static string CommandPath(ParseResult parseResult)
+    {
+        List<string> names = [];
+        for (SymbolResult? result = parseResult.CommandResult; result is CommandResult { Command: not RootCommand } command; result = result.Parent)
+        {
+            names.Insert(0, command.Command.Name);
+        }
+        return string.Join(' ', names);
     }
 
     private static void ForwardModdingLog(G3MLib.Modding.Logging.ModdingLogMessage message)
@@ -210,31 +224,35 @@ internal static class Program
         LogService.Progress(progress.Current, progress.Total);
     }
 
-    private static string[] ParseCommandLine(string input)
+    internal static string[] ParseCommandLine(string input)
     {
         List<string> args = [];
         var currentArg = new StringBuilder();
         var inQuotes = false;
+        var hasArgument = false;
         foreach (var c in input)
         {
             if (c == '"')
             {
                 inQuotes = !inQuotes;
+                hasArgument = true;
             }
             else if (char.IsWhiteSpace(c) && !inQuotes)
             {
-                if (currentArg.Length > 0)
+                if (hasArgument)
                 {
                     args.Add(currentArg.ToString());
                     currentArg.Clear();
+                    hasArgument = false;
                 }
             }
             else
             {
                 currentArg.Append(c);
+                hasArgument = true;
             }
         }
-        if (currentArg.Length > 0)
+        if (hasArgument)
         {
             args.Add(currentArg.ToString());
         }

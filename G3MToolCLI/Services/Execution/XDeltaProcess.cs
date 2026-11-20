@@ -12,10 +12,10 @@ internal static class XDeltaProcess
     public static readonly TimeSpan DefaultTimeout = TimeSpan.FromMinutes(5);
 
     public static Task<XDeltaRun> CreateAsync(string executable, string originalPath, string modifiedPath, string outputPath, CancellationToken cancellationToken) =>
-        RunFilesAsync(executable, "-e", originalPath, "Original", modifiedPath, "Modified", outputPath, cancellationToken);
+        RunFilesAsync(executable, create: true, originalPath, modifiedPath, outputPath, cancellationToken);
 
     public static Task<XDeltaRun> ApplyAsync(string executable, string originalPath, string patchPath, string outputPath, CancellationToken cancellationToken) =>
-        RunFilesAsync(executable, "-d", originalPath, "Original", patchPath, "Patch", outputPath, cancellationToken);
+        RunFilesAsync(executable, create: false, originalPath, patchPath, outputPath, cancellationToken);
 
     /// <summary>Runs xdelta with the given arguments. Cancelling kills the process tree and throws <see cref="OperationCanceledException"/>.</summary>
     public static async Task<XDeltaRun> RunAsync(string executable, IReadOnlyList<string> arguments, CancellationToken cancellationToken, TimeSpan? timeout = null)
@@ -67,16 +67,16 @@ internal static class XDeltaProcess
         return new(false, output, string.IsNullOrEmpty(error) ? exitMessage : error.TrimEnd() + Environment.NewLine + exitMessage);
     }
 
-    private static async Task<XDeltaRun> RunFilesAsync(string executable, string mode, string originalPath, string originalName, string inputPath, string inputName, string outputPath, CancellationToken cancellationToken)
+    private static async Task<XDeltaRun> RunFilesAsync(string executable, bool create, string originalPath, string inputPath, string outputPath, CancellationToken cancellationToken)
     {
-        if (!File.Exists(originalPath)) return new(false, string.Empty, $"{originalName} file not found: {originalPath}");
-        if (!File.Exists(inputPath)) return new(false, string.Empty, $"{inputName} file not found: {inputPath}");
+        if (!File.Exists(originalPath)) return new(false, string.Empty, $"Original file not found: {originalPath}");
+        if (!File.Exists(inputPath)) return new(false, string.Empty, $"{(create ? "Modified" : "Patch")} file not found: {inputPath}");
         var fullOutput = Path.GetFullPath(outputPath);
         var existedBefore = File.Exists(fullOutput);
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(fullOutput)!);
-            var run = await RunAsync(executable, [mode, "-s", Path.GetFullPath(originalPath), Path.GetFullPath(inputPath), fullOutput], cancellationToken);
+            if (Path.GetDirectoryName(fullOutput) is { Length: > 0 } outputDirectory) Directory.CreateDirectory(outputDirectory);
+            var run = await RunAsync(executable, [create ? "-e" : "-d", "-s", Path.GetFullPath(originalPath), Path.GetFullPath(inputPath), fullOutput], cancellationToken);
             if (!run.Success) DeleteNewFile(fullOutput, existedBefore);
             return run;
         }

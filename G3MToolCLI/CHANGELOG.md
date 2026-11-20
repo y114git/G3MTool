@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.3.5] - 2026-11-20
+
+### Changed
+
+- Updated to G3MLib 1.1.5.
+- `info -v` no longer builds the cache snapshot that it does not use.
+
+### Fixed
+
+- An error that no command handles, for example a missing original file in `patch batch`, prints `Error: <message>` and exits with 1 (a JSON error with `--json`). It used to print a stack trace.
+- `info --json` on a `.g3mpatch` or `.zip` without a readable manifest prints a JSON error and exits with 1. It used to print text.
+- Ctrl+C during `info` ends with `Cancelled.` and exit code 130 instead of an error message.
+- Ctrl+C during `patch apply` and `patch batch apply` with an xdelta or script input no longer replaces the output file once the input was converted.
+- `patch create --xdelta` prints `Patch created successfully` instead of `Patch applied successfully`.
+- The interactive prompt keeps an empty quoted argument (`""`).
+
 ## [1.3.4] - 2026-11-19
 
 ### Added

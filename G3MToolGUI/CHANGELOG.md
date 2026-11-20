@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.5] - 2026-11-20
+
+### Fixed
+
+- Cancelling Apply a patch with an XDelta or script input no longer replaces the output file once the input was converted.
+- A failed file pick or log save, for example into a read-only folder, adds an Error line to Activity instead of closing the window.
+
 ## [1.0.4] - 2026-11-19
 
 ### Changed

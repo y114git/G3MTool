@@ -9,9 +9,9 @@ public static class ExecuteService
 {
     /// <summary>
     /// Runs a .csx script. <paramref name="savePath"/> is a data file path: when set, the data is written there after the script ran.
-    /// <paramref name="exportDirectory"/> is where scripts write exports; it defaults to the folder of <paramref name="savePath"/>, or the current folder.
+    /// <see cref="ScriptRunOptions.ExportDirectory"/> is where scripts write exports; it defaults to the folder of <paramref name="savePath"/>, or the current folder.
     /// </summary>
-    public static async Task<ScriptResult> ExecuteScriptAsync(string scriptPath, string? dataPath, string? savePath, string[] args, string? exportDirectory = null, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
+    public static async Task<ScriptResult> ExecuteScriptAsync(string scriptPath, string? dataPath, string? savePath, string[] args, ScriptRunOptions? options = null, CancellationToken cancellationToken = default)
     {
         if (!File.Exists(scriptPath))
         {
@@ -21,8 +21,7 @@ public static class ExecuteService
                 Error = "Script not found: " + scriptPath
             };
         }
-        var hasData = !string.IsNullOrEmpty(dataPath) && File.Exists(dataPath);
-        if (!string.IsNullOrEmpty(dataPath) && !hasData)
+        if (dataPath is { Length: > 0 } && !File.Exists(dataPath))
         {
             return new ScriptResult
             {
@@ -35,10 +34,10 @@ public static class ExecuteService
         try
         {
             scriptPath = Path.GetFullPath(scriptPath);
-            if (hasData)
+            if (dataPath is { Length: > 0 })
             {
                 LogService.Log("[ScriptExecutor] Loading data file: " + dataPath);
-                using (var stream = new FileStream(dataPath!, FileMode.Open, FileAccess.Read, FileShare.Read))
+                using (var stream = new FileStream(dataPath, FileMode.Open, FileAccess.Read, FileShare.Read))
                 {
                     data = await GameMakerIO.ReadAsync(stream, null, cancellationToken);
                 }
@@ -49,7 +48,7 @@ public static class ExecuteService
                 LogService.Log("[ScriptExecutor] No data file specified, running script without game data");
             }
             LogService.Log("[ScriptExecutor] Executing script: " + scriptPath);
-            var outputDir = Path.GetFullPath(exportDirectory ?? (string.IsNullOrEmpty(savePath) ? "." : Path.GetDirectoryName(Path.GetFullPath(savePath))!));
+            var outputDir = Path.GetFullPath(options?.ExportDirectory ?? (string.IsNullOrEmpty(savePath) ? "." : Path.GetDirectoryName(Path.GetFullPath(savePath)) ?? "."));
             Directory.CreateDirectory(outputDir);
             globals = new CliScriptGlobals(data, dataPath ?? scriptPath, scriptPath)
             {
@@ -57,7 +56,7 @@ public static class ExecuteService
                 OutputDir = outputDir,
                 InputDir = args.FirstOrDefault() ?? string.Empty
             };
-            var result = await RunAsync(scriptPath, globals, timeout, cancellationToken);
+            var result = await RunAsync(scriptPath, globals, options?.Timeout, cancellationToken);
             if (!result.Success)
             {
                 return result;
@@ -130,6 +129,9 @@ public static class ExecuteService
         }
     }
 }
+
+/// <summary>Optional settings of a script run: the folder that receives exports and a time limit.</summary>
+public sealed record ScriptRunOptions(string? ExportDirectory = null, TimeSpan? Timeout = null);
 
 public sealed class ScriptResult
 {

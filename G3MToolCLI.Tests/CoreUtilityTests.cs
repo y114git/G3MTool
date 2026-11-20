@@ -15,6 +15,13 @@ public sealed class CoreUtilityTests
         Assert.Contains("2026.1", GeneralInfoUtil.GetVersionDisplay(data.GeneralInfo), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void InteractiveInputKeepsQuotedSpacesAndEmptyArguments()
+    {
+        Assert.Equal(["patch", "merge", "my file.win", "", "x"], Program.ParseCommandLine("patch  merge \"my file.win\" \"\" x"));
+        Assert.Empty(Program.ParseCommandLine("   "));
+    }
+
     [Fact("CoreUtilityTests.cs", 21)]
     public void ExecutableDirectoryExists()
     {

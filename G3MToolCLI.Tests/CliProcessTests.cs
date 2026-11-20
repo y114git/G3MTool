@@ -539,6 +539,62 @@ public sealed class CliProcessTests
     }
 
     [Fact]
+    public async Task BatchInputErrorsEndAsAnErrorLineNotAStackTrace()
+    {
+        var directory = Directory.CreateTempSubdirectory("g3mtool-batch-error-").FullName;
+        try
+        {
+            var missing = Path.Combine(directory, "missing.win");
+            var outputs = Path.Combine(directory, "out");
+            var text = await RunToolAsync("patch", "batch", "apply", missing, Path.Combine(directory, "a.g3mpatch"), "--out-dir", outputs);
+            Assert.Equal(1, text.ExitCode);
+            Assert.Contains("Error: Original data file not found", text.StandardError, StringComparison.Ordinal);
+            Assert.DoesNotContain("Unhandled exception", text.StandardError, StringComparison.Ordinal);
+            var json = await RunToolAsync("--json", "patch", "batch", "create", missing, Path.Combine(directory, "b.win"), "--out-dir", outputs);
+            Assert.Equal(1, json.ExitCode);
+            using var document = JsonDocument.Parse(json.StandardOutput);
+            Assert.False(document.RootElement.GetProperty("success").GetBoolean());
+            Assert.Equal("patch batch create", document.RootElement.GetProperty("command").GetString());
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
+    [Fact]
+    public async Task InfoReportsAnUnreadablePatchAsJsonError()
+    {
+        var directory = Directory.CreateTempSubdirectory("g3mtool-info-json-").FullName;
+        try
+        {
+            var patch = Path.Combine(directory, "broken.g3mpatch");
+            await File.WriteAllTextAsync(patch, "not an archive", TestContext.Current.CancellationToken);
+            var result = await RunToolAsync("--json", "info", patch);
+            Assert.Equal(1, result.ExitCode);
+            using var document = JsonDocument.Parse(result.StandardOutput);
+            Assert.False(document.RootElement.GetProperty("success").GetBoolean());
+            Assert.Equal("info", document.RootElement.GetProperty("command").GetString());
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
+    [Fact]
+    public async Task PatchCreateXdeltaSaysCreatedInTextMode()
+    {
+        var directory = Directory.CreateTempSubdirectory("g3mtool-create-xdelta-").FullName;
+        try
+        {
+            var original = Path.Combine(directory, "original.win");
+            var modified = Path.Combine(directory, "modified.win");
+            var patch = Path.Combine(directory, "change.xdelta");
+            CreateRoomDataFile(original);
+            ModifyDataFile(original, modified, data => data.Rooms[1].Width = 123);
+            var result = await RunToolAsync("patch", "create", original, modified, patch, "--xdelta");
+            Assert.True(result.ExitCode == 0, result.StandardError);
+            Assert.Contains("Patch created successfully: " + patch, result.StandardOutput, StringComparison.Ordinal);
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
+    [Fact]
     public async Task PatchMergePrintsTheResultInTextMode()
     {
         var directory = Directory.CreateTempSubdirectory("g3mtool-merge-text-").FullName;

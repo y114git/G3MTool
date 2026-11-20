@@ -1,10 +1,5 @@
-using G3MLib.DataFile;
-using G3MToolCLI.Services.Execution;
 using G3MLib.Modding.Caching;
-using G3MLib.Modding.Diffing;
 using G3MLib.Modding.Logging;
-using G3MLib.Modding.Merging;
-using G3MLib.Modding.Patching;
 
 namespace G3MToolGUI.Services;
 
@@ -48,12 +43,17 @@ public sealed record ModdingOperationResult(bool Success, string Summary, IReadO
     public static ModdingOperationResult Failure(string message) => new(false, message, []);
 }
 
-public sealed class ModdingOperationService(ScriptInteraction? interaction = null) : IDisposable
+public sealed partial class ModdingOperationService : IDisposable
 {
     public event Action<ModdingLogMessage>? LogReceived;
     public event Action<ModdingProgress>? ProgressChanged;
 
-    private readonly ScriptInteraction? _interaction = interaction;
+    private readonly ScriptInteraction? _interaction;
+
+    public ModdingOperationService(ScriptInteraction? interaction = null)
+    {
+        _interaction = interaction;
+    }
 
     public async Task<ModdingOperationResult> RunAsync(ModdingOperationRequest request, CancellationToken cancellationToken = default)
     {
@@ -112,353 +112,6 @@ public sealed class ModdingOperationService(ScriptInteraction? interaction = nul
         ProgressChanged = null;
     }
 
-    private async Task<ModdingOperationResult> CreatePatchAsync(ModdingOperationRequest request, CancellationToken cancellationToken)
-    {
-        var error = RequireFiles(request.OriginalPath, request.PrimaryPath) ?? RequireOutput(request.OutputPath) ?? string.Empty;
-        if (error.Length != 0) return ModdingOperationResult.Failure(error);
-
-        LogService.SetOperation("Creating patch");
-        return await CreatePatchFileAsync(request.OriginalPath, request.PrimaryPath, request.OutputPath, request.IncludeXDeltaFallback, CacheOptions(request), cancellationToken: cancellationToken);
-    }
-
-    private async Task<ModdingOperationResult> ApplyPatchAsync(ModdingOperationRequest request, CancellationToken cancellationToken)
-    {
-        var error = RequireFiles(request.OriginalPath, request.PrimaryPath) ?? RequireOutput(request.OutputPath) ?? string.Empty;
-        if (error.Length != 0) return ModdingOperationResult.Failure(error);
-
-        LogService.SetOperation("Applying patch");
-        var temporaryDirectory = Path.Combine(Path.GetTempPath(), "g3mtool-gui", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(temporaryDirectory);
-        try
-        {
-            if (IsXDelta(request.PrimaryPath) || Path.GetExtension(request.PrimaryPath).Equals(".csx", StringComparison.OrdinalIgnoreCase))
-            {
-                var materialized = await MaterializeInputAsync(request.OriginalPath, request.PrimaryPath, temporaryDirectory, cancellationToken);
-                PatchInputService.CopyDataFile(materialized, request.OutputPath);
-                return new(true, "Patch applied.", [request.OutputPath]);
-            }
-            var patchPath = await PatchService.EnsureG3MPatchAsync(request.OriginalPath, request.PrimaryPath, temporaryDirectory, cacheOptions: CacheOptions(request));
-            var result = await PatchService.ApplyPatchAsync(request.OriginalPath, patchPath, request.OutputPath, request.IncludeXDeltaFallback, cancellationToken: cancellationToken);
-            return result.Success
-                ? new(true, "Patch applied.", [request.OutputPath])
-                : ModdingOperationResult.Failure(result.Error ?? "Patch application failed.");
-        }
-        finally
-        {
-            DeleteDirectory(temporaryDirectory);
-        }
-    }
-
-    private static async Task<ModdingOperationResult> ValidatePatchAsync(ModdingOperationRequest request, CancellationToken cancellationToken)
-    {
-        var error = RequireFile(request.PrimaryPath, "Patch") ?? string.Empty;
-        if (error.Length != 0) return ModdingOperationResult.Failure(error);
-        if (!string.IsNullOrWhiteSpace(request.OriginalPath) && !File.Exists(request.OriginalPath))
-            return ModdingOperationResult.Failure("Original data file was not found.");
-
-        LogService.SetOperation("Validating patch");
-        var result = await PatchService.ValidatePatchAsync(request.PrimaryPath, EmptyToNull(request.OriginalPath), CacheOptions(request), cancellationToken);
-        if (!result.Success) return ModdingOperationResult.Failure(result.Error ?? "Patch validation failed.");
-
-        var statistics = result.Manifest?.Statistics;
-        var summary = statistics is null
-            ? "Patch is valid."
-            : $"Patch is valid: {statistics.TotalChanged} changed, {statistics.TotalNew} new, {statistics.TotalDeleted} deleted.";
-        return new(true, summary, []);
-    }
-
-    private async Task<ModdingOperationResult> MergeAsync(ModdingOperationRequest request, CancellationToken cancellationToken)
-    {
-        var error = RequireFile(request.OriginalPath, "Original data file") ?? RequireAtLeast(request.InputPaths, 2, "patches") ?? string.Empty;
-        if (error.Length != 0) return ModdingOperationResult.Failure(error);
-
-        LogService.SetOperation("Merging patches");
-        var temporaryDirectory = Path.Combine(Path.GetTempPath(), "g3mtool-gui", Guid.NewGuid().ToString("N"));
-        List<string> inputs = [];
-        MergeResult result;
-        try
-        {
-            foreach (var input in request.InputPaths)
-                inputs.Add(Path.GetExtension(input).Equals(".csx", StringComparison.OrdinalIgnoreCase)
-                    ? await MaterializeInputAsync(request.OriginalPath, input, Path.Combine(temporaryDirectory, Guid.NewGuid().ToString("N")), cancellationToken)
-                    : input);
-            result = await MergeService.MergePatchesAsync(request.OriginalPath, inputs, new MergeOptions
-            {
-                OutputPath = EmptyToNull(request.OutputPath),
-                ApplyPath = EmptyToNull(request.PrimaryPath),
-                UseCodeMerge = request.UseCodeMerge,
-                UsePropertyMerge = request.UsePropertyMerge,
-                UseSequentialMerge = request.UseSequentialMerge,
-                ReportPath = request.FullReport ? ReportPath(request.OutputPath, request.PrimaryPath) : null,
-                CacheOptions = CacheOptions(request)
-            }, cancellationToken);
-        }
-        finally
-        {
-            DeleteDirectory(temporaryDirectory);
-        }
-        if (!result.Success) return ModdingOperationResult.Failure(result.Error ?? "Patch merge failed.");
-
-        List<string> outputs = [.. new[] { result.OutputPath, EmptyToNull(request.PrimaryPath) }.OfType<string>()];
-        var summary = result.TotalConflicts == 0
-            ? "Patches merged without conflicts."
-            : $"Patches merged with {result.TotalConflicts} conflict(s); {result.AutoMerged} resolved automatically.";
-        return new(true, summary, outputs);
-    }
-
-    private static async Task<ModdingOperationResult> CompareAsync(ModdingOperationRequest request, CancellationToken cancellationToken)
-    {
-        var error = RequireFiles(request.OriginalPath, request.PrimaryPath) ?? RequireOutput(request.OutputPath) ?? string.Empty;
-        if (error.Length != 0) return ModdingOperationResult.Failure(error);
-
-        LogService.SetOperation("Comparing files");
-        var result = await DiffService.CompareAsync(
-            request.OriginalPath, request.PrimaryPath, request.OutputPath,
-            request.FullReport ? DiffReportMode.Full : DiffReportMode.Standard,
-            CacheOptions(request), cancellationToken);
-        return result.Success
-            ? new(true, $"Report created: {result.DifferenceCount} difference(s).", [request.OutputPath])
-            : ModdingOperationResult.Failure(result.Error ?? "Comparison failed.");
-    }
-
-    private static async Task<ModdingOperationResult> InspectAsync(ModdingOperationRequest request, CancellationToken cancellationToken)
-    {
-        var error = RequireFile(request.PrimaryPath, "File") ?? string.Empty;
-        if (error.Length != 0) return ModdingOperationResult.Failure(error);
-
-        LogService.SetOperation("Inspecting file");
-        if (IsPatchExtension(Path.GetExtension(request.PrimaryPath)))
-        {
-            var patch = await PatchService.ValidatePatchAsync(request.PrimaryPath, cacheOptions: CacheOptions(request), cancellationToken: cancellationToken);
-            if (!patch.Success) return ModdingOperationResult.Failure(patch.Error ?? "Patch inspection failed.");
-            var stats = patch.Manifest?.Statistics;
-            return new(true, stats is null ? "Patch is valid." : $"Patch: {stats.TotalChanged} changed, {stats.TotalNew} new, {stats.TotalDeleted} deleted.", []);
-        }
-
-        var snapshot = G3MCacheService.TryReadDataInfoSnapshot(request.PrimaryPath, CacheOptions(request));
-        if (snapshot is null)
-        {
-            using FileStream stream = new(request.PrimaryPath, FileMode.Open, FileAccess.Read, FileShare.Read, 1024 * 1024, FileOptions.SequentialScan);
-            using var data = await GameMakerIO.ReadAsync(stream, cancellationToken: cancellationToken);
-            cancellationToken.ThrowIfCancellationRequested();
-            snapshot = G3MCacheService.BuildInfoSnapshot(request.PrimaryPath, data);
-            cancellationToken.ThrowIfCancellationRequested();
-            await G3MCacheService.WriteDataInfoCacheAsync(request.PrimaryPath, snapshot, CacheOptions(request));
-        }
-        LogService.Info($"Game: {snapshot.Game}");
-        LogService.Info($"Bytecode: {snapshot.BytecodeVersion}");
-        foreach ((var type, var count) in snapshot.ResourceCounts.OrderBy(item => item.Key, StringComparer.OrdinalIgnoreCase))
-            LogService.Info($"{type}: {count:N0}");
-        return new(true, $"{snapshot.Game} · bytecode {snapshot.BytecodeVersion} · {snapshot.ResourceCounts.Values.Sum():N0} resources.", []);
-    }
-
-    private async Task<ModdingOperationResult> BatchCreateAsync(ModdingOperationRequest request, CancellationToken cancellationToken)
-    {
-        var error = RequireFile(request.OriginalPath, "Original data file") ?? RequireAtLeast(request.InputPaths, 1, "inputs") ?? RequireDirectory(request.OutputPath) ?? string.Empty;
-        if (error.Length != 0) return ModdingOperationResult.Failure(error);
-        if (request.IncludeXDeltaFallback && request.CreateXDelta) return ModdingOperationResult.Failure("XDelta output cannot include an XDelta fallback.");
-        LogService.SetOperation("Creating patch batch");
-        Directory.CreateDirectory(request.OutputPath);
-        List<string> outputs = [];
-        var completed = 0;
-        var failed = 0;
-        foreach ((var input, var index) in request.InputPaths.Select((path, index) => (path, index + 1)))
-        {
-            if (cancellationToken.IsCancellationRequested) return Cancelled(completed, request.InputPaths.Count, outputs, failed);
-            var output = UniquePath(Path.Combine(request.OutputPath, Path.GetFileNameWithoutExtension(input) + (request.CreateXDelta ? ".xdelta" : ".g3mpatch")));
-            ModdingOperationResult item;
-            try { item = await CreatePatchFileAsync(request.OriginalPath, input, output, request.IncludeXDeltaFallback, CacheOptions(request), request.CreateXDelta, cancellationToken); }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { return Cancelled(completed, request.InputPaths.Count, outputs, failed); }
-            if (item.Success) { completed++; outputs.Add(output); }
-            else if (cancellationToken.IsCancellationRequested) return Cancelled(completed, request.InputPaths.Count, outputs, failed);
-            else { failed++; LogService.Error(item.Summary); if (!request.ContinueOnError) break; }
-            LogService.Progress(index, request.InputPaths.Count);
-        }
-        return BatchSummary(completed, failed, request.InputPaths.Count, outputs);
-    }
-
-    private async Task<ModdingOperationResult> BatchApplyAsync(ModdingOperationRequest request, CancellationToken cancellationToken)
-    {
-        var error = RequireFile(request.OriginalPath, "Original data file") ?? RequireAtLeast(request.InputPaths, 1, "patches") ?? RequireDirectory(request.OutputPath) ?? string.Empty;
-        if (error.Length != 0) return ModdingOperationResult.Failure(error);
-        LogService.SetOperation("Applying patch batch");
-        Directory.CreateDirectory(request.OutputPath);
-        List<string> outputs = [];
-        var completed = 0;
-        var failed = 0;
-        var stem = Path.GetFileNameWithoutExtension(request.OriginalPath);
-        var extension = Path.GetExtension(request.OriginalPath);
-        foreach ((var input, var index) in request.InputPaths.Select((path, index) => (path, index + 1)))
-        {
-            if (cancellationToken.IsCancellationRequested) return Cancelled(completed, request.InputPaths.Count, outputs, failed);
-            var output = UniquePath(Path.Combine(request.OutputPath, stem + "_" + Path.GetFileNameWithoutExtension(input) + extension));
-            var item = await ExecuteAsync(new ModdingOperationRequest
-            {
-                Operation = ModdingOperation.ApplyPatch,
-                OriginalPath = request.OriginalPath,
-                PrimaryPath = input,
-                OutputPath = output,
-                CacheDirectory = request.CacheDirectory,
-                IncludeXDeltaFallback = request.IncludeXDeltaFallback
-            }, cancellationToken);
-            if (item.Success) { completed++; outputs.Add(output); }
-            else if (cancellationToken.IsCancellationRequested) return Cancelled(completed, request.InputPaths.Count, outputs, failed);
-            else { failed++; LogService.Error(item.Summary); if (!request.ContinueOnError) break; }
-            LogService.Progress(index, request.InputPaths.Count);
-        }
-        return BatchSummary(completed, failed, request.InputPaths.Count, outputs);
-    }
-
-    private async Task<ModdingOperationResult> BatchMergeAsync(ModdingOperationRequest request, CancellationToken cancellationToken)
-    {
-        var error = RequireFile(request.OriginalPath, "Original data file") ?? (request.InputPaths.Count == 0 ? "Enter at least one merge set." : null) ?? RequireDirectory(request.PrimaryPath) ?? string.Empty;
-        if (error.Length != 0) return ModdingOperationResult.Failure(error);
-        LogService.SetOperation("Merging patch batches");
-        Directory.CreateDirectory(request.PrimaryPath);
-        if (!string.IsNullOrWhiteSpace(request.OutputPath)) Directory.CreateDirectory(request.OutputPath);
-        List<string> outputs = [];
-        var completed = 0;
-        var failed = 0;
-        for (var index = 0; index < request.InputPaths.Count; index++)
-        {
-            if (cancellationToken.IsCancellationRequested) return Cancelled(completed, request.InputPaths.Count, outputs, failed);
-            List<string> inputs = [.. request.InputPaths[index].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
-            var stem = "merge_" + (index + 1).ToString("D2", System.Globalization.CultureInfo.InvariantCulture);
-            string dataOutput;
-            string patchOutput;
-            for (var suffix = 1; ; suffix++)
-            {
-                var name = suffix == 1 ? stem : stem + "_" + suffix;
-                dataOutput = Path.Combine(request.PrimaryPath, name + Path.GetExtension(request.OriginalPath));
-                patchOutput = string.IsNullOrWhiteSpace(request.OutputPath) ? string.Empty : Path.Combine(request.OutputPath, name + ".g3mpatch");
-                var report = request.FullReport ? ReportPath(patchOutput, dataOutput) : null;
-                if (!new[] { dataOutput, patchOutput, report }.Any(path => File.Exists(path) || Directory.Exists(path))) break;
-            }
-            var item = await ExecuteAsync(new ModdingOperationRequest
-            {
-                Operation = ModdingOperation.MergePatches,
-                OriginalPath = request.OriginalPath,
-                PrimaryPath = dataOutput,
-                InputPaths = inputs,
-                OutputPath = patchOutput,
-                CacheDirectory = request.CacheDirectory,
-                UseCodeMerge = request.UseCodeMerge,
-                UsePropertyMerge = request.UsePropertyMerge,
-                UseSequentialMerge = request.UseSequentialMerge,
-                FullReport = request.FullReport
-            }, cancellationToken);
-            if (item.Success) { completed++; outputs.AddRange(item.Outputs); }
-            else if (cancellationToken.IsCancellationRequested) return Cancelled(completed, request.InputPaths.Count, outputs, failed);
-            else { failed++; LogService.Error(item.Summary); if (!request.ContinueOnError) break; }
-            LogService.Progress(index + 1, request.InputPaths.Count);
-        }
-        return BatchSummary(completed, failed, request.InputPaths.Count, outputs);
-    }
-
-    private static async Task<ModdingOperationResult> CreateXDeltaAsync(ModdingOperationRequest request, CancellationToken cancellationToken)
-    {
-        var error = RequireFiles(request.OriginalPath, request.PrimaryPath) ?? RequireOutput(request.OutputPath) ?? string.Empty;
-        if (error.Length != 0) return ModdingOperationResult.Failure(error);
-        LogService.SetOperation("Creating XDelta patch");
-        return await CreateXDeltaFileAsync(request.OriginalPath, request.PrimaryPath, request.OutputPath, cancellationToken);
-    }
-
-    private static Task<ModdingOperationResult> CreateXDeltaFileAsync(string originalPath, string modifiedPath, string outputPath, CancellationToken cancellationToken) =>
-        RunXDeltaFileAsync(executable => XDeltaProcess.CreateAsync(executable, originalPath, modifiedPath, outputPath, cancellationToken), outputPath, "XDelta patch created.", "XDelta creation failed.");
-
-    private static async Task<ModdingOperationResult> ApplyXDeltaAsync(ModdingOperationRequest request, CancellationToken cancellationToken)
-    {
-        var error = RequireFiles(request.OriginalPath, request.PrimaryPath) ?? RequireOutput(request.OutputPath) ?? string.Empty;
-        if (error.Length != 0) return ModdingOperationResult.Failure(error);
-        LogService.SetOperation("Applying XDelta patch");
-        return await RunXDeltaFileAsync(executable => XDeltaProcess.ApplyAsync(executable, request.OriginalPath, request.PrimaryPath, request.OutputPath, cancellationToken), request.OutputPath, "XDelta patch applied.", "XDelta application failed.");
-    }
-
-    // The library's xdelta service takes no token, so xdelta runs through the shared child-process helper that Cancel can kill.
-    private static async Task<ModdingOperationResult> RunXDeltaFileAsync(Func<string, Task<XDeltaRun>> run, string outputPath, string success, string failure)
-    {
-        var result = await run(EmbeddedXDeltaPathProvider.Resolve());
-        LogOutput(result.Output);
-        return result.Success ? new(true, success, [outputPath]) : ModdingOperationResult.Failure($"{failure} {result.Error}");
-    }
-
-    private static async Task<ModdingOperationResult> RunXDeltaAsync(ModdingOperationRequest request, CancellationToken cancellationToken)
-    {
-        if (request.InputPaths.Count == 0) return ModdingOperationResult.Failure("Enter one XDelta argument per line.");
-        LogService.SetOperation("Running XDelta");
-        var result = await XDeltaProcess.RunAsync(EmbeddedXDeltaPathProvider.Resolve(), request.InputPaths, cancellationToken);
-        LogOutput(result.Output);
-        return result.Success ? new(true, "XDelta completed.", []) : ModdingOperationResult.Failure("XDelta failed. " + result.Error);
-    }
-
-    private static void LogOutput(string text)
-    {
-        foreach (var line in text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)) LogService.Info(line);
-    }
-
-    private async Task<ModdingOperationResult> RunScriptAsync(ModdingOperationRequest request, CancellationToken cancellationToken)
-    {
-        var error = RequireFile(request.PrimaryPath, "Script") ?? string.Empty;
-        if (error.Length != 0) return ModdingOperationResult.Failure(error);
-        LogService.SetOperation("Running script");
-        var result = await ScriptExecutionService.RunAsync(request.PrimaryPath, EmptyToNull(request.OriginalPath), EmptyToNull(request.OutputPath), request.InputPaths, _interaction, cancellationToken);
-        return result.Success
-            ? new(true, "Script completed.", string.IsNullOrWhiteSpace(request.OutputPath) ? [] : [request.OutputPath])
-            : ModdingOperationResult.Failure(result.Error ?? "Script execution failed.");
-    }
-
-    private static async Task<ModdingOperationResult> RunProgramAsync(ModdingOperationRequest request, CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(request.PrimaryPath)) return ModdingOperationResult.Failure("Enter a program path or command name.");
-        LogService.SetOperation("Running program");
-        var result = await ExternalProcessService.RunAsync(request.PrimaryPath, request.InputPaths, cancellationToken: cancellationToken);
-        return result.ExitCode == 0
-            ? new(true, "Program completed.", [])
-            : ModdingOperationResult.Failure($"Program exited with code {result.ExitCode}.");
-    }
-
-    private async Task<ModdingOperationResult> CreatePatchFileAsync(string originalPath, string inputPath, string outputPath, bool includeXDeltaFallback, G3MCacheOptions cacheOptions, bool createXDelta = false, CancellationToken cancellationToken = default)
-    {
-        var temporaryDirectory = Path.Combine(Path.GetTempPath(), "g3mtool-gui", Guid.NewGuid().ToString("N"));
-        try
-        {
-            var materialized = await MaterializeInputAsync(originalPath, inputPath, temporaryDirectory, cancellationToken);
-            if (createXDelta)
-            {
-                return await CreateXDeltaFileAsync(originalPath, materialized, outputPath, cancellationToken);
-            }
-            var result = await PatchService.CreatePatchAsync(originalPath, materialized, outputPath, includeXdeltaFallback: includeXDeltaFallback, cacheOptions: cacheOptions, cancellationToken: cancellationToken);
-            return result.Success
-                ? new(true, DescribePatchCreated(result), [outputPath])
-                : ModdingOperationResult.Failure(result.Error ?? "Patch creation failed.");
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException)
-        {
-            return ModdingOperationResult.Failure(exception.Message);
-        }
-        finally
-        {
-            DeleteDirectory(temporaryDirectory);
-        }
-    }
-
-    private async Task<string> MaterializeInputAsync(string originalPath, string inputPath, string temporaryDirectory, CancellationToken cancellationToken)
-    {
-        Directory.CreateDirectory(temporaryDirectory);
-        if (!Path.GetExtension(inputPath).Equals(".csx", StringComparison.OrdinalIgnoreCase))
-            return await PatchInputService.MaterializeDataAsync(originalPath, inputPath, temporaryDirectory);
-
-        var output = Path.Combine(temporaryDirectory, "script-output" + Path.GetExtension(originalPath));
-        var result = await ScriptExecutionService.RunAsync(inputPath, originalPath, output, [], _interaction, cancellationToken);
-        if (!result.Success) throw new InvalidOperationException(result.Error ?? "Script execution failed.");
-        PatchInputService.CopyExternalAudioGroups(originalPath, output);
-        return output;
-    }
-
-    private static ModdingOperationResult Cancelled(int completed, int total, IReadOnlyList<string> outputs, int failed = 0) => new(false, failed == 0 ? $"Cancelled; {completed}/{total} completed." : $"Cancelled; {completed}/{total} completed; {failed} failed.", outputs);
-
-    private static ModdingOperationResult BatchSummary(int completed, int failed, int total, IReadOnlyList<string> outputs) => new(failed == 0 && completed == total, $"{completed}/{total} completed; {failed} failed.", outputs);
-
     private static G3MCacheOptions CacheOptions(ModdingOperationRequest request) => G3MCacheOptions.FromDirectory(EmptyToNull(request.CacheDirectory));
 
     private static string? ReportPath(string outputPath, string applyPath)
@@ -467,36 +120,12 @@ public sealed class ModdingOperationService(ScriptInteraction? interaction = nul
         return path is null ? null : Path.ChangeExtension(path, ".merge.md");
     }
 
-    private static string DescribePatchCreated(PatchCreateResult result)
-    {
-        var statistics = result.Statistics;
-        return statistics is null
-            ? "Patch created."
-            : $"Patch created: {statistics.TotalChanged} changed, {statistics.TotalNew} new, {statistics.TotalDeleted} deleted.";
-    }
-
-    private static string UniquePath(string path)
-    {
-        if (!File.Exists(path) && !Directory.Exists(path)) return path;
-        var directory = Path.GetDirectoryName(path) ?? string.Empty;
-        var fileName = Path.GetFileNameWithoutExtension(path);
-        var extension = Path.GetExtension(path);
-        for (var index = 2; ; index++)
-        {
-            var candidate = Path.Combine(directory, fileName + "_" + index + extension);
-            if (!File.Exists(candidate) && !Directory.Exists(candidate)) return candidate;
-        }
-    }
-
-    private static bool IsPatchExtension(string extension) => extension.Equals(".g3mpatch", StringComparison.OrdinalIgnoreCase) || extension.Equals(".zip", StringComparison.OrdinalIgnoreCase);
-
     private static void DeleteDirectory(string path)
     {
         try { if (Directory.Exists(path)) Directory.Delete(path, recursive: true); }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { LogService.Warning($"Could not delete the temporary folder {path}."); }
     }
 
-    private static bool IsXDelta(string path) => Path.GetExtension(path).Equals(".xdelta", StringComparison.OrdinalIgnoreCase) || Path.GetExtension(path).Equals(".vcdiff", StringComparison.OrdinalIgnoreCase);
     private static string? EmptyToNull(string value) => string.IsNullOrWhiteSpace(value) ? null : value;
     private static string? RequireFile(string path, string name) => File.Exists(path) ? null : $"{name} was not found.";
     private static string? RequireFiles(string original, string input) => RequireFile(original, "Original data file") ?? RequireFile(input, "Input file");

@@ -27,7 +27,7 @@ public static class ExecuteCommand
         command.Add(timeoutOption);
         command.SetAction(async parseResult =>
         {
-            var target = parseResult.GetValue(targetArg)!;
+            var target = parseResult.GetRequiredValue(targetArg);
             var args = parseResult.GetValue(argsArg) ?? [];
             var data = parseResult.GetValue(dataOption);
             var output = parseResult.GetValue(outputOption);
@@ -68,10 +68,14 @@ public static class ExecuteCommand
 
     private static async Task ExecuteScriptAsync(string script, string? dataPath, string? output, string[] args, TimeSpan? timeout)
     {
-        var exportsOnly = !string.IsNullOrWhiteSpace(output) && IsFolderTarget(output);
-        var savePath = !string.IsNullOrWhiteSpace(output) && !exportsOnly ? Path.GetFullPath(output) : null;
-        var exportDirectory = exportsOnly ? Path.GetFullPath(output!) : null;
-        var result = await ExecuteService.ExecuteScriptAsync(script, dataPath, savePath, args, exportDirectory, timeout, Program.Cancellation);
+        string? savePath = null;
+        string? exportDirectory = null;
+        if (!string.IsNullOrWhiteSpace(output))
+        {
+            if (IsFolderTarget(output)) exportDirectory = Path.GetFullPath(output);
+            else savePath = Path.GetFullPath(output);
+        }
+        var result = await ExecuteService.ExecuteScriptAsync(script, dataPath, savePath, args, new ScriptRunOptions(exportDirectory, timeout), Program.Cancellation);
         if (!result.Success)
         {
             PatchCommand.WriteErrorJsonOrText("execute", result.Error);

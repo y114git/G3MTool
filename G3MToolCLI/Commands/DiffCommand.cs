@@ -27,8 +27,8 @@ public static class DiffCommand
         command.Add(cacheOption);
         command.SetAction(async parseResult =>
         {
-            var file1 = parseResult.GetValue(file1Arg)!;
-            var file2 = parseResult.GetValue(file2Arg)!;
+            var file1 = parseResult.GetRequiredValue(file1Arg);
+            var file2 = parseResult.GetRequiredValue(file2Arg);
             var output = parseResult.GetValue(outputArg);
             var full = parseResult.GetValue(fullOption);
             var cacheDir = parseResult.GetValue(cacheOption);

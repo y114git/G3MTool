@@ -23,23 +23,17 @@ internal sealed class CliScriptGlobals : ScriptGlobals
         return true;
     }
 
-    public override string ScriptInputDialog(string title, string label, string defaultInput, string cancelText, string submitText, bool isMultiline, bool preventClose)
-    {
-        LogService.Log($"[Script Input] {title}: {label} (default: {defaultInput})");
-        return defaultInput;
-    }
+    public override string? ScriptInputDialog(string title, string label, string defaultInput, string cancelText, string submitText, bool isMultiline, bool preventClose) =>
+        Answer(title, label, defaultInput);
 
-    public override string SimpleTextInput(string title, string label, string defaultValue, bool allowMultiline, bool showDialog = true)
-    {
-        LogService.Log($"[Script Input] {title}: {label} (default: {defaultValue})");
-        return defaultValue;
-    }
+    public override string? SimpleTextInput(string title, string label, string defaultValue, bool allowMultiline, bool showDialog = true) =>
+        Answer(title, label, defaultValue);
 
-    public override string PromptLoadFile(string defaultExt, string filter) => Unavailable("PromptLoadFile");
+    public override string? PromptLoadFile(string defaultExt, string filter) => Unavailable("PromptLoadFile");
 
-    public override string PromptSaveFile(string defaultExt, string filter) => Unavailable("PromptSaveFile");
+    public override string? PromptSaveFile(string defaultExt, string filter) => Unavailable("PromptSaveFile");
 
-    public override string PromptChooseDirectory() => Unavailable("PromptChooseDirectory");
+    public override string? PromptChooseDirectory() => Unavailable("PromptChooseDirectory");
 
     protected override void ReportProgress(string label, string status, int value, double maximum)
     {
@@ -48,9 +42,16 @@ internal sealed class CliScriptGlobals : ScriptGlobals
         LogService.Progress(value, (int)maximum);
     }
 
-    private static string Unavailable(string name)
+    private static string Answer(string title, string label, string defaultValue)
+    {
+        LogService.Log($"[Script Input] {title}: {label} (default: {defaultValue})");
+        return defaultValue;
+    }
+
+    // Scripts test for null when the user cancels a prompt.
+    private static string? Unavailable(string name)
     {
         LogService.Log("[Script] " + name);
-        return null!; // scripts test for null when the user cancels a prompt
+        return null;
     }
 }

@@ -2,8 +2,6 @@ using System.CommandLine;
 using System.IO.Compression;
 using System.Text.Json;
 using G3MLib.DataFile;
-using G3MLib.DataFile.Models;
-using G3MToolCLI.Utils;
 
 namespace G3MToolCLI.Commands;
 
@@ -14,12 +12,6 @@ public static class InfoCommand
     {
         WriteIndented = true
     };
-
-    private static readonly string[] EventTypeNames =
-    [
-        "Create", "Destroy", "Alarm", "Step", "Collision", "Keyboard", "Mouse", "Other", "Draw", "KeyPress",
-        "KeyRelease", "Trigger", "CleanUp", "Gesture", "PreCreate"
-    ];
 
     private static bool IsPatchExtension(string? extension)
     {
@@ -42,7 +34,7 @@ public static class InfoCommand
         command.Add(cacheOption);
         command.SetAction(async parseResult =>
         {
-            var target = parseResult.GetValue(targetArg)!;
+            var target = parseResult.GetRequiredValue(targetArg);
             var verbose = parseResult.GetValue(verboseOption);
             var cacheDir = parseResult.GetValue(cacheOption);
             var jsonOutput = Program.JsonOutput;
@@ -68,526 +60,22 @@ public static class InfoCommand
                 var cached = G3MCacheService.TryReadDataInfoSnapshot(path, cacheOptions);
                 if (cached != null)
                 {
-                    PrintInfoSnapshot(cached, jsonOutput);
+                    InfoPrinter.PrintSnapshot(cached, jsonOutput);
                     return;
                 }
             }
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1048576, FileOptions.SequentialScan);
             using var data = await GameMakerIO.ReadAsync(stream, cancellationToken: Program.Cancellation);
-            var snapshot = G3MCacheService.BuildInfoSnapshot(path, data);
             if (!verbose)
             {
-                await G3MCacheService.WriteDataInfoCacheAsync(path, snapshot, cacheOptions);
+                await G3MCacheService.WriteDataInfoCacheAsync(path, G3MCacheService.BuildInfoSnapshot(path, data), cacheOptions);
             }
-            var generalInfo = data.GeneralInfo;
-            var versionDisplay = GeneralInfoUtil.GetVersionDisplay(generalInfo);
-            if (jsonOutput)
-            {
-                Console.WriteLine(JsonSerializer.Serialize(new
-                {
-                    File = Path.GetFileName(path),
-                    Size = new FileInfo(path).Length,
-                    Game = generalInfo?.DisplayName?.Content ?? "Unknown",
-                    BytecodeVersion = generalInfo?.BytecodeVersion ?? 0,
-                    Version = versionDisplay,
-                    GeneralInfo = GeneralInfoUtil.ExtractGeneralInfo(data),
-                    Resources = new
-                    {
-                        Sprites = data.Sprites?.Count ?? 0,
-                        Sounds = data.Sounds?.Count ?? 0,
-                        Code = data.Code?.Count ?? 0,
-                        GameObjects = data.GameObjects?.Count ?? 0,
-                        Rooms = data.Rooms?.Count ?? 0,
-                        Backgrounds = data.Backgrounds?.Count ?? 0,
-                        Fonts = data.Fonts?.Count ?? 0,
-                        Scripts = data.Scripts?.Count ?? 0,
-                        Shaders = data.Shaders?.Count ?? 0,
-                        Paths = data.Paths?.Count ?? 0,
-                        Timelines = data.Timelines?.Count ?? 0,
-                        Extensions = data.Extensions?.Count ?? 0,
-                        Variables = data.Variables?.Count ?? 0,
-                        Functions = data.Functions?.Count ?? 0,
-                        Strings = data.Strings?.Count ?? 0,
-                        AudioGroups = data.AudioGroups?.Count ?? 0,
-                        EmbeddedTextures = data.EmbeddedTextures?.Count ?? 0,
-                        TexturePageItems = data.TexturePageItems?.Count ?? 0,
-                        TextureGroupInfo = data.TextureGroupInfo?.Count ?? 0,
-                        Tilesets = data.Backgrounds?.Count ?? 0
-                    }
-                }, s_jsonOptions));
-                return;
-            }
-            Console.WriteLine("Data File: " + Path.GetFileName(path));
-            Console.WriteLine($"Size: {new FileInfo(path).Length:N0} bytes");
-            Console.WriteLine("Game: " + (generalInfo?.DisplayName?.Content ?? "Unknown"));
-            Console.WriteLine($"Bytecode: {generalInfo?.BytecodeVersion ?? 0}");
-            Console.WriteLine("Version: " + versionDisplay);
-            Console.WriteLine();
-            Console.WriteLine("Resources:");
-            Console.WriteLine($"  Sprites:      {data.Sprites?.Count ?? 0,6}");
-            Console.WriteLine($"  Sounds:       {data.Sounds?.Count ?? 0,6}");
-            Console.WriteLine($"  Code:         {data.Code?.Count ?? 0,6}");
-            Console.WriteLine($"  GameObjects:  {data.GameObjects?.Count ?? 0,6}");
-            Console.WriteLine($"  Rooms:        {data.Rooms?.Count ?? 0,6}");
-            Console.WriteLine($"  Backgrounds:  {data.Backgrounds?.Count ?? 0,6}");
-            Console.WriteLine($"  Fonts:        {data.Fonts?.Count ?? 0,6}");
-            Console.WriteLine($"  Scripts:      {data.Scripts?.Count ?? 0,6}");
-            Console.WriteLine($"  Shaders:      {data.Shaders?.Count ?? 0,6}");
-            Console.WriteLine($"  Paths:        {data.Paths?.Count ?? 0,6}");
-            Console.WriteLine($"  Timelines:    {data.Timelines?.Count ?? 0,6}");
-            Console.WriteLine($"  Extensions:   {data.Extensions?.Count ?? 0,6}");
-            Console.WriteLine($"  Variables:    {data.Variables?.Count ?? 0,6}");
-            Console.WriteLine($"  Functions:    {data.Functions?.Count ?? 0,6}");
-            Console.WriteLine($"  Strings:      {data.Strings?.Count ?? 0,6}");
-            Console.WriteLine($"  AudioGroups:  {data.AudioGroups?.Count ?? 0,6}");
-            Console.WriteLine($"  EmbTextures:  {data.EmbeddedTextures?.Count ?? 0,6}");
-            Console.WriteLine($"  TexPageItems: {data.TexturePageItems?.Count ?? 0,6}");
-            Console.WriteLine($"  TexGroupInfo: {data.TextureGroupInfo?.Count ?? 0,6}");
-            Console.WriteLine($"  Tilesets:     {data.Backgrounds?.Count ?? 0,6}");
-            if (generalInfo != null)
-            {
-                Console.WriteLine();
-                GeneralInfoUtil.PrintVerboseGeneralInfo(generalInfo, verbose);
-            }
-            if (!verbose)
-            {
-                if (data.Variables != null && data.Variables.Count > 0)
-                {
-                    Console.WriteLine();
-                    Console.WriteLine("Variables by InstanceType:");
-                    foreach (var g in data.Variables.GroupBy(v => v.InstanceType).OrderByDescending(source => source.Count()))
-                    {
-                        Console.WriteLine($"  {g.Key,-12} {g.Count(),6}");
-                    }
-                }
-                if (data.Functions != null && data.Functions.Count > 0)
-                {
-                    Console.WriteLine();
-                    Console.WriteLine("Functions (first/last):");
-                    Console.WriteLine("  [0]    " + data.Functions[0]?.Name?.Content);
-                    Console.WriteLine($"  [{data.Functions.Count - 1}] {data.Functions[data.Functions.Count - 1]?.Name?.Content}");
-                }
-                if (data.Code != null && data.Code.Count > 0)
-                {
-                    var topLevel = data.Code.Count(c => c.ParentEntry == null);
-                    Console.WriteLine();
-                    Console.WriteLine($"Code entries: {topLevel} top-level, {data.Code.Count - topLevel} child");
-                }
-                if (data.AudioGroups != null && data.AudioGroups.Count > 0)
-                {
-                    Console.WriteLine();
-                    Console.WriteLine("AudioGroups:");
-                    for (var i = 0; i < data.AudioGroups.Count; i++)
-                    {
-                        Console.WriteLine($"  [{i}] {data.AudioGroups[i]?.Name?.Content}");
-                    }
-                }
-                if (data.Extensions != null && data.Extensions.Count > 0)
-                {
-                    Console.WriteLine();
-                    Console.WriteLine("Extensions:");
-                    foreach (var extension in data.Extensions)
-                    {
-                        Console.WriteLine("  " + extension?.Name?.Content);
-                    }
-                }
-                if (generalInfo?.RoomOrder != null && generalInfo.RoomOrder.Count > 0)
-                {
-                    Console.WriteLine();
-                    Console.WriteLine($"Room order ({generalInfo.RoomOrder.Count} rooms):");
-                    for (var i2 = 0; i2 < Math.Min(10, generalInfo.RoomOrder.Count); i2++)
-                    {
-                        var room = generalInfo.RoomOrder[i2]?.Resource;
-                        Console.WriteLine($"  [{i2}] {room?.Name?.Content ?? "?"}");
-                    }
-                    if (generalInfo.RoomOrder.Count > 10)
-                    {
-                        Console.WriteLine($"  ... and {generalInfo.RoomOrder.Count - 10} more");
-                    }
-                }
-            }
-            else
-            {
-                PrintDetailedResources(data);
-            }
+            InfoPrinter.PrintDataFile(path, data, verbose, jsonOutput);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             await Console.Error.WriteLineAsync("Error reading data file: " + ex.Message);
             Environment.ExitCode = 1;
-        }
-    }
-
-    private static void PrintInfoSnapshot(G3MDataInfoSnapshot info, bool jsonOutput)
-    {
-        if (jsonOutput)
-        {
-            Console.WriteLine(JsonSerializer.Serialize(info, s_jsonOptions));
-            return;
-        }
-        Console.WriteLine("Data File: " + info.File);
-        Console.WriteLine($"Size: {info.Size:N0} bytes");
-        Console.WriteLine("Game: " + info.Game);
-        Console.WriteLine($"Bytecode: {info.BytecodeVersion}");
-        Console.WriteLine("Version: " + info.Version);
-        Console.WriteLine();
-        Console.WriteLine("Resources:");
-        Console.WriteLine($"  Sprites:      {Count("Sprites"),6}");
-        Console.WriteLine($"  Sounds:       {Count("Sounds"),6}");
-        Console.WriteLine($"  Code:         {Count("Code"),6}");
-        Console.WriteLine($"  GameObjects:  {Count("GameObjects"),6}");
-        Console.WriteLine($"  Rooms:        {Count("Rooms"),6}");
-        Console.WriteLine($"  Backgrounds:  {Count("Backgrounds"),6}");
-        Console.WriteLine($"  Fonts:        {Count("Fonts"),6}");
-        Console.WriteLine($"  Scripts:      {Count("Scripts"),6}");
-        Console.WriteLine($"  Shaders:      {Count("Shaders"),6}");
-        Console.WriteLine($"  Paths:        {Count("Paths"),6}");
-        Console.WriteLine($"  Timelines:    {Count("Timelines"),6}");
-        Console.WriteLine($"  Extensions:   {Count("Extensions"),6}");
-        Console.WriteLine($"  Variables:    {Count("Variables"),6}");
-        Console.WriteLine($"  Functions:    {Count("Functions"),6}");
-        Console.WriteLine($"  Strings:      {Count("Strings"),6}");
-        Console.WriteLine($"  AudioGroups:  {Count("AudioGroups"),6}");
-        Console.WriteLine($"  EmbTextures:  {Count("EmbeddedTextures"),6}");
-        Console.WriteLine($"  TexPageItems: {Count("TexturePageItems"),6}");
-        Console.WriteLine($"  TexGroupInfo: {Count("TextureGroupInfo"),6}");
-        Console.WriteLine($"  Tilesets:     {Count("Tilesets"),6}");
-        PrintGeneralInfoSnapshot(info.GeneralInfo);
-        if (info.VariablesByInstanceType.Count > 0)
-        {
-            Console.WriteLine();
-            Console.WriteLine("Variables by InstanceType:");
-            foreach (var (key, count) in info.VariablesByInstanceType.OrderByDescending(kvp => kvp.Value))
-            {
-                Console.WriteLine($"  {key,-12} {count,6}");
-            }
-        }
-        if (info.FirstFunction != null || info.LastFunction != null)
-        {
-            Console.WriteLine();
-            Console.WriteLine("Functions (first/last):");
-            Console.WriteLine("  [0]    " + info.FirstFunction);
-            Console.WriteLine($"  [{Math.Max(Count("Functions") - 1, 0)}] {info.LastFunction}");
-        }
-        if (Count("Code") > 0)
-        {
-            Console.WriteLine();
-            Console.WriteLine($"Code entries: {info.TopLevelCodeCount} top-level, {info.ChildCodeCount} child");
-        }
-        if (info.AudioGroups.Count > 0)
-        {
-            Console.WriteLine();
-            Console.WriteLine("AudioGroups:");
-            for (var i = 0; i < info.AudioGroups.Count; i++)
-            {
-                Console.WriteLine($"  [{i}] {info.AudioGroups[i]}");
-            }
-        }
-        if (info.Extensions.Count > 0)
-        {
-            Console.WriteLine();
-            Console.WriteLine("Extensions:");
-            foreach (var ext in info.Extensions)
-            {
-                Console.WriteLine("  " + ext);
-            }
-        }
-        if (info.RoomOrderCount > 0)
-        {
-            Console.WriteLine();
-            Console.WriteLine($"Room order ({info.RoomOrderCount} rooms):");
-            for (var i2 = 0; i2 < info.RoomOrderPreview.Count; i2++)
-            {
-                Console.WriteLine($"  [{i2}] {info.RoomOrderPreview[i2]}");
-            }
-            if (info.RoomOrderCount > info.RoomOrderPreview.Count)
-            {
-                Console.WriteLine($"  ... and {info.RoomOrderCount - info.RoomOrderPreview.Count} more");
-            }
-        }
-        int Count(string key2)
-        {
-            return info.ResourceCounts.GetValueOrDefault(key2);
-        }
-    }
-
-    private static void PrintGeneralInfoSnapshot(GeneralInfoData? generalInfo)
-    {
-        if (generalInfo != null)
-        {
-            Console.WriteLine();
-            Console.WriteLine("GeneralInfo:");
-            Console.WriteLine("  DisplayName: " + generalInfo.DisplayName);
-            Console.WriteLine("  Name:        " + generalInfo.Name);
-            Console.WriteLine("  FileName:    " + generalInfo.FileName);
-            Console.WriteLine("  Config:      " + generalInfo.Config);
-            Console.WriteLine($"  GameID:      {generalInfo.GameID}");
-            Console.WriteLine($"  Version:     {generalInfo.Major}.{generalInfo.Minor}.{generalInfo.Release}.{generalInfo.Build}");
-        }
-    }
-
-    private static string EventTypeName(int idx)
-    {
-        if (idx < 0 || idx >= EventTypeNames.Length)
-        {
-            return $"Type{idx}";
-        }
-        return EventTypeNames[idx];
-    }
-
-    private static void PrintDetailedResources(GameMakerData data)
-    {
-        Console.WriteLine();
-        Console.WriteLine("=".PadRight(60, '='));
-        Console.WriteLine("DETAILED RESOURCE LISTING");
-        Console.WriteLine("=".PadRight(60, '='));
-        if (data.Sprites != null && data.Sprites.Count > 0)
-        {
-            Console.WriteLine();
-            Console.WriteLine($"=== Sprites ({data.Sprites.Count}) ===");
-            for (var i = 0; i < data.Sprites.Count; i++)
-            {
-                var s = data.Sprites[i];
-                Console.WriteLine($"  [{i}] {s.Name?.Content}  {s.Width}x{s.Height}  origin:({s.OriginX},{s.OriginY})  frames:{s.Textures.Count}  mask:{s.SepMasks}  bbox:({s.MarginLeft},{s.MarginTop},{s.MarginRight},{s.MarginBottom})  speed:{s.GMS2PlaybackSpeed}");
-            }
-        }
-        if (data.Sounds != null && data.Sounds.Count > 0)
-        {
-            Console.WriteLine();
-            Console.WriteLine($"=== Sounds ({data.Sounds.Count}) ===");
-            for (var j = 0; j < data.Sounds.Count; j++)
-            {
-                var s2 = data.Sounds[j];
-                var grp = s2.AudioGroup?.Name?.Content ?? $"group{s2.GroupID}";
-                Console.WriteLine($"  [{j}] {s2.Name?.Content}  type:{s2.Type?.Content}  flags:{s2.Flags}  vol:{s2.Volume:F2}  group:{grp}  file:{s2.File?.Content}");
-            }
-        }
-        if (data.Backgrounds != null && data.Backgrounds.Count > 0)
-        {
-            Console.WriteLine();
-            Console.WriteLine($"=== Backgrounds/Tilesets ({data.Backgrounds.Count}) ===");
-            for (var k = 0; k < data.Backgrounds.Count; k++)
-            {
-                var b = data.Backgrounds[k];
-                var tpi = (b.Texture != null) ? $"tpi:{data.TexturePageItems.IndexOf(b.Texture)}" : "no-tex";
-                Console.WriteLine($"  [{k}] {b.Name?.Content}  {tpi}  tileWidth:{b.GMS2TileWidth}  tileHeight:{b.GMS2TileHeight}  cols:{b.GMS2TileColumns}  count:{b.GMS2TileCount}");
-            }
-        }
-        if (data.Fonts != null && data.Fonts.Count > 0)
-        {
-            Console.WriteLine();
-            Console.WriteLine($"=== Fonts ({data.Fonts.Count}) ===");
-            for (var l = 0; l < data.Fonts.Count; l++)
-            {
-                var f = data.Fonts[l];
-                Console.WriteLine($"  [{l}] {f.Name?.Content}  display:{f.DisplayName?.Content}  size:{f.EmSize}  bold:{f.Bold}  italic:{f.Italic}  glyphs:{f.Glyphs?.Count ?? 0}  range:{f.RangeStart}-{f.RangeEnd}");
-            }
-        }
-        if (data.Paths != null && data.Paths.Count > 0)
-        {
-            Console.WriteLine();
-            Console.WriteLine($"=== Paths ({data.Paths.Count}) ===");
-            for (var m = 0; m < data.Paths.Count; m++)
-            {
-                var p = data.Paths[m];
-                Console.WriteLine($"  [{m}] {p.Name?.Content}  smooth:{p.IsSmooth}  closed:{p.IsClosed}  precision:{p.Precision}  points:{p.Points.Count}");
-            }
-        }
-        if (data.Scripts != null && data.Scripts.Count > 0)
-        {
-            Console.WriteLine();
-            Console.WriteLine($"=== Scripts ({data.Scripts.Count}) ===");
-            for (var n = 0; n < data.Scripts.Count; n++)
-            {
-                var s3 = data.Scripts[n];
-                var codeName = s3.Code?.Name?.Content ?? "<none>";
-                Console.WriteLine($"  [{n}] {s3.Name?.Content}  code:{codeName}");
-            }
-        }
-        if (data.Shaders != null && data.Shaders.Count > 0)
-        {
-            Console.WriteLine();
-            Console.WriteLine($"=== Shaders ({data.Shaders.Count}) ===");
-            for (var num = 0; num < data.Shaders.Count; num++)
-            {
-                var s4 = data.Shaders[num];
-                Console.WriteLine($"  [{num}] {s4.Name?.Content}  type:{s4.Type}  glsl_es_vtx:{(s4.GLSL_ES_Vertex?.Content?.Length).GetValueOrDefault()}ch  glsl_es_frag:{(s4.GLSL_ES_Fragment?.Content?.Length).GetValueOrDefault()}ch");
-            }
-        }
-        if (data.GameObjects != null && data.GameObjects.Count > 0)
-        {
-            Console.WriteLine();
-            Console.WriteLine($"=== GameObjects ({data.GameObjects.Count}) ===");
-            for (var index = 0; index < data.GameObjects.Count; index++)
-            {
-                var o = data.GameObjects[index];
-                var spr = o.Sprite?.Name?.Content ?? "<none>";
-                var par = o.ParentId?.Name?.Content ?? "<none>";
-                List<string> flags = [];
-                if (o.Visible)
-                {
-                    flags.Add("visible");
-                }
-                if (o.Solid)
-                {
-                    flags.Add("solid");
-                }
-                if (o.Persistent)
-                {
-                    flags.Add("persistent");
-                }
-                if (o.UsesPhysics)
-                {
-                    flags.Add("physics");
-                }
-                var flagStr = (flags.Count > 0) ? string.Join(",", flags) : "-";
-                List<string> evNames = [];
-                for (var et = 0; et < o.Events.Count; et++)
-                {
-                    foreach (var ev in o.Events[et])
-                    {
-                        evNames.Add($"{EventTypeName(et)}_{ev.EventSubtype}");
-                    }
-                }
-                var evStr = (evNames.Count > 0) ? string.Join(", ", evNames) : "none";
-                Console.WriteLine($"  [{index}] {o.Name?.Content}  sprite:{spr}  parent:{par}  depth:{o.Depth}  [{flagStr}]");
-                Console.WriteLine("        events: " + evStr);
-            }
-        }
-        if (data.Rooms != null && data.Rooms.Count > 0)
-        {
-            Console.WriteLine();
-            Console.WriteLine($"=== Rooms ({data.Rooms.Count}) ===");
-            for (var index = 0; index < data.Rooms.Count; index++)
-            {
-                var r = data.Rooms[index];
-                var instanceCount = 0;
-                IEnumerable<GameMakerRoom.Layer> layers = r.Layers;
-                foreach (var layer in layers ?? [])
-                {
-                    if (layer.InstancesData?.Instances != null)
-                    {
-                        instanceCount += layer.InstancesData.Instances.Count;
-                    }
-                }
-                var cc = r.CreationCodeId?.Name?.Content ?? "<none>";
-                Console.WriteLine($"  [{index}] {r.Name?.Content}  {r.Width}x{r.Height}  layers:{r.Layers?.Count ?? 0}  instances:{instanceCount}  speed:{r.Speed}  persistent:{r.Persistent}  creationCode:{cc}");
-                if (r.Layers == null)
-                {
-                    continue;
-                }
-                foreach (var layer2 in r.Layers)
-                {
-                    var instInLayer = (layer2.InstancesData?.Instances?.Count).GetValueOrDefault();
-                    Console.WriteLine($"        layer: {layer2.LayerName?.Content}  type:{layer2.LayerType}  depth:{layer2.LayerDepth}  instances:{instInLayer}");
-                }
-            }
-        }
-        if (data.Code != null && data.Code.Count > 0)
-        {
-            Console.WriteLine();
-            Console.WriteLine($"=== Code Entries ({data.Code.Count}) ===");
-            for (var index = 0; index < data.Code.Count; index++)
-            {
-                var c = data.Code[index];
-                var parent = c.ParentEntry?.Name?.Content ?? "-";
-                var children = c.ChildEntries.Count;
-                Console.WriteLine($"  [{index}] {c.Name?.Content}  len:{c.Length}  locals:{c.LocalsCount}  args:{c.ArgumentsCount}  parent:{parent}  children:{children}");
-            }
-        }
-        if (data.Functions != null && data.Functions.Count > 0)
-        {
-            Console.WriteLine();
-            Console.WriteLine($"=== Functions ({data.Functions.Count}) ===");
-            for (var index = 0; index < data.Functions.Count; index++)
-            {
-                var f2 = data.Functions[index];
-                Console.WriteLine($"  [{index}] {f2.Name?.Content}");
-            }
-        }
-        if (data.Variables != null && data.Variables.Count > 0)
-        {
-            Console.WriteLine();
-            Console.WriteLine($"=== Variables ({data.Variables.Count}) ===");
-            for (var index = 0; index < data.Variables.Count; index++)
-            {
-                var v = data.Variables[index];
-                Console.WriteLine($"  [{index}] {v.Name?.Content}  type:{v.InstanceType}  varId:{v.VarID}");
-            }
-        }
-        if (data.Strings != null && data.Strings.Count > 0)
-        {
-            Console.WriteLine();
-            Console.WriteLine($"=== Strings ({data.Strings.Count}) ===");
-            for (var index = 0; index < data.Strings.Count; index++)
-            {
-                var s5 = data.Strings[index]?.Content ?? "";
-                var display = (s5.Length > 80) ? string.Concat(s5.AsSpan(0, 77), "...".AsSpan()) : s5;
-                display = display.Replace("\n", "\\n", StringComparison.Ordinal).Replace("\r", "\\r", StringComparison.Ordinal).Replace("\t", "\\t", StringComparison.Ordinal);
-                Console.WriteLine($"  [{index}] \"{display}\"");
-            }
-        }
-        if (data.EmbeddedTextures != null && data.EmbeddedTextures.Count > 0)
-        {
-            Console.WriteLine();
-            Console.WriteLine($"=== EmbeddedTextures ({data.EmbeddedTextures.Count}) ===");
-            for (var index = 0; index < data.EmbeddedTextures.Count; index++)
-            {
-                var t = data.EmbeddedTextures[index];
-                var size = (t.TextureData?.Image != null) ? $"{t.TextureData.Width}x{t.TextureData.Height}" : "no data";
-                Console.WriteLine($"  [{index}] {t.Name?.Content}  {size}");
-            }
-        }
-        if (data.TexturePageItems != null && data.TexturePageItems.Count > 0)
-        {
-            Console.WriteLine();
-            Console.WriteLine($"=== TexturePageItems ({data.TexturePageItems.Count}) ===");
-            for (var index = 0; index < data.TexturePageItems.Count; index++)
-            {
-                var t2 = data.TexturePageItems[index];
-                if (t2 != null)
-                {
-                    var texIdx = (t2.TexturePage != null && data.EmbeddedTextures != null) ? data.EmbeddedTextures.IndexOf(t2.TexturePage) : (-1);
-                    Console.WriteLine($"  [{index}] src:({t2.SourceX},{t2.SourceY},{t2.SourceWidth},{t2.SourceHeight})  tgt:({t2.TargetX},{t2.TargetY},{t2.TargetWidth},{t2.TargetHeight})  bound:({t2.BoundingWidth},{t2.BoundingHeight})  texPage:{texIdx}");
-                }
-            }
-        }
-        if (data.AudioGroups != null && data.AudioGroups.Count > 0)
-        {
-            Console.WriteLine();
-            Console.WriteLine($"=== AudioGroups ({data.AudioGroups.Count}) ===");
-            for (var index = 0; index < data.AudioGroups.Count; index++)
-            {
-                Console.WriteLine($"  [{index}] {data.AudioGroups[index]?.Name?.Content}");
-            }
-        }
-        if (data.Extensions != null && data.Extensions.Count > 0)
-        {
-            Console.WriteLine();
-            Console.WriteLine($"=== Extensions detail ({data.Extensions.Count}) ===");
-            for (var index = 0; index < data.Extensions.Count; index++)
-            {
-                var e = data.Extensions[index];
-                Console.WriteLine($"  [{index}] {e.Name?.Content}  className:{e.ClassName?.Content}  files:{e.Files?.Count ?? 0}");
-                if (e.Files == null)
-                {
-                    continue;
-                }
-                foreach (var f3 in e.Files)
-                {
-                    Console.WriteLine($"        file: {f3.Filename?.Content}  kind:{f3.Kind}  functions:{f3.Functions?.Count ?? 0}");
-                }
-            }
-        }
-        if (data.Timelines != null && data.Timelines.Count > 0)
-        {
-            Console.WriteLine();
-            Console.WriteLine($"=== Timelines ({data.Timelines.Count}) ===");
-            for (var index = 0; index < data.Timelines.Count; index++)
-            {
-                var t3 = data.Timelines[index];
-                Console.WriteLine($"  [{index}] {t3.Name?.Content}  moments:{t3.Moments?.Count ?? 0}");
-            }
         }
     }
 
@@ -596,44 +84,15 @@ public static class InfoCommand
         var result = await PatchService.ValidatePatchAsync(path, null, null, Program.Cancellation);
         if (!result.Success || result.Manifest == null)
         {
-            Console.WriteLine("Warning: " + result.Error);
-            Console.WriteLine("Attempting to show basic patch information...");
-            Console.WriteLine();
-            try
+            if (jsonOutput)
             {
-                using var zipStream = new FileStream(path, FileMode.Open, FileAccess.Read);
-                using var archive = new ZipArchive(zipStream, ZipArchiveMode.Read);
-                List<string> entries = [.. archive.Entries.Select(e => e.FullName)];
-                List<string> folders = [.. (from e in entries
-                                        select e.Split('/')[0] into f
-                                        where !string.IsNullOrEmpty(f)
-                                        select f).Distinct()];
-                Console.WriteLine("Patch File: " + Path.GetFileName(path));
-                Console.WriteLine($"Size: {new FileInfo(path).Length:N0} bytes");
-                Console.WriteLine($"Entries: {entries.Count}");
-                Console.WriteLine("Detected folders: " + string.Join(", ", folders));
-                if (!verbose)
-                {
-                    return;
-                }
-                Console.WriteLine();
-                Console.WriteLine("Patch contents:");
-                foreach (var entry in entries.Take(50))
-                {
-                    Console.WriteLine("  " + entry);
-                }
-                if (entries.Count > 50)
-                {
-                    Console.WriteLine($"  ... and {entries.Count - 50} more");
-                }
-                return;
-            }
-            catch (Exception ex)
-            {
-                await Console.Error.WriteLineAsync("Failed to read patch file: " + ex.Message);
+                // Plain text would break a JSON consumer, so a patch without a readable manifest is an error here.
+                PatchCommand.WriteErrorJsonOrText("info", result.Error);
                 Environment.ExitCode = 1;
                 return;
             }
+            await ShowArchiveInfoAsync(path, result.Error, verbose);
+            return;
         }
         var manifest = result.Manifest;
         if (jsonOutput)
@@ -654,24 +113,66 @@ public static class InfoCommand
         Console.WriteLine($"  Changed: {manifest.Statistics?.TotalChanged ?? 0}");
         Console.WriteLine($"  New: {manifest.Statistics?.TotalNew ?? 0}");
         Console.WriteLine($"  Deleted: {manifest.Statistics?.TotalDeleted ?? 0}");
-        if (!verbose || manifest.Resources == null)
+        if (verbose && manifest.Resources != null)
         {
-            return;
+            PrintResourcesByType(manifest.Resources);
         }
+    }
+
+    private static void PrintResourcesByType(Dictionary<string, ResourceTypeChanges> resources)
+    {
         Console.WriteLine();
         Console.WriteLine("Resources by type:");
-        foreach (var resource in manifest.Resources)
+        foreach (var (type, changes) in resources)
         {
-            resource.Deconstruct(out var key, out var value);
-            var type = key;
-            var resourceTypeChanges = value;
-            var changed = resourceTypeChanges.Changed?.Count ?? 0;
-            var newRes = resourceTypeChanges.New?.Count ?? 0;
-            var deleted = resourceTypeChanges.Deleted?.Count ?? 0;
+            var changed = changes.Changed?.Count ?? 0;
+            var newRes = changes.New?.Count ?? 0;
+            var deleted = changes.Deleted?.Count ?? 0;
             if (changed + newRes + deleted > 0)
             {
                 Console.WriteLine($"  {type}: {changed} changed, {newRes} new, {deleted} deleted");
             }
+        }
+    }
+
+    // A patch whose manifest cannot be read may still be a zip archive: list what it holds.
+    private static async Task ShowArchiveInfoAsync(string path, string? warning, bool verbose)
+    {
+        Console.WriteLine("Warning: " + warning);
+        Console.WriteLine("Attempting to show basic patch information...");
+        Console.WriteLine();
+        try
+        {
+            using var zipStream = new FileStream(path, FileMode.Open, FileAccess.Read);
+            using var archive = new ZipArchive(zipStream, ZipArchiveMode.Read);
+            List<string> entries = [.. archive.Entries.Select(e => e.FullName)];
+            List<string> folders = [.. (from e in entries
+                                    select e.Split('/')[0] into f
+                                    where !string.IsNullOrEmpty(f)
+                                    select f).Distinct()];
+            Console.WriteLine("Patch File: " + Path.GetFileName(path));
+            Console.WriteLine($"Size: {new FileInfo(path).Length:N0} bytes");
+            Console.WriteLine($"Entries: {entries.Count}");
+            Console.WriteLine("Detected folders: " + string.Join(", ", folders));
+            if (!verbose)
+            {
+                return;
+            }
+            Console.WriteLine();
+            Console.WriteLine("Patch contents:");
+            foreach (var entry in entries.Take(50))
+            {
+                Console.WriteLine("  " + entry);
+            }
+            if (entries.Count > 50)
+            {
+                Console.WriteLine($"  ... and {entries.Count - 50} more");
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            await Console.Error.WriteLineAsync("Failed to read patch file: " + ex.Message);
+            Environment.ExitCode = 1;
         }
     }
 }

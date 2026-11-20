@@ -160,7 +160,9 @@ internal static class BatchPatchService
                 var result = await PatchService.ApplyPatchAsync(options.OriginalPath, job.Inputs[0], job.Outputs[0], options.XdeltaFallback, cancellationToken: options.CancellationToken);
                 return result.Success ? Succeeded(job, timer.Elapsed.TotalSeconds) : Failed(job, result.Error, timer.Elapsed.TotalSeconds);
             }
-            PatchInputService.CopyDataFile(await ScriptPatchInputService.MaterializeDataAsync(options.OriginalPath, job.Inputs[0], temporaryDirectory), job.Outputs[0]);
+            var materialized = await ScriptPatchInputService.MaterializeDataAsync(options.OriginalPath, job.Inputs[0], temporaryDirectory);
+            options.CancellationToken.ThrowIfCancellationRequested();
+            PatchInputService.CopyDataFile(materialized, job.Outputs[0]);
             return Succeeded(job, timer.Elapsed.TotalSeconds);
         }
         catch (Exception exception) when (exception is not OperationCanceledException) { return Failed(job, exception.Message, timer.Elapsed.TotalSeconds); }
@@ -279,14 +281,11 @@ internal static class BatchPatchService
     private static string[] CopyOutputs(string[] source, string[] target)
     {
         if (source.Length != target.Length) throw new InvalidOperationException("Cannot duplicate batch result: source output count mismatch.");
-        var copied = new List<string>(source.Length);
-        for (var index = 0; index < source.Length; index++)
+        foreach (var (from, to) in source.Zip(target))
         {
-            var destination = target[index];
-            File.Copy(source[index], destination, false);
-            copied.Add(destination);
+            File.Copy(from, to, false);
         }
-        return [.. copied];
+        return [.. target];
     }
     private static void DeleteDirectory(string? path)
     {

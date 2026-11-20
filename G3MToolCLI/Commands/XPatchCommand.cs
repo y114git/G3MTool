@@ -18,8 +18,8 @@ public static class XPatchCommand
         createCommand.Add(outputArg);
         createCommand.SetAction(async parseResult =>
         {
-            var original = parseResult.GetValue(originalArg)!;
-            var modified = parseResult.GetValue(modifiedArg)!;
+            var original = parseResult.GetRequiredValue(originalArg);
+            var modified = parseResult.GetRequiredValue(modifiedArg);
             var output = parseResult.GetValue(outputArg);
             var outputPath = output?.FullName ?? Path.Combine(PlatformUtil.GetExecutableDirectory(), Path.ChangeExtension(Path.GetFileName(modified.FullName), ".xdelta"));
             if (!Program.JsonOutput)
@@ -40,8 +40,8 @@ public static class XPatchCommand
         applyCommand.Add(applyOutputArg);
         applyCommand.SetAction(async parseResult =>
         {
-            var original = parseResult.GetValue(applyOriginalArg)!;
-            var patch = parseResult.GetValue(patchArg)!;
+            var original = parseResult.GetRequiredValue(applyOriginalArg);
+            var patch = parseResult.GetRequiredValue(patchArg);
             var output = parseResult.GetValue(applyOutputArg);
             var outputPath = output?.FullName ?? Path.Combine(PlatformUtil.GetExecutableDirectory(), Path.GetFileNameWithoutExtension(original.FullName) + "_patched" + GetDataFileOutputExtension(original.FullName));
             if (!Program.JsonOutput)

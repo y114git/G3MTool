@@ -71,19 +71,19 @@ public sealed class GuiScriptGlobals : ScriptGlobals
 
     public override bool Verbose => true;
 
-    public override bool ScriptQuestion(string message) => Wait(RequireInteraction().Question(message))!;
+    public override bool ScriptQuestion(string message) => Wait(RequireInteraction().Question(message));
 
-    public override string ScriptInputDialog(string title, string label, string defaultInput, string cancelText, string submitText, bool isMultiline, bool preventClose) =>
-        Wait(RequireInteraction().Input(title, label, defaultInput, isMultiline))!;
+    public override string? ScriptInputDialog(string title, string label, string defaultInput, string cancelText, string submitText, bool isMultiline, bool preventClose) =>
+        WaitForText(RequireInteraction().Input(title, label, defaultInput, isMultiline));
 
-    public override string SimpleTextInput(string title, string label, string defaultValue, bool allowMultiline, bool showDialog = true) =>
-        showDialog ? Wait(RequireInteraction().Input(title, label, defaultValue, allowMultiline))! : defaultValue;
+    public override string? SimpleTextInput(string title, string label, string defaultValue, bool allowMultiline, bool showDialog = true) =>
+        showDialog ? WaitForText(RequireInteraction().Input(title, label, defaultValue, allowMultiline)) : defaultValue;
 
-    public override string PromptLoadFile(string defaultExt, string filter) => Wait(RequireInteraction().OpenFile(filter, string.Empty))!;
+    public override string? PromptLoadFile(string defaultExt, string filter) => WaitForText(RequireInteraction().OpenFile(filter, string.Empty));
 
-    public override string PromptSaveFile(string defaultExt, string filter) => Wait(RequireInteraction().SaveFile(filter, string.Empty))!;
+    public override string? PromptSaveFile(string defaultExt, string filter) => WaitForText(RequireInteraction().SaveFile(filter, string.Empty));
 
-    public override string PromptChooseDirectory() => Wait(RequireInteraction().ChooseDirectory())!;
+    public override string? PromptChooseDirectory() => WaitForText(RequireInteraction().ChooseDirectory());
 
     protected override void ReportProgress(string label, string status, int value, double maximum)
     {
@@ -93,6 +93,9 @@ public sealed class GuiScriptGlobals : ScriptGlobals
 
     // A script waiting for the user must still end when the operation is cancelled.
     private T Wait<T>(Task<T> task) => task.WaitAsync(CancellationToken).GetAwaiter().GetResult();
+
+    // A cancelled dialog or picker gives null, which scripts test for.
+    private string? WaitForText(Task<string?> task) => Wait(task);
 
     private ScriptInteraction RequireInteraction() => Interaction ?? throw new ScriptException("Interactive script input requires a window host.");
 }
