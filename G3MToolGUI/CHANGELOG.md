@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.0.6] - 2026-11-25
+
+### Changed
+
+- Updated to G3MLib 1.1.6.
+
+### Fixed
+
+- The diff view no longer lists hundreds of untouched sprites and textures as changed. Merging patches one after another keeps the audio of every new sound.
+
 ## [1.0.5] - 2026-11-20
 
 ### Fixed

@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.3.6] - 2026-11-25
+
+### Changed
+
+- Updated to G3MLib 1.1.6.
+
+### Fixed
+
+- `diff` no longer lists hundreds of untouched sprites and textures as changed, and a repacked texture atlas or moved audio slot is not a change. Merging patches one after another keeps the audio of every new sound.
+
 ## [1.3.5] - 2026-11-20
 
 ### Changed
