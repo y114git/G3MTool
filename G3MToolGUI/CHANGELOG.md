@@ -6,6 +6,10 @@
 
 - Updated to G3MLib 1.1.6.
 
+### Added
+
+- An **Open in G3MStudio** button appears next to the original and modified data file once the path points to an existing `.win`, `.ios`, `.droid` or `.unx` file. It opens the file in G3MStudio through the `g3mstudio://` link, and the log explains what to do when the link is not registered.
+
 ### Fixed
 
 - The diff view no longer lists hundreds of untouched sprites and textures as changed. Merging patches one after another keeps the audio of every new sound.

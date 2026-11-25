@@ -47,12 +47,18 @@
               <ComboBox Name="OperationPicker" Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2" SelectionChanged="OperationChanged" />
 
               <TextBlock Name="OriginalLabel" Grid.Row="1" Text="Original data" VerticalAlignment="Center" FontWeight="SemiBold" />
-              <TextBox Name="OriginalPathBox" Grid.Row="1" Grid.Column="1" PlaceholderText="Original data.win" />
-              <Button Name="OriginalBrowseButton" Grid.Row="1" Grid.Column="2" Click="BrowseOriginal">Browse</Button>
+              <TextBox Name="OriginalPathBox" Grid.Row="1" Grid.Column="1" PlaceholderText="Original data.win" TextChanged="PathChanged" />
+              <StackPanel Grid.Row="1" Grid.Column="2" Orientation="Horizontal" Spacing="4">
+                <Button Name="OriginalBrowseButton" Click="BrowseOriginal">Browse</Button>
+                <Button Name="OriginalStudioButton" IsVisible="False" Click="OpenOriginalInStudio" ToolTip.Tip="Open this data file in G3MStudio">Open in G3MStudio</Button>
+              </StackPanel>
 
               <TextBlock Name="PrimaryLabel" Grid.Row="2" Text="Modified input" VerticalAlignment="Center" FontWeight="SemiBold" />
-              <TextBox Name="PrimaryPathBox" Grid.Row="2" Grid.Column="1" PlaceholderText="Modified data.win or patch input" />
-              <Button Name="PrimaryBrowseButton" Grid.Row="2" Grid.Column="2" Click="BrowsePrimary">Browse</Button>
+              <TextBox Name="PrimaryPathBox" Grid.Row="2" Grid.Column="1" PlaceholderText="Modified data.win or patch input" TextChanged="PathChanged" />
+              <StackPanel Grid.Row="2" Grid.Column="2" Orientation="Horizontal" Spacing="4">
+                <Button Name="PrimaryBrowseButton" Click="BrowsePrimary">Browse</Button>
+                <Button Name="PrimaryStudioButton" IsVisible="False" Click="OpenPrimaryInStudio" ToolTip.Tip="Open this data file in G3MStudio">Open in G3MStudio</Button>
+              </StackPanel>
 
               <TextBlock Name="AdditionalLabel" Grid.Row="3" Text="Additional inputs" VerticalAlignment="Top" FontWeight="SemiBold" />
               <TextBox Name="AdditionalPathsBox" Grid.Row="3" Grid.Column="1" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="64" PlaceholderText="One file per line; lower priority first" />

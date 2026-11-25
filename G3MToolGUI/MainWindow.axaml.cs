@@ -97,6 +97,7 @@ public sealed partial class MainWindow : Window, IDisposable
         InputOptionsPanel.IsVisible = supportsBatch || view.SupportsXDeltaFallback || view.SupportsXDeltaOutput || view.SupportsContinueOnError;
         MergeOptionsPanel.IsVisible = view.SupportsMergeOptions || view.SupportsSequentialMerge || view.SupportsReport;
         OptionsLabel.IsVisible = InputOptionsPanel.IsVisible || MergeOptionsPanel.IsVisible;
+        UpdateStudioButtons();
         OperationCard.Opacity = 0.86;
         Dispatcher.UIThread.Post(() =>
         {
@@ -212,12 +213,31 @@ public sealed partial class MainWindow : Window, IDisposable
         ContinueOnErrorCheck.IsChecked = false;
     }
 
-    private void OpenBoosty(object? sender, RoutedEventArgs e) => OpenSocialLink("https://boosty.to/y114");
-    private void OpenTelegram(object? sender, RoutedEventArgs e) => OpenSocialLink("https://t.me/y_maintg");
-    private void OpenDiscord(object? sender, RoutedEventArgs e) => OpenSocialLink("https://discord.gg/2MFdvFfD9a");
-    private void OpenWebsite(object? sender, RoutedEventArgs e) => OpenSocialLink("https://y114.space");
+    private void OpenBoosty(object? sender, RoutedEventArgs e) => OpenLink("https://boosty.to/y114");
+    private void OpenTelegram(object? sender, RoutedEventArgs e) => OpenLink("https://t.me/y_maintg");
+    private void OpenDiscord(object? sender, RoutedEventArgs e) => OpenLink("https://discord.gg/2MFdvFfD9a");
+    private void OpenWebsite(object? sender, RoutedEventArgs e) => OpenLink("https://y114.space");
 
-    private void OpenSocialLink(string url)
+    private void PathChanged(object? sender, TextChangedEventArgs e) => UpdateStudioButtons();
+    private void OpenOriginalInStudio(object? sender, RoutedEventArgs e) => OpenInStudio(OriginalPathBox.Text);
+    private void OpenPrimaryInStudio(object? sender, RoutedEventArgs e) => OpenInStudio(PrimaryPathBox.Text);
+
+    private void UpdateStudioButtons()
+    {
+        var view = SelectedView;
+        OriginalStudioButton.IsVisible = view.HasOriginal && StudioLink.IsDataFile(OriginalPathBox.Text);
+        PrimaryStudioButton.IsVisible = view.HasPrimary && StudioLink.IsDataFile(PrimaryPathBox.Text);
+    }
+
+    private void OpenInStudio(string? path)
+    {
+        if (StudioLink.IsDataFile(path))
+        {
+            OpenLink(StudioLink.ForFile(path!), $"Start G3MStudio once so it registers the g3mstudio:// link, or download it from {StudioLink.DownloadUrl}");
+        }
+    }
+
+    private void OpenLink(string url, string? hint = null)
     {
         try
         {
@@ -225,7 +245,7 @@ public sealed partial class MainWindow : Window, IDisposable
         }
         catch (Exception exception)
         {
-            AddLog(new ModdingLogMessage { Level = ModdingLogLevel.Error, Message = "Could not open link: " + exception.Message });
+            AddLog(new ModdingLogMessage { Level = ModdingLogLevel.Error, Message = "Could not open link: " + exception.Message + (hint is null ? string.Empty : ". " + hint) });
         }
     }
 
