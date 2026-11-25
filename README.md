@@ -8,10 +8,32 @@
   <img src="https://img.shields.io/badge/CLI-1.3.7-3F8F3F?style=for-the-badge" alt="G3MTool CLI 1.3.7">
   <img src="https://img.shields.io/badge/GUI-1.0.7-3F8F3F?style=for-the-badge" alt="G3MTool GUI 1.0.7">
   <img src="https://img.shields.io/badge/.NET-10.0-512BD4?style=for-the-badge&logo=dotnet&logoColor=white" alt=".NET 10">
+  <img src="https://img.shields.io/badge/Avalonia-12-8B44AC?style=for-the-badge" alt="Avalonia 12">
   <a href="https://github.com/y114git/G3MTool/releases"><img src="https://img.shields.io/github/downloads/y114git/G3MTool/total?style=for-the-badge" alt="Total downloads"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/y114git/G3MTool?style=for-the-badge" alt="License"></a>
+  <img src="https://img.shields.io/badge/Desktop-Windows%20%7C%20macOS%20%7C%20Linux-4B5563?style=for-the-badge" alt="Desktop platforms">
 </p>
 
 <h1 align="center">G3MTool</h1>
+<p align="center">
+  Command-line and graphical tool for patching, merging and inspecting GameMaker data files.
+</p>
+
+<p align="center">
+  <a href="https://github.com/y114git/G3MTool/releases/latest">Download</a>
+  ·
+  <a href="https://g3m.gitbook.io/g3m-wiki/g3mtool">Wiki</a>
+  ·
+  <a href="https://github.com/y114git/G3MTool/issues">Issues</a>
+  ·
+  <a href="G3MToolCLI/CHANGELOG.md">CLI changelog</a>
+  ·
+  <a href="G3MToolGUI/CHANGELOG.md">GUI changelog</a>
+  ·
+  <a href="https://discord.gg/2MFdvFfD9a">Discord</a>
+  ·
+  <a href="https://t.me/y_maintg">Telegram</a>
+</p>
 
 G3MTool provides command-line and graphical front ends for G3MLib. Both work with GameMaker data files and support `.g3mpatch` and XDelta workflows.
 
@@ -21,6 +43,14 @@ G3MTool provides command-line and graphical front ends for G3MLib. Both work wit
 Release archives contain one self-contained executable plus the required license notices. Choose the archive matching both the application and your operating system/architecture.
 
 Supported data-file extensions are `.win`, `.ios`, `.droid`, and `.unx`.
+
+## A Closer Look
+
+<p align="center">
+  <img src="screenshots/merge-patches.png" alt="Merging three patches in the G3MTool GUI" width="900">
+  <br>
+  <em>Merging three patches in priority order, with live progress and a colour-coded activity log.</em>
+</p>
 
 ## GUI
 
