@@ -2,6 +2,10 @@
 
 ## [1.0.7] - 2026-11-25
 
+### Added
+
+- File dialogs open in the folder you used last, also after a restart.
+
 ### Changed
 
 - Updated to G3MLib 1.1.7.

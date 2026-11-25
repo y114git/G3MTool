@@ -9,8 +9,20 @@ using G3MToolGUI.Services;
 
 namespace G3MToolGUI.Tests;
 
-public sealed class MainWindowTests
+[Collection("LastFolder")]
+public sealed class MainWindowTests : IDisposable
 {
+    private readonly string _original = LastFolder.FilePath;
+    private readonly string _folderFile = Path.Combine(Path.GetTempPath(), "g3mtool-window-" + Guid.NewGuid().ToString("N") + ".txt");
+
+    public MainWindowTests() => LastFolder.FilePath = _folderFile;
+
+    public void Dispose()
+    {
+        LastFolder.FilePath = _original;
+        File.Delete(_folderFile);
+    }
+
     public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<App>().UseHeadless(new AvaloniaHeadlessPlatformOptions());
 
     [Fact]
@@ -57,11 +69,13 @@ public sealed class MainWindowTests
                 var paths = new[] { Path.GetFullPath("low.g3mpatch"), Path.GetFullPath("high.g3mpatch") };
                 var files = paths.Select(path => Mock<IStorageFile>((method, _) => method == "get_Path" ? new Uri(path) : throw new NotSupportedException(method))).ToArray();
                 FilePickerSaveOptions? saveOptions = null;
+                var startFolder = Mock<IStorageFolder>((method, _) => throw new NotSupportedException(method));
                 var cancelSave = false;
                 var storage = Mock<IStorageProvider>((method, args) => method switch
                 {
                     "OpenFilePickerAsync" => Task.FromResult<IReadOnlyList<IStorageFile>>(files),
                     "SaveFilePickerAsync" => Save((FilePickerSaveOptions)args![0]!),
+                    "TryGetFolderFromPathAsync" => Task.FromResult<IStorageFolder?>(startFolder),
                     _ => throw new NotSupportedException(method)
                 });
                 Task<IStorageFile?> Save(FilePickerSaveOptions options)
@@ -81,6 +95,7 @@ public sealed class MainWindowTests
                 Click("PrimaryBrowseButton");
                 Assert.NotNull(saveOptions);
                 Assert.Equal("merged.unx", saveOptions.SuggestedFileName);
+                Assert.Same(startFolder, saveOptions.SuggestedStartLocation); // the folder of the earlier pick
                 Assert.Equal(paths[0], Control<TextBox>("PrimaryPathBox").Text);
                 cancelSave = true;
                 Click("PrimaryBrowseButton");

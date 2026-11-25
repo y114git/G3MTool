@@ -130,6 +130,7 @@ public sealed partial class MainWindow
             var directory = Directory.Exists(suggestedPath) ? suggestedPath : Path.GetDirectoryName(Path.GetFullPath(suggestedPath));
             if (directory is not null) folder = await StorageProvider.TryGetFolderFromPathAsync(directory);
         }
+        folder ??= await StartFolderAsync();
         if (save)
         {
             var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
@@ -139,7 +140,7 @@ public sealed partial class MainWindow
                 SuggestedStartLocation = folder,
                 FileTypeChoices = types
             });
-            return file?.TryGetLocalPath();
+            return Remembered(file?.TryGetLocalPath());
         }
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
@@ -148,7 +149,16 @@ public sealed partial class MainWindow
             SuggestedStartLocation = folder,
             FileTypeFilter = types
         });
-        return files is [{ } first, ..] ? first.TryGetLocalPath() : null;
+        return files is [{ } first, ..] ? Remembered(first.TryGetLocalPath()) : null;
+    }
+
+    // The folder of the last pick is where the next dialog starts, also after a restart.
+    private async Task<IStorageFolder?> StartFolderAsync() => LastFolder.Get() is { } folder ? await StorageProvider.TryGetFolderFromPathAsync(folder) : null;
+
+    private static string? Remembered(string? path)
+    {
+        LastFolder.Remember(path);
+        return path;
     }
 
     private async Task<string?> PickFileAsync(string title)
@@ -163,20 +173,23 @@ public sealed partial class MainWindow
         {
             Title = title,
             AllowMultiple = allowMultiple,
-            FileTypeFilter = [FilePickerFileTypes.All]
+            FileTypeFilter = [FilePickerFileTypes.All],
+            SuggestedStartLocation = await StartFolderAsync()
         });
-        return [.. files.Select(file => file.TryGetLocalPath()).OfType<string>()];
+        var paths = files.Select(file => file.TryGetLocalPath()).OfType<string>().ToList();
+        if (paths.Count > 0) LastFolder.Remember(paths[0]);
+        return paths;
     }
 
     private async Task<string?> PickFolderAsync(string title)
     {
-        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = title, AllowMultiple = false });
-        return folders is [{ } first, ..] ? first.TryGetLocalPath() : null;
+        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = title, AllowMultiple = false, SuggestedStartLocation = await StartFolderAsync() });
+        return folders is [{ } first, ..] ? Remembered(first.TryGetLocalPath()) : null;
     }
 
     private async Task<string?> SavePathAsync(string title, string suggestedFileName)
     {
-        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions { Title = title, SuggestedFileName = suggestedFileName });
-        return file?.TryGetLocalPath();
+        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions { Title = title, SuggestedFileName = suggestedFileName, SuggestedStartLocation = await StartFolderAsync() });
+        return Remembered(file?.TryGetLocalPath());
     }
 }
