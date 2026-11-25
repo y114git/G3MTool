@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.0.7] - 2026-11-25
+
+### Changed
+
+- Updated to G3MLib 1.1.7.
+
+### Fixed
+
+- Merging patches keeps another patch's edit when one patch deletes an object, and sounds in external audio groups keep their audio number.
+
 ## [1.0.6] - 2026-11-25
 
 ### Changed
