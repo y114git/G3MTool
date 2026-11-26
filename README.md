@@ -46,11 +46,16 @@ Supported data-file extensions are `.win`, `.ios`, `.droid`, and `.unx`.
 
 ## A Closer Look
 
+<details open>
+<summary><strong>Show or hide the screenshots</strong></summary>
+
 <p align="center">
   <img src="screenshots/merge-patches.png" alt="Merging three patches in the G3MTool GUI" width="900">
   <br>
   <em>Merging three patches in priority order, with live progress and a colour-coded activity log.</em>
 </p>
+
+</details>
 
 ## GUI
 
